@@ -1,0 +1,43 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Isometric Cube Top Face: Champagne Gold -->
+    <path
+        android:fillColor="#F3E5AB"
+        android:pathData="M54,26 L78,39 L54,52 L30,39 Z" />
+    <!-- Isometric Cube Left Face: Deep Gold -->
+    <path
+        android:fillColor="#B8860B"
+        android:pathData="M30,39 L54,52 L54,80 L30,67 Z" />
+    <!-- Isometric Cube Right Face: Radiant Gold -->
+    <path
+        android:fillColor="#D4AF37"
+        android:pathData="M54,52 L78,39 L78,67 L54,80 Z" />
+    <!-- Grid Circuit Lines on Left Face -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeAlpha="0.3"
+        android:strokeWidth="1.2"
+        android:pathData="M38,48 L38,68 M46,50 L46,74" />
+    <!-- Grid Circuit Lines on Right Face -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeAlpha="0.3"
+        android:strokeWidth="1.2"
+        android:pathData="M62,50 L62,74 M70,48 L70,68" />
+    <!-- Mint Nodes on Top Face -->
+    <path
+        android:fillColor="#00FFA3"
+        android:pathData="M54,39m-3,0a3,3 0,1,1 6,0a3,3 0,1,1 -6,0" />
+    <path
+        android:fillColor="#00FFA3"
+        android:pathData="M42,34m-2,0a2,2 0,1,1 4,0a2,2 0,1,1 -4,0" />
+    <path
+        android:fillColor="#00FFA3"
+        android:pathData="M66,34m-2,0a2,2 0,1,1 4,0a2,2 0,1,1 -4,0" />
+    <path
+        android:fillColor="#00FFA3"
+        android:pathData="M54,64m-2.5,0a2.5,2.5 0,1,1 5,0a2.5,2.5 0,1,1 -5,0" />
+</vector>

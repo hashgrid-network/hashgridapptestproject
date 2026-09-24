@@ -1,0 +1,6 @@
+{
+  "name": "HashGrid",
+  "description": "Institutional Cloud Mining platform powered by verified Arctic Geothermal infrastructure.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
