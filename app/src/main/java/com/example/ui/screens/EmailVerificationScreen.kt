@@ -1,8 +1,11 @@
 package com.example.ui.screens
 
+import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -24,6 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.MarkEmailRead
 import androidx.compose.material.icons.filled.Refresh
@@ -61,6 +65,7 @@ import com.example.service.AuthService
 import com.example.service.FirebaseSyncService
 import com.example.ui.theme.CanvasBackground
 import com.example.ui.theme.CardWhite
+import com.example.ui.theme.GoldBorder
 import com.example.ui.theme.GoldBorderSubtle
 import com.example.ui.theme.GoldGradientEnd
 import com.example.ui.theme.GoldGradientMid
@@ -75,7 +80,6 @@ import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 
 @Composable
 fun EmailVerificationScreen(
@@ -125,14 +129,14 @@ fun EmailVerificationScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp, vertical = 24.dp),
+                .padding(horizontal = 22.dp, vertical = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
             // BRAND & SECURITY BADGE
             Box(
                 modifier = Modifier
-                    .size(80.dp)
+                    .size(76.dp)
                     .clip(CircleShape)
                     .background(ObsidianNavy)
                     .border(2.dp, GoldGradientMid, CircleShape),
@@ -142,14 +146,14 @@ fun EmailVerificationScreen(
                     imageVector = Icons.Default.Shield,
                     contentDescription = "Security Shield",
                     tint = GoldGradientMid,
-                    modifier = Modifier.size(44.dp)
+                    modifier = Modifier.size(42.dp)
                 )
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
             Text(
-                text = "SECURITY BARRIER",
+                text = "SECURITY ACTIVATION",
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 2.sp,
@@ -167,10 +171,10 @@ fun EmailVerificationScreen(
                 textAlign = TextAlign.Center
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
             Text(
-                text = "A mandatory activation link has been dispatched to:",
+                text = "We have sent a verification link to:",
                 fontSize = 12.sp,
                 color = SlateGray,
                 textAlign = TextAlign.Center
@@ -187,7 +191,7 @@ fun EmailVerificationScreen(
                 textAlign = TextAlign.Center
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
             // ==========================================
             // MAIN VERIFICATION ACTION CARD
@@ -204,12 +208,12 @@ fun EmailVerificationScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(22.dp),
+                        .padding(20.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(56.dp)
+                            .size(52.dp)
                             .clip(CircleShape)
                             .background(MintGreen.copy(alpha = 0.15f))
                             .border(1.2.dp, MintDark, CircleShape),
@@ -219,14 +223,14 @@ fun EmailVerificationScreen(
                             imageVector = Icons.Default.MarkEmailRead,
                             contentDescription = null,
                             tint = MintDark,
-                            modifier = Modifier.size(28.dp)
+                            modifier = Modifier.size(26.dp)
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
                     Text(
-                        text = "ACTIVATION INSTRUCTIONS",
+                        text = "ACTIVATION GUIDE",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 1.sp,
@@ -241,19 +245,19 @@ fun EmailVerificationScreen(
                             .clip(RoundedCornerShape(12.dp))
                             .background(Color(0xFFF9F7F3))
                             .border(0.8.dp, GoldBorderSubtle, RoundedCornerShape(12.dp))
-                            .padding(14.dp)
+                            .padding(12.dp)
                     ) {
                         Column {
                             Row(verticalAlignment = Alignment.Top) {
                                 Text("1.", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = GoldGradientEnd)
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Open your Gmail / Email app.", fontSize = 12.sp, color = ObsidianNavy)
+                                Text("Open your Gmail app or inbox using the button below.", fontSize = 12.sp, color = ObsidianNavy)
                             }
                             Spacer(modifier = Modifier.height(6.dp))
                             Row(verticalAlignment = Alignment.Top) {
                                 Text("2.", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = GoldGradientEnd)
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Tap the verification link sent by Firebase Auth.", fontSize = 12.sp, color = ObsidianNavy)
+                                Text("Tap the confirmation link in the verification email.", fontSize = 12.sp, color = ObsidianNavy)
                             }
                             Spacer(modifier = Modifier.height(6.dp))
                             Row(verticalAlignment = Alignment.Top) {
@@ -275,9 +279,55 @@ fun EmailVerificationScreen(
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(20.dp))
+                    Spacer(modifier = Modifier.height(18.dp))
 
-                    // BUTTON 1: "I HAVE VERIFIED (CHECK STATUS)"
+                    // BUTTON 1: "OPEN GMAIL APP" (Primary Accent Button)
+                    Button(
+                        onClick = {
+                            try {
+                                val intent = Intent(Intent.ACTION_MAIN).apply {
+                                    addCategory(Intent.CATEGORY_APP_EMAIL)
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                context.startActivity(intent)
+                            } catch (_: Exception) {
+                                try {
+                                    val mailIntent = Intent(Intent.ACTION_VIEW, Uri.parse("mailto:"))
+                                    mailIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    context.startActivity(mailIntent)
+                                } catch (_: Exception) {
+                                    Toast.makeText(context, "No email app found on device.", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .testTag("btn_open_gmail_app"),
+                        colors = ButtonDefaults.buttonColors(containerColor = GoldGradientEnd)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Email,
+                                contentDescription = null,
+                                tint = ObsidianNavy,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "OPEN GMAIL APP",
+                                fontWeight = FontWeight.Black,
+                                fontSize = 12.sp,
+                                letterSpacing = 0.8.sp,
+                                color = ObsidianNavy
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // BUTTON 2: "I HAVE VERIFIED (UNLOCK DASHBOARD)"
                     Button(
                         onClick = {
                             isCheckingStatus = true
@@ -319,7 +369,7 @@ fun EmailVerificationScreen(
                                             )
                                             onVerificationSuccess(verifiedUser)
                                         } else {
-                                            val msg = "Email not verified yet. Please click the link in your Gmail."
+                                            val msg = "Email not verified yet. Please tap the confirmation link in your Gmail inbox."
                                             statusMessage = msg
                                             Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                                         }
@@ -340,7 +390,7 @@ fun EmailVerificationScreen(
                             .fillMaxWidth()
                             .height(48.dp)
                             .clip(RoundedCornerShape(14.dp))
-                            .testTag("btn_check_email_verification"),
+                            .testTag("btn_unlock_dashboard_verification"),
                         colors = ButtonDefaults.buttonColors(containerColor = SlateNavy)
                     ) {
                         if (isCheckingStatus) {
@@ -350,19 +400,19 @@ fun EmailVerificationScreen(
                                 Icon(imageVector = Icons.Default.CheckCircle, contentDescription = null, tint = MintGreen, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "I HAVE VERIFIED (CHECK STATUS)",
+                                    text = "I HAVE VERIFIED (UNLOCK DASHBOARD)",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 12.sp,
-                                    letterSpacing = 0.6.sp,
+                                    letterSpacing = 0.5.sp,
                                     color = Color.White
                                 )
                             }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
-                    // BUTTON 2: "RESEND VERIFICATION EMAIL" (With 60s cooldown)
+                    // BUTTON 3: "RESEND EMAIL" (With 60s cooldown)
                     OutlinedButton(
                         onClick = {
                             if (!canResend) return@OutlinedButton
@@ -391,11 +441,11 @@ fun EmailVerificationScreen(
                         enabled = canResend && !isCheckingStatus && !isResendingEmail,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(48.dp)
+                            .height(46.dp)
                             .clip(RoundedCornerShape(14.dp))
                             .testTag("btn_resend_verification_email"),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = ObsidianNavy),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, if (canResend) GoldGradientEnd else Color.LightGray)
+                        border = BorderStroke(1.dp, if (canResend) GoldGradientEnd else Color.LightGray)
                     ) {
                         if (isResendingEmail) {
                             CircularProgressIndicator(color = GoldGradientEnd, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
@@ -404,7 +454,7 @@ fun EmailVerificationScreen(
                                 Icon(imageVector = Icons.Default.Refresh, contentDescription = null, tint = if (canResend) GoldGradientEnd else Color.Gray, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = if (canResend) "RESEND VERIFICATION EMAIL" else "RESEND IN ${cooldownSeconds}s",
+                                    text = if (canResend) "RESEND EMAIL" else "RESEND IN ${cooldownSeconds}s",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 11.sp,
                                     color = if (canResend) ObsidianNavy else SlateGray
@@ -415,7 +465,7 @@ fun EmailVerificationScreen(
 
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    // BUTTON 3: "SIGN OUT / CHANGE ACCOUNT"
+                    // BUTTON 4: "SIGN OUT / USE DIFFERENT ACCOUNT"
                     Row(
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
@@ -432,7 +482,7 @@ fun EmailVerificationScreen(
                         Icon(imageVector = Icons.Default.Logout, contentDescription = null, tint = SlateGray, modifier = Modifier.size(14.dp))
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Sign Out / Use Different Account",
+                            text = "SIGN OUT / USE DIFFERENT ACCOUNT",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = SlateGray
@@ -441,7 +491,7 @@ fun EmailVerificationScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
             // FOOTER SECURITY LABEL
             Row(
