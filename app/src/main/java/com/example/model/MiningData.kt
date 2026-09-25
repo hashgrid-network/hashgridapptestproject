@@ -25,6 +25,7 @@ enum class BountyStatus {
 enum class BountyType {
     WHATSAPP,
     TELEGRAM,
+    YOUTUBE,
     TWITTER,
     CUSTOM
 }
@@ -58,7 +59,11 @@ data class User(
     val referralCode: String = "",
     val displayName: String = "Institutional Miner",
     val photoUrl: String? = null,
-    val isFlaggedDuplicate: Boolean = false
+    val isFlaggedDuplicate: Boolean = false,
+    val kycStatus: String = "UNVERIFIED",
+    val twoFactorEnabled: Boolean = false,
+    val usdtBalance: Double = 0.0,
+    val btcBalance: Double = 0.0
 )
 
 data class MiningPlan(
@@ -132,6 +137,23 @@ data class CreatorMilestoneSubmission(
     val contactTelegram: String,
     val submittedAt: String,
     val status: MilestoneStatus = MilestoneStatus.PENDING_EXECUTIVE_AUDIT
+)
+
+data class AdminBountyClaim(
+    val id: String,
+    val userId: String,
+    val userEmail: String,
+    val taskType: BountyType,
+    val taskTitle: String,
+    val rewardUsdt: Double,
+    val submissionProof: String,
+    val youtubeVideoUrl: String? = null,
+    val youtubeChannelName: String? = null,
+    val whatsappViews: String? = null,
+    val telegramHandle: String? = null,
+    val status: BountyStatus = BountyStatus.PENDING_ADMIN_REVIEW,
+    val timestamp: String = "",
+    val rejectionReason: String? = null
 )
 
 data class ChatMessage(

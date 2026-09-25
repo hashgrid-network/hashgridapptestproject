@@ -73,12 +73,16 @@ fun AccountScreen(
     userId: String,
     userEmail: String,
     displayName: String = "Institutional Miner",
+    kycStatus: String = "UNVERIFIED",
     twoFactorEnabled: Boolean,
     selectedLanguage: String,
     onToggle2FA: () -> Unit,
+    onOpenKycModal: () -> Unit = {},
     onOpenLanguageModal: () -> Unit,
     onOpenAuditDossier: () -> Unit,
+    onOpenAuditDossierWithTab: (Int) -> Unit = {},
     onOpenAiSupport: () -> Unit,
+    onOpenAdminDashboard: () -> Unit = {},
     onCheckForUpdates: () -> Unit = {},
     onLogout: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -147,7 +151,7 @@ fun AccountScreen(
                             Icon(
                                 imageVector = Icons.Default.Verified,
                                 contentDescription = "Verified",
-                                tint = MintDark,
+                                tint = if (kycStatus.equals("VERIFIED", ignoreCase = true)) MintDark else GoldGradientEnd,
                                 modifier = Modifier.size(16.dp)
                             )
                         }
@@ -156,7 +160,7 @@ fun AccountScreen(
                             fontSize = 11.sp,
                             color = SlateGray
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             Box(
                                 modifier = Modifier
@@ -172,17 +176,26 @@ fun AccountScreen(
                                     fontFamily = FontFamily.Monospace
                                 )
                             }
+
+                            // Dynamic KYC Badge
+                            val (badgeText, badgeBg, badgeTextColor) = when (kycStatus.uppercase()) {
+                                "VERIFIED" -> Triple("KYC: TIER-2 VERIFIED", MintGreen.copy(alpha = 0.2f), MintDark)
+                                "PENDING REVIEW" -> Triple("KYC: PENDING REVIEW", Color(0xFFFEF3C7), Color(0xFFB45309))
+                                else -> Triple("KYC: UNVERIFIED", Color(0xFFF3F4F6), SlateGray)
+                            }
+
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(4.dp))
-                                    .background(MintGreen.copy(alpha = 0.2f))
+                                    .background(badgeBg)
+                                    .clickable { onOpenKycModal() }
                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
                                 Text(
-                                    text = "KYC TIER-2 CORPORATE",
+                                    text = badgeText,
                                     fontSize = 9.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = MintDark
+                                    color = badgeTextColor
                                 )
                             }
                         }
@@ -277,21 +290,21 @@ fun AccountScreen(
                     title = "45 MW Geothermal PPA Contract",
                     subtitle = "Landsvirkjun Grid Interconnect • $0.034/kWh Locked",
                     icon = Icons.Default.ElectricBolt,
-                    onClick = onOpenAuditDossier
+                    onClick = { onOpenAuditDossierWithTab(0) }
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 VaultDocRow(
                     title = "Tier-III Colocation SLA Manifest",
                     subtitle = "PUE 1.05 Sub-Zero Hydro Immersion Cooling",
                     icon = Icons.Default.Security,
-                    onClick = onOpenAuditDossier
+                    onClick = { onOpenAuditDossierWithTab(1) }
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 VaultDocRow(
                     title = "Fleet Deployment Ledger",
                     subtitle = "8,200+ Antminer S21 Hydro Units Verified",
                     icon = Icons.Default.Memory,
-                    onClick = onOpenAuditDossier
+                    onClick = { onOpenAuditDossierWithTab(2) }
                 )
             }
         }
@@ -446,10 +459,86 @@ fun AccountScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
+        // ==========================================
+        // 5. ADMIN VERIFICATION DASHBOARD (/admin)
+        // ==========================================
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .border(1.dp, GoldBorder, RoundedCornerShape(18.dp))
+                .clickable { onOpenAdminDashboard() }
+                .testTag("admin_verification_card"),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFFBF8F2))
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(14.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(ObsidianNavy)
+                            .border(1.dp, GoldGradientMid, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Security,
+                            contentDescription = null,
+                            tint = GoldGradientMid,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "Admin Verification Dashboard",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Black,
+                                color = ObsidianNavy
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(GoldLight)
+                                    .padding(horizontal = 5.dp, vertical = 1.dp)
+                            ) {
+                                Text(
+                                    text = "/admin",
+                                    fontSize = 8.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = GoldGradientEnd
+                                )
+                            }
+                        }
+                        Text(
+                            text = "Audit YouTube ($5) & WhatsApp ($0.20) submissions",
+                            fontSize = 10.sp,
+                            color = SlateGray
+                        )
+                    }
+                }
+
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                    contentDescription = null,
+                    tint = GoldGradientEnd,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
 
         // ==========================================
-        // 5. APP VERSION & CLOUD SYNC TELEMETRY
+        // 6. APP VERSION & CLOUD SYNC TELEMETRY
         // ==========================================
         Box(
             modifier = Modifier

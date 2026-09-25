@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">HashGrid</string>
+    <string name="default_web_client_id">67298041154-mock-client-id.apps.googleusercontent.com</string>
 </resources>

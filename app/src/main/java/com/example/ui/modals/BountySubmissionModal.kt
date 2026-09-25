@@ -21,6 +21,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.PlayCircleOutline
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -50,8 +52,9 @@ import com.example.model.BountyType
 import com.example.ui.theme.CardWhite
 import com.example.ui.theme.CrimsonRed
 import com.example.ui.theme.GoldBorder
+import com.example.ui.theme.GoldBorderSubtle
 import com.example.ui.theme.GoldGradientEnd
-import com.example.ui.theme.GoldGradientMid
+import com.example.ui.theme.GoldLight
 import com.example.ui.theme.MintDark
 import com.example.ui.theme.MintGreen
 import com.example.ui.theme.ObsidianNavy
@@ -66,7 +69,8 @@ fun BountySubmissionModal(
     referralCode: String,
     onDismiss: () -> Unit,
     onSubmitWhatsApp: (String, String) -> String?,
-    onSubmitTelegram: (String) -> String?
+    onSubmitTelegram: (String) -> String?,
+    onSubmitYouTube: (String, String) -> String?
 ) {
     val context = LocalContext.current
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -78,6 +82,10 @@ fun BountySubmissionModal(
 
     // Telegram state
     var telegramUsername by remember { mutableStateOf("") }
+
+    // YouTube state
+    var youtubeVideoUrl by remember { mutableStateOf("") }
+    var youtubeChannelName by remember { mutableStateOf("") }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -132,7 +140,7 @@ fun BountySubmissionModal(
                 Spacer(modifier = Modifier.height(14.dp))
 
                 // ==========================================
-                // WHATSAPP STATUS TASK ($0.20 USDT)
+                // 1. WHATSAPP STATUS TASK ($0.20 USDT)
                 // ==========================================
                 if (task.type == BountyType.WHATSAPP) {
                     Box(
@@ -152,7 +160,7 @@ fun BountySubmissionModal(
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "Broadcast Arctic PPA proof with your referral link on WhatsApp Status. Attach a screenshot showing contact views count and timestamp.",
+                                text = "Broadcast Arctic Geothermal PPA proof with your referral link ($referralCode) on WhatsApp Status for 24 hours. Attach a screenshot showing contact views count and timestamp.",
                                 fontSize = 10.sp,
                                 color = SlateGray,
                                 lineHeight = 14.sp
@@ -178,7 +186,7 @@ fun BountySubmissionModal(
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    // Mock Screenshot Attachment Box
+                    // Screenshot Attachment Box
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -255,7 +263,7 @@ fun BountySubmissionModal(
                 }
 
                 // ==========================================
-                // TELEGRAM TASK ($0.20 USDT)
+                // 2. TELEGRAM TASK ($0.20 USDT)
                 // ==========================================
                 if (task.type == BountyType.TELEGRAM) {
                     Box(
@@ -267,7 +275,7 @@ fun BountySubmissionModal(
                             .padding(12.dp)
                     ) {
                         Text(
-                            text = "Enter your active Telegram handle to verify membership in @HashGridOfficial Arctic Node community.",
+                            text = "Enter your active Telegram handle to verify membership in @HashGridOfficial Arctic Node syndicate community.",
                             fontSize = 10.sp,
                             color = SlateGray,
                             lineHeight = 14.sp
@@ -324,6 +332,117 @@ fun BountySubmissionModal(
                             fontWeight = FontWeight.Bold,
                             color = Color.White
                         )
+                    }
+                }
+
+                // ==========================================
+                // 3. NEW YOUTUBE CREATOR BOUNTY ($5.00 USDT)
+                // ==========================================
+                if (task.type == BountyType.YOUTUBE) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xFFFFFBEB))
+                            .border(1.dp, Color(0xFFFDE68A), RoundedCornerShape(12.dp))
+                            .padding(12.dp)
+                    ) {
+                        Column {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Warning,
+                                    contentDescription = null,
+                                    tint = Color(0xFFB45309),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "MANDATORY YOUTUBE SUBMISSION RULE",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = Color(0xFF92400E)
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Mandatory: Your HashGrid User ID ($userId) and referral link MUST be written in the YouTube video description. The video must be Public and at least 2 minutes long. Videos without your User ID in the description will be permanently rejected.",
+                                fontSize = 10.sp,
+                                color = Color(0xFF78350F),
+                                lineHeight = 14.sp
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    OutlinedTextField(
+                        value = youtubeChannelName,
+                        onValueChange = { youtubeChannelName = it; errorMessage = null },
+                        label = { Text("YouTube Channel Name", fontSize = 11.sp) },
+                        placeholder = { Text("e.g. Crypto Miner Daily", fontSize = 10.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = GoldGradientEnd,
+                            unfocusedBorderColor = GoldBorder
+                        ),
+                        singleLine = true
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    OutlinedTextField(
+                        value = youtubeVideoUrl,
+                        onValueChange = { youtubeVideoUrl = it; errorMessage = null },
+                        label = { Text("YouTube Video URL (Public)", fontSize = 11.sp) },
+                        placeholder = { Text("https://www.youtube.com/watch?v=...", fontSize = 10.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = GoldGradientEnd,
+                            unfocusedBorderColor = GoldBorder
+                        ),
+                        singleLine = true
+                    )
+
+                    if (errorMessage != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = errorMessage ?: "",
+                            fontSize = 11.sp,
+                            color = CrimsonRed,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Button(
+                        onClick = {
+                            val err = onSubmitYouTube(youtubeVideoUrl, youtubeChannelName)
+                            if (err != null) {
+                                errorMessage = err
+                            } else {
+                                Toast.makeText(context, "YouTube video submitted for Admin Review ($5.00 USDT)!", Toast.LENGTH_LONG).show()
+                                onDismiss()
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .clip(RoundedCornerShape(14.dp)),
+                        colors = ButtonDefaults.buttonColors(containerColor = SlateNavy)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.PlayCircleOutline, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "SUBMIT YOUTUBE VIDEO ($5.00 USDT)",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
                     }
                 }
             }

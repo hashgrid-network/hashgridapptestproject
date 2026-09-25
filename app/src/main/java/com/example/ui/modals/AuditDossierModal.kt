@@ -58,9 +58,10 @@ import com.example.ui.theme.SlateNavy
 
 @Composable
 fun AuditDossierModal(
+    initialTabIndex: Int = 0,
     onDismiss: () -> Unit
 ) {
-    var selectedTab by remember { mutableIntStateOf(0) }
+    var selectedTab by remember { mutableIntStateOf(initialTabIndex.coerceIn(0, 2)) }
     val tabs = listOf("PPA Contract", "Colocation SLA", "Hardware Ledger")
 
     Dialog(onDismissRequest = onDismiss) {

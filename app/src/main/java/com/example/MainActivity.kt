@@ -27,14 +27,17 @@ import com.example.model.BountyTask
 import com.example.service.AppUpdateManager
 import com.example.service.AuthService
 import com.example.service.UpdateStatus
+import android.widget.Toast
 import com.example.ui.components.BottomNavBar
 import com.example.ui.components.TopBar
+import com.example.ui.modals.AdminVerificationModal
 import com.example.ui.modals.AiSupportChatModal
 import com.example.ui.modals.AppUpdateModal
 import com.example.ui.modals.AuditDossierModal
 import com.example.ui.modals.BountySubmissionModal
 import com.example.ui.modals.CreatorMilestoneModal
 import com.example.ui.modals.DepositModal
+import com.example.ui.modals.KycSubmissionModal
 import com.example.ui.modals.LanguageSelectorModal
 import com.example.ui.modals.LuckyWheelModal
 import com.example.ui.modals.NotificationSheet
@@ -57,6 +60,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         try {
             FirebaseApp.initializeApp(applicationContext)
+            com.example.service.FirebaseAppCheckManager.initialize(applicationContext)
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -99,6 +103,7 @@ fun HashGridApp(
     val activityList by viewModel.activityList.collectAsStateWithLifecycle()
     val payoutsList by viewModel.payoutsList.collectAsStateWithLifecycle()
     val bountyTasks by viewModel.bountyTasks.collectAsStateWithLifecycle()
+    val adminBountyClaims by viewModel.adminBountyClaims.collectAsStateWithLifecycle()
     val chatMessages by viewModel.chatMessages.collectAsStateWithLifecycle()
     val isAiTyping by viewModel.isAiTyping.collectAsStateWithLifecycle()
     val twoFactorEnabled by viewModel.twoFactorEnabled.collectAsStateWithLifecycle()
@@ -126,12 +131,16 @@ fun HashGridApp(
     val showAiSupport by viewModel.showAiSupportModal.collectAsStateWithLifecycle()
     val showLanguage by viewModel.showLanguageModal.collectAsStateWithLifecycle()
     val showNotifications by viewModel.showNotificationSheet.collectAsStateWithLifecycle()
+    val showAdminVerification by viewModel.showAdminVerificationModal.collectAsStateWithLifecycle()
+    val showKyc by viewModel.showKycModal.collectAsStateWithLifecycle()
+    val kycStatus by viewModel.kycStatus.collectAsStateWithLifecycle()
     val unreadNotificationsCount by viewModel.unreadNotificationsCount.collectAsStateWithLifecycle()
     val miningSessionEndTimestamp by viewModel.miningSessionEndTimestamp.collectAsStateWithLifecycle()
 
     // Active Bounty Task selected for review modal
     var selectedBountyTask by remember { mutableStateOf<BountyTask?>(null) }
     var showCreatorMilestoneModal by remember { mutableStateOf(false) }
+    var auditDossierTab by remember { androidx.compose.runtime.mutableIntStateOf(0) }
 
     AnimatedContent(
         targetState = isLoggedIn,
@@ -140,7 +149,7 @@ fun HashGridApp(
     ) { authenticated ->
         if (!authenticated) {
             // ==========================================
-            // 1. AUTHENTICATION ENTRY (LOGIN / SIGN UP)
+            // 1. AUTHENTICATION ENTRY (LOGIN / SIGN UP / VERIFY)
             // ==========================================
             AuthScreen(
                 onLoginSubmit = { email, pass, onResult ->
@@ -151,6 +160,9 @@ fun HashGridApp(
                 },
                 onGoogleSignInClick = { onResult ->
                     viewModel.signInWithGoogle(context, onResult)
+                },
+                onAuthSuccess = { user ->
+                    viewModel.onDirectAuthSuccess(user)
                 }
             )
         } else {
@@ -195,7 +207,10 @@ fun HashGridApp(
                                 liveTickers = liveTickers,
                                 onClaimDailySpin = { viewModel.showLuckyWheelModal.value = true },
                                 onExtendMining = { viewModel.extendMiningSession() },
-                                onOpenAuditDossier = { viewModel.showAuditDossierModal.value = true },
+                                onOpenAuditDossier = {
+                                    auditDossierTab = 0
+                                    viewModel.showAuditDossierModal.value = true
+                                },
                                 onNavigateToPlans = { subTab ->
                                     viewModel.setPlansSubTab(subTab)
                                     viewModel.setTab(1)
@@ -208,7 +223,14 @@ fun HashGridApp(
                                 marketplacePlans = viewModel.marketplacePlans,
                                 walletBalanceUsdt = walletBalance,
                                 onToggleRestake = { contractId -> viewModel.toggleRestake(contractId) },
-                                onActivatePlan = { plan -> viewModel.activatePlan(plan) },
+                                onActivatePlan = { plan ->
+                                    val success = viewModel.activatePlan(plan)
+                                    if (!success) {
+                                        Toast.makeText(context, "Insufficient Funds - Please Deposit", Toast.LENGTH_SHORT).show()
+                                        viewModel.showDepositModal.value = true
+                                    }
+                                    success
+                                },
                                 onTriggerDeposit = { viewModel.showDepositModal.value = true }
                             )
                             2 -> WalletScreen(
@@ -220,7 +242,12 @@ fun HashGridApp(
                                 activityList = activityList,
                                 payoutsList = payoutsList,
                                 onDepositClick = { viewModel.showDepositModal.value = true },
-                                onWithdrawClick = { viewModel.showWithdrawModal.value = true }
+                                onWithdrawClick = {
+                                    if (walletBalance < 130.0) {
+                                        Toast.makeText(context, "Minimum withdrawal threshold is $130 USDT. Current balance: $${String.format(java.util.Locale.US, "%.2f", walletBalance)}", Toast.LENGTH_LONG).show()
+                                    }
+                                    viewModel.showWithdrawModal.value = true
+                                }
                             )
                             3 -> GrowthScreen(
                                 referralCode = viewModel.referralCode,
@@ -235,12 +262,22 @@ fun HashGridApp(
                                 userId = viewModel.userId,
                                 userEmail = viewModel.userEmail,
                                 displayName = viewModel.userDisplayName,
+                                kycStatus = kycStatus,
                                 twoFactorEnabled = twoFactorEnabled,
                                 selectedLanguage = selectedLanguage,
                                 onToggle2FA = { viewModel.toggle2FA() },
+                                onOpenKycModal = { viewModel.showKycModal.value = true },
                                 onOpenLanguageModal = { viewModel.showLanguageModal.value = true },
-                                onOpenAuditDossier = { viewModel.showAuditDossierModal.value = true },
+                                onOpenAuditDossier = {
+                                    auditDossierTab = 0
+                                    viewModel.showAuditDossierModal.value = true
+                                },
+                                onOpenAuditDossierWithTab = { tab ->
+                                    auditDossierTab = tab
+                                    viewModel.showAuditDossierModal.value = true
+                                },
                                 onOpenAiSupport = { viewModel.showAiSupportModal.value = true },
+                                onOpenAdminDashboard = { viewModel.showAdminVerificationModal.value = true },
                                 onCheckForUpdates = { viewModel.checkForUpdates(context) },
                                 onLogout = { viewModel.logout() }
                             )
@@ -276,16 +313,18 @@ fun HashGridApp(
             lastResult = lastSpinResult,
             onDismiss = { viewModel.showLuckyWheelModal.value = false },
             onSpinTrigger = {
-                viewModel.executeSpin { _, _, _ -> }
+                viewModel.spinLuckyWheel { _, _ -> }
             }
         )
     }
 
     if (showDeposit) {
         DepositModal(
+            userId = viewModel.userId,
             onDismiss = { viewModel.showDepositModal.value = false },
-            onDepositSuccess = { amount, txId ->
-                viewModel.onDepositSuccess(amount, txId)
+            onDepositSuccess = { amount, paymentId ->
+                viewModel.processDeposit(amount, paymentId, "NOWPayments-USDT")
+                viewModel.showDepositModal.value = false
             }
         )
     }
@@ -303,7 +342,20 @@ fun HashGridApp(
 
     if (showAuditDossier) {
         AuditDossierModal(
+            initialTabIndex = auditDossierTab,
             onDismiss = { viewModel.showAuditDossierModal.value = false }
+        )
+    }
+
+    if (showKyc) {
+        KycSubmissionModal(
+            currentStatus = kycStatus,
+            onDismiss = { viewModel.showKycModal.value = false },
+            onSubmitKyc = { fullName, idType, idNumber ->
+                viewModel.submitKyc(fullName, idType, idNumber)
+                Toast.makeText(context, "KYC submitted. Status updated to PENDING REVIEW.", Toast.LENGTH_LONG).show()
+                viewModel.showKycModal.value = false
+            }
         )
     }
 
@@ -345,7 +397,17 @@ fun HashGridApp(
             referralCode = viewModel.referralCode,
             onDismiss = { selectedBountyTask = null },
             onSubmitWhatsApp = { views, time -> viewModel.submitWhatsAppBounty(views, time) },
-            onSubmitTelegram = { username -> viewModel.submitTelegramBounty(username) }
+            onSubmitTelegram = { username -> viewModel.submitTelegramBounty(username) },
+            onSubmitYouTube = { url, channel -> viewModel.submitYouTubeBounty(url, channel) }
+        )
+    }
+
+    if (showAdminVerification) {
+        AdminVerificationModal(
+            claims = adminBountyClaims,
+            onDismiss = { viewModel.showAdminVerificationModal.value = false },
+            onApproveClaim = { claim -> viewModel.approveBountyClaim(claim) },
+            onRejectClaim = { claim, reason -> viewModel.rejectBountyClaim(claim, reason) }
         )
     }
 
