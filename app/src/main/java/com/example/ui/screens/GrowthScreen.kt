@@ -794,7 +794,7 @@ fun GrowthScreen(
                                         )
                                     }
                                 }
-                                BountyStatus.APPROVED_CREDITED -> {
+                                BountyStatus.APPROVED, BountyStatus.APPROVED_CREDITED -> {
                                     Box(
                                         modifier = Modifier
                                             .clip(RoundedCornerShape(6.dp))

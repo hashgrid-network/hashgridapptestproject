@@ -61,7 +61,8 @@ object AppUpdateManager {
     private val _updateStatus = MutableStateFlow<UpdateStatus>(UpdateStatus.Idle)
     val updateStatus: StateFlow<UpdateStatus> = _updateStatus.asStateFlow()
 
-    // Configurable endpoint for remote version manifest
+    // Configurable endpoints: Firebase Realtime Database '/app_config/update' first, then version.json & GitHub releases
+    var firebaseUpdateNodeUrl: String = "https://hashgrid-institutional-default-rtdb.firebaseio.com/app_config/update.json"
     var remoteVersionUrl: String = "https://raw.githubusercontent.com/goldbrownp-blip/hashgridapptestproject/main/version.json"
     var githubReleasesApiUrl: String = "https://api.github.com/repos/goldbrownp-blip/hashgridapptestproject/releases/latest"
 
@@ -101,12 +102,16 @@ object AppUpdateManager {
                 // Ignore receiver registration issues
             }
         }
+
+        // Automatic update check on app launch
+        checkForUpdates(context, isManualCheck = false)
     }
 
     /**
      * Check remote version on app launch:
-     * 1. Query raw GitHub version.json or GitHub Latest Release API
-     * 2. Compare remote versionCode against local BuildConfig.VERSION_CODE
+     * 1. Query Firebase RTDB /app_config/update
+     * 2. Fallback: Query raw GitHub version.json or GitHub Latest Release API
+     * 3. Compare remote versionCode against local BuildConfig.VERSION_CODE
      */
     fun checkForUpdates(context: Context? = null, isManualCheck: Boolean = false) {
         serviceScope.launch {
@@ -132,7 +137,6 @@ object AppUpdateManager {
                         }
                     }
                 } else {
-                    // If remote is not reachable or empty, return UpToDate or Error
                     if (isManualCheck) {
                         _updateStatus.value = UpdateStatus.Error("Unable to reach update server.")
                     } else {
@@ -150,10 +154,29 @@ object AppUpdateManager {
     }
 
     /**
-     * Attempts to query version.json first, then falls back to GitHub Releases API
+     * Attempts to query Firebase /app_config/update first, then version.json, then GitHub Releases API
      */
     private fun fetchRemoteVersionInfo(): AppUpdateInfo? {
-        // Try raw version.json
+        // 1. Try Firebase /app_config/update.json
+        try {
+            val request = Request.Builder()
+                .url(firebaseUpdateNodeUrl)
+                .header("Cache-Control", "no-cache")
+                .header("User-Agent", "HashGrid-Android-Updater")
+                .build()
+
+            httpClient.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val body = response.body?.string()
+                    if (!body.isNullOrBlank() && body != "null") {
+                        val parsed = parseFirebaseUpdateJson(body)
+                        if (parsed != null) return parsed
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
+        // 2. Try raw version.json
         try {
             val request = Request.Builder()
                 .url(remoteVersionUrl)
@@ -172,7 +195,7 @@ object AppUpdateManager {
             }
         } catch (_: Exception) {}
 
-        // Fallback: Try GitHub Releases API
+        // 3. Fallback: Try GitHub Releases API
         try {
             val request = Request.Builder()
                 .url(githubReleasesApiUrl)
@@ -194,15 +217,40 @@ object AppUpdateManager {
         return null
     }
 
+    private fun parseFirebaseUpdateJson(jsonStr: String): AppUpdateInfo? {
+        return try {
+            val obj = JSONObject(jsonStr)
+            val versionCode = obj.optInt("latest_version_code", obj.optInt("versionCode", 0))
+            val versionName = obj.optString("latest_version_name", obj.optString("versionName", "1.0.0"))
+            val apkUrl = obj.optString("apk_url", obj.optString("downloadUrl", obj.optString("apkUrl", "")))
+            val releaseNotes = obj.optString("release_notes", obj.optString("releaseNotes", ""))
+            val forceUpdate = obj.optBoolean("force_update", obj.optBoolean("isMandatory", false))
+            val minSupported = obj.optInt("min_supported_version_code", obj.optInt("minSupportedVersionCode", 1))
+
+            if (versionCode > 0 && apkUrl.isNotBlank()) {
+                AppUpdateInfo(
+                    versionCode = versionCode,
+                    versionName = versionName,
+                    downloadUrl = apkUrl,
+                    releaseNotes = releaseNotes,
+                    minSupportedVersionCode = minSupported,
+                    isMandatory = forceUpdate
+                )
+            } else null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     private fun parseVersionJson(jsonStr: String): AppUpdateInfo? {
         return try {
             val obj = JSONObject(jsonStr)
-            val versionCode = obj.optInt("versionCode", 0)
-            val versionName = obj.optString("versionName", "1.0.0")
-            val downloadUrl = obj.optString("downloadUrl", obj.optString("apkUrl", ""))
-            val releaseNotes = obj.optString("releaseNotes", "")
+            val versionCode = obj.optInt("versionCode", obj.optInt("latest_version_code", 0))
+            val versionName = obj.optString("versionName", obj.optString("latest_version_name", "1.0.0"))
+            val downloadUrl = obj.optString("downloadUrl", obj.optString("apk_url", obj.optString("apkUrl", "")))
+            val releaseNotes = obj.optString("releaseNotes", obj.optString("release_notes", ""))
             val minSupported = obj.optInt("minSupportedVersionCode", 1)
-            val isMandatory = obj.optBoolean("isMandatory", false)
+            val isMandatory = obj.optBoolean("isMandatory", obj.optBoolean("force_update", false))
 
             if (versionCode > 0 && downloadUrl.isNotBlank()) {
                 AppUpdateInfo(
@@ -226,11 +274,9 @@ object AppUpdateManager {
             val releaseNotes = obj.optString("body", "")
             val publishedAt = obj.optString("published_at", "")
 
-            // Parse version code from tag or assets
             val cleanTag = tagName.removePrefix("v").trim()
             val versionNumPart = cleanTag.split(".").firstOrNull()?.toIntOrNull() ?: 2
 
-            // Look for .apk asset
             var apkDownloadUrl = ""
             val assets = obj.optJSONArray("assets") ?: JSONArray()
             for (i in 0 until assets.length()) {
@@ -263,7 +309,6 @@ object AppUpdateManager {
         val appContext = context.applicationContext
         val downloadManager = appContext.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
 
-        // Target file in app-specific external files dir (Scoped Storage friendly)
         val downloadsDir = appContext.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
         val apkFile = File(downloadsDir, "hashgrid-v${info.versionName}-build${info.versionCode}.apk")
         downloadedApkFile = apkFile
@@ -351,7 +396,6 @@ object AppUpdateManager {
 
         if (file != null && file.exists() && info != null) {
             _updateStatus.value = UpdateStatus.ReadyToInstall(info, file)
-            // Trigger install directly
             triggerInstall(context, file)
         }
     }
@@ -397,25 +441,6 @@ object AppUpdateManager {
         } catch (e: Exception) {
             Toast.makeText(context, "Install failed: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
         }
-    }
-
-    /**
-     * For testing/demo verification: simulate finding an update
-     */
-    fun simulateUpdateAvailable(
-        versionCode: Int = BuildConfig.VERSION_CODE + 1,
-        versionName: String = "2.1.0",
-        notes: String = "• Verified Arctic Node PPA telemetry\n• Enhanced Dual-Engine WebSocket stream\n• Institutional cold-storage security patches\n• Instant push notification engine"
-    ) {
-        _updateStatus.value = UpdateStatus.UpdateAvailable(
-            AppUpdateInfo(
-                versionCode = versionCode,
-                versionName = versionName,
-                downloadUrl = "https://github.com/hashgrid/hashgrid-mobile/releases/latest/download/hashgrid-update.apk",
-                releaseNotes = notes,
-                isMandatory = false
-            )
-        )
     }
 
     fun dismissUpdate() {

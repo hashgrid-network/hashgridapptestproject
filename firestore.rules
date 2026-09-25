@@ -1,0 +1,48 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Remote Over-the-air update configs - read-only for clients, admin writable
+    match /app_config/update {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.token.admin == true;
+    }
+
+    // User Profile - writable by user
+    match /users/{userId}/profile {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // User Wallet & Mining Balances - STRICTLY ADMIN WRITABLE ONLY
+    match /users/{userId}/wallet {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow write: if request.auth != null && request.auth.token.admin == true;
+    }
+
+    // Anti-Fraud Device Registry
+    match /device_registry/{deviceIdHash} {
+      allow read: if true;
+      allow create: if request.auth != null;
+      allow update, delete: if request.auth != null && request.auth.token.admin == true;
+    }
+
+    // Bounty and Syndicate Task Claims
+    match /task_claims/{claimId} {
+      allow read: if true;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null && request.auth.token.admin == true;
+    }
+
+    // Withdrawals and deposits logs
+    match /withdrawals/{requestId} {
+      allow read, create: if request.auth != null;
+      allow update: if request.auth != null && request.auth.token.admin == true;
+    }
+
+    match /deposits/{depositId} {
+      allow read, create: if request.auth != null;
+      allow update: if request.auth != null && request.auth.token.admin == true;
+    }
+  }
+}

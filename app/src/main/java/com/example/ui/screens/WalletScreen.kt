@@ -477,6 +477,8 @@ fun WalletScreen(
                                 PayoutStatus.COMPLETED -> MintGreen.copy(alpha = 0.2f) to MintDark
                                 PayoutStatus.AUDITED_DISBURSED -> GoldLight to GoldGradientEnd
                                 PayoutStatus.PENDING_24H_AUDIT -> Color(0xFFF1ECE4) to SlateNavy
+                                PayoutStatus.PROCESSING -> Color(0xFFE8F0FE) to Color(0xFF1967D2)
+                                PayoutStatus.REJECTED -> Color(0xFFFFEBEE) to Color(0xFFC62828)
                             }
 
                             Box(

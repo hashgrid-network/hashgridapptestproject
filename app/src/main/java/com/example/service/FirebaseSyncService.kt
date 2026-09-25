@@ -45,6 +45,19 @@ data class FirebaseDeposit(
     val timestamp: String
 )
 
+data class FirebaseTaskClaim(
+    val claimId: String,
+    val userId: String,
+    val userEmail: String,
+    val deviceId: String,
+    val taskId: String,
+    val taskTitle: String,
+    val proofLink: String,
+    val requestedAmountUsdt: Double,
+    val status: String = "PENDING", // "PENDING", "APPROVED", "REJECTED"
+    val timestamp: String
+)
+
 object FirebaseSyncService {
 
     private val scope = CoroutineScope(Dispatchers.IO)
@@ -61,17 +74,106 @@ object FirebaseSyncService {
 
     private val httpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(8, TimeUnit.SECONDS)
-            .readTimeout(8, TimeUnit.SECONDS)
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(10, TimeUnit.SECONDS)
             .build()
     }
 
-    fun getCurrentTimestamp(): String {
-        return SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
+    /**
+     * Sync user profile to /users/{uid}/profile (User writable)
+     */
+    fun syncUserProfile(
+        uid: String,
+        email: String,
+        displayName: String,
+        referralCode: String,
+        isFlaggedDuplicate: Boolean
+    ) {
+        scope.launch {
+            try {
+                val json = JSONObject().apply {
+                    put("uid", uid)
+                    put("email", email)
+                    put("displayName", displayName)
+                    put("referralCode", referralCode)
+                    put("isFlaggedDuplicate", isFlaggedDuplicate)
+                    put("lastActive", getCurrentTimestamp())
+                }
+
+                val url = "$firebaseDatabaseUrl/users/${sanitizeKey(uid)}/profile.json"
+                val body = json.toString().toRequestBody(jsonMediaType)
+                val request = Request.Builder().url(url).put(body).build()
+
+                httpClient.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        _lastSyncTimestamp.value = System.currentTimeMillis()
+                    }
+                }
+            } catch (_: Exception) {}
+        }
     }
 
     /**
-     * Sync user data to /users/{userId}.json
+     * Record device registration to /device_registry/{deviceIdHash} (Anti-Fraud)
+     */
+    fun registerDevice(deviceIdHash: String, userId: String, email: String, isDuplicate: Boolean) {
+        scope.launch {
+            try {
+                val json = JSONObject().apply {
+                    put("deviceId", deviceIdHash)
+                    put("userId", userId)
+                    put("email", email)
+                    put("isDuplicate", isDuplicate)
+                    put("registeredAt", getCurrentTimestamp())
+                }
+
+                val url = "$firebaseDatabaseUrl/device_registry/${sanitizeKey(deviceIdHash)}.json"
+                val body = json.toString().toRequestBody(jsonMediaType)
+                val request = Request.Builder().url(url).put(body).build()
+
+                httpClient.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        _lastSyncTimestamp.value = System.currentTimeMillis()
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
+    /**
+     * Submit task claim to /task_claims/{claimId} for Admin Review
+     */
+    fun submitTaskClaim(claim: FirebaseTaskClaim) {
+        scope.launch {
+            try {
+                val json = JSONObject().apply {
+                    put("claimId", claim.claimId)
+                    put("userId", claim.userId)
+                    put("userEmail", claim.userEmail)
+                    put("deviceId", claim.deviceId)
+                    put("taskId", claim.taskId)
+                    put("taskTitle", claim.taskTitle)
+                    put("proofLink", claim.proofLink)
+                    put("requestedAmountUsdt", claim.requestedAmountUsdt)
+                    put("status", claim.status)
+                    put("timestamp", claim.timestamp)
+                }
+
+                val url = "$firebaseDatabaseUrl/task_claims/${sanitizeKey(claim.claimId)}.json"
+                val body = json.toString().toRequestBody(jsonMediaType)
+                val request = Request.Builder().url(url).put(body).build()
+
+                httpClient.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        _lastSyncTimestamp.value = System.currentTimeMillis()
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
+    /**
+     * Sync user wallet & balance to /users/{uid}/wallet (Admin controlled)
      */
     fun syncUser(user: FirebaseUser) {
         scope.launch {
@@ -99,7 +201,7 @@ object FirebaseSyncService {
     }
 
     /**
-     * Push withdrawal request to /withdrawals/{requestId}.json with status 'pending'
+     * Push withdrawal request to /withdrawals/{requestId}.json
      */
     fun pushWithdrawal(withdrawal: FirebaseWithdrawal) {
         scope.launch {
@@ -156,7 +258,7 @@ object FirebaseSyncService {
     }
 
     /**
-     * Start background poll to listen to balance updates from Firebase
+     * Listen to wallet balance updates from Firebase
      */
     fun startRealtimeBalanceListener(
         userId: String,
@@ -181,12 +283,17 @@ object FirebaseSyncService {
                     }
                 } catch (_: Exception) {}
 
-                delay(20000L) // Poll remote every 20s
+                delay(15000L) // Poll remote every 15s
             }
         }
     }
 
     private fun sanitizeKey(key: String): String {
         return key.replace("#", "").replace(".", "_").replace("$", "").replace("[", "").replace("]", "")
+    }
+
+    fun getCurrentTimestamp(): String {
+        val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+        return sdf.format(Date())
     }
 }

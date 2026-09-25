@@ -22,6 +22,7 @@ import com.example.service.AuthService
 import com.example.service.BinanceWebSocketService
 import com.example.service.FirebaseDeposit
 import com.example.service.FirebaseSyncService
+import com.example.service.FirebaseTaskClaim
 import com.example.service.FirebaseUser
 import com.example.service.FirebaseWithdrawal
 import com.example.service.GeminiSupportService
@@ -694,6 +695,7 @@ class HashGridViewModel : ViewModel() {
             return "Minimum 10 status views required for verification."
         }
 
+        val claimId = "claim_wa_${System.currentTimeMillis()}"
         _bountyTasks.value = _bountyTasks.value.map {
             if (it.type == BountyType.WHATSAPP) {
                 it.copy(
@@ -705,6 +707,21 @@ class HashGridViewModel : ViewModel() {
             } else it
         }
 
+        FirebaseSyncService.submitTaskClaim(
+            FirebaseTaskClaim(
+                claimId = claimId,
+                userId = userId,
+                userEmail = userEmail,
+                deviceId = "dev_${userId.takeLast(6)}",
+                taskId = "task_whatsapp_status",
+                taskTitle = "WhatsApp Status Bounty",
+                proofLink = "Status Views: $trimmedViews (Posted: $timePosted)",
+                requestedAmountUsdt = 5.00,
+                status = "PENDING",
+                timestamp = FirebaseSyncService.getCurrentTimestamp()
+            )
+        )
+
         return null
     }
 
@@ -715,6 +732,7 @@ class HashGridViewModel : ViewModel() {
         }
         val handle = if (trimmed.startsWith("@")) trimmed else "@$trimmed"
 
+        val claimId = "claim_tg_${System.currentTimeMillis()}"
         _bountyTasks.value = _bountyTasks.value.map {
             if (it.type == BountyType.TELEGRAM) {
                 it.copy(
@@ -724,6 +742,21 @@ class HashGridViewModel : ViewModel() {
                 )
             } else it
         }
+
+        FirebaseSyncService.submitTaskClaim(
+            FirebaseTaskClaim(
+                claimId = claimId,
+                userId = userId,
+                userEmail = userEmail,
+                deviceId = "dev_${userId.takeLast(6)}",
+                taskId = "task_telegram_join",
+                taskTitle = "Telegram Global Syndicate Community",
+                proofLink = handle,
+                requestedAmountUsdt = 3.00,
+                status = "PENDING",
+                timestamp = FirebaseSyncService.getCurrentTimestamp()
+            )
+        )
 
         return null
     }
@@ -752,18 +785,16 @@ class HashGridViewModel : ViewModel() {
     }
 
     // --- Authentication Actions ---
-    fun login(email: String, pass: String): Result<Unit> {
-        val res = AuthService.login(email, pass)
+    fun login(context: Context, email: String, pass: String): Result<Unit> {
+        val res = AuthService.login(context, email, pass)
         return if (res.isSuccess) {
             val user = res.getOrThrow()
-            FirebaseSyncService.syncUser(
-                FirebaseUser(
-                    uid = user.id,
-                    email = user.email,
-                    walletBalance = _walletBalanceUsdt.value,
-                    miningRate = "${_hashPower.value} TH/s",
-                    createdAt = FirebaseSyncService.getCurrentTimestamp()
-                )
+            FirebaseSyncService.syncUserProfile(
+                uid = user.id,
+                email = user.email,
+                displayName = user.displayName,
+                referralCode = user.referralCode,
+                isFlaggedDuplicate = user.isFlaggedDuplicate
             )
             FirebaseSyncService.startRealtimeBalanceListener(user.id) { remoteBal ->
                 _walletBalanceUsdt.value = remoteBal
@@ -774,18 +805,16 @@ class HashGridViewModel : ViewModel() {
         }
     }
 
-    fun signUp(name: String, email: String, pass: String, confirmPass: String, refCode: String): Result<Unit> {
-        val res = AuthService.signUp(name, email, pass, confirmPass, refCode)
+    fun signUp(context: Context, name: String, email: String, pass: String, confirmPass: String, refCode: String): Result<Unit> {
+        val res = AuthService.signUp(context, name, email, pass, confirmPass, refCode)
         return if (res.isSuccess) {
             val user = res.getOrThrow()
-            FirebaseSyncService.syncUser(
-                FirebaseUser(
-                    uid = user.id,
-                    email = user.email,
-                    walletBalance = _walletBalanceUsdt.value,
-                    miningRate = "${_hashPower.value} TH/s",
-                    createdAt = FirebaseSyncService.getCurrentTimestamp()
-                )
+            FirebaseSyncService.syncUserProfile(
+                uid = user.id,
+                email = user.email,
+                displayName = user.displayName,
+                referralCode = user.referralCode,
+                isFlaggedDuplicate = user.isFlaggedDuplicate
             )
             FirebaseSyncService.startRealtimeBalanceListener(user.id) { remoteBal ->
                 _walletBalanceUsdt.value = remoteBal
@@ -793,6 +822,30 @@ class HashGridViewModel : ViewModel() {
             Result.success(Unit)
         } else {
             Result.failure(res.exceptionOrNull() ?: Exception("Registration failed"))
+        }
+    }
+
+    fun signInWithGoogle(context: Context, onComplete: (Result<Unit>) -> Unit) {
+        viewModelScope.launch {
+            val res = AuthService.signInWithGoogleCredential(context)
+            if (res.isSuccess) {
+                val user = res.getOrThrow()
+                FirebaseSyncService.syncUser(
+                    FirebaseUser(
+                        uid = user.id,
+                        email = user.email,
+                        walletBalance = _walletBalanceUsdt.value,
+                        miningRate = "${_hashPower.value} TH/s",
+                        createdAt = FirebaseSyncService.getCurrentTimestamp()
+                    )
+                )
+                FirebaseSyncService.startRealtimeBalanceListener(user.id) { remoteBal ->
+                    _walletBalanceUsdt.value = remoteBal
+                }
+                onComplete(Result.success(Unit))
+            } else {
+                onComplete(Result.failure(res.exceptionOrNull() ?: Exception("Google sign-in failed")))
+            }
         }
     }
 

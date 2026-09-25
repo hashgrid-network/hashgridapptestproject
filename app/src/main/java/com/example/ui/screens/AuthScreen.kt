@@ -5,6 +5,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -22,15 +23,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AlternateEmail
-import androidx.compose.material.icons.filled.Badge
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ElectricBolt
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
@@ -43,8 +41,10 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Tab
@@ -61,26 +61,25 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.theme.CanvasBackground
 import com.example.ui.theme.CardWhite
-import com.example.ui.theme.GoldBorder
 import com.example.ui.theme.GoldBorderSubtle
 import com.example.ui.theme.GoldGradientEnd
 import com.example.ui.theme.GoldGradientMid
-import com.example.ui.theme.GoldLight
 import com.example.ui.theme.MintDark
 import com.example.ui.theme.MintGreen
 import com.example.ui.theme.ObsidianNavy
@@ -88,11 +87,78 @@ import com.example.ui.theme.SlateGray
 import com.example.ui.theme.SlateNavy
 
 @Composable
+fun GoogleBrandIcon(modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier.size(20.dp)) {
+        val w = size.width
+        val h = size.height
+        val center = Offset(w / 2f, h / 2f)
+
+        // Draw clean stylized Google 'G' icon
+        val blue = Color(0xFF4285F4)
+        val red = Color(0xFFEA4335)
+        val yellow = Color(0xFFFBBC05)
+        val green = Color(0xFF34A853)
+
+        val stroke = w * 0.18f
+        val radius = (w - stroke) / 2f
+
+        // Blue right-arm & quadrant
+        drawArc(
+            color = blue,
+            startAngle = -45f,
+            sweepAngle = 90f,
+            useCenter = false,
+            topLeft = Offset(stroke / 2f, stroke / 2f),
+            size = Size(radius * 2f, radius * 2f),
+            style = androidx.compose.ui.graphics.drawscope.Stroke(width = stroke)
+        )
+        // Green bottom
+        drawArc(
+            color = green,
+            startAngle = 45f,
+            sweepAngle = 90f,
+            useCenter = false,
+            topLeft = Offset(stroke / 2f, stroke / 2f),
+            size = Size(radius * 2f, radius * 2f),
+            style = androidx.compose.ui.graphics.drawscope.Stroke(width = stroke)
+        )
+        // Yellow left
+        drawArc(
+            color = yellow,
+            startAngle = 135f,
+            sweepAngle = 90f,
+            useCenter = false,
+            topLeft = Offset(stroke / 2f, stroke / 2f),
+            size = Size(radius * 2f, radius * 2f),
+            style = androidx.compose.ui.graphics.drawscope.Stroke(width = stroke)
+        )
+        // Red top
+        drawArc(
+            color = red,
+            startAngle = 225f,
+            sweepAngle = 90f,
+            useCenter = false,
+            topLeft = Offset(stroke / 2f, stroke / 2f),
+            size = Size(radius * 2f, radius * 2f),
+            style = androidx.compose.ui.graphics.drawscope.Stroke(width = stroke)
+        )
+        // Center horizontal bar
+        drawLine(
+            color = blue,
+            start = Offset(center.x - 1f, center.y),
+            end = Offset(w - stroke / 2f, center.y),
+            strokeWidth = stroke
+        )
+    }
+}
+
+@Composable
 fun AuthScreen(
     onLoginSuccess: (email: String, name: String) -> Unit,
     onSignUpSuccess: (email: String, name: String) -> Unit,
     onLoginSubmit: (String, String) -> Result<Unit>,
     onSignUpSubmit: (String, String, String, String, String) -> Result<Unit>,
+    onGoogleSignInClick: (() -> Unit) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -115,6 +181,7 @@ fun AuthScreen(
     var isSignupConfirmPasswordVisible by remember { mutableStateOf(false) }
 
     var isLoading by remember { mutableStateOf(false) }
+    var isGoogleLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     Box(
@@ -372,7 +439,7 @@ fun AuthScreen(
                                             }
                                         )
                                     },
-                                    enabled = !isLoading,
+                                    enabled = !isLoading && !isGoogleLoading,
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .height(48.dp)
@@ -390,6 +457,65 @@ fun AuthScreen(
                                             letterSpacing = 0.6.sp,
                                             color = Color.White
                                         )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(18.dp))
+
+                                // Divider "─── OR ───"
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    HorizontalDivider(modifier = Modifier.weight(1f), color = GoldBorderSubtle)
+                                    Text(
+                                        text = "  OR  ",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = SlateGray
+                                    )
+                                    HorizontalDivider(modifier = Modifier.weight(1f), color = GoldBorderSubtle)
+                                }
+
+                                Spacer(modifier = Modifier.height(18.dp))
+
+                                // Continue with Google Button
+                                OutlinedButton(
+                                    onClick = {
+                                        isGoogleLoading = true
+                                        errorMessage = null
+                                        onGoogleSignInClick {
+                                            isGoogleLoading = false
+                                        }
+                                    },
+                                    enabled = !isLoading && !isGoogleLoading,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(48.dp)
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .testTag("btn_google_signin_login"),
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        containerColor = ObsidianNavy,
+                                        contentColor = Color.White
+                                    ),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, GoldGradientMid)
+                                ) {
+                                    if (isGoogleLoading) {
+                                        CircularProgressIndicator(color = MintGreen, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                                    } else {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.Center
+                                        ) {
+                                            GoogleBrandIcon()
+                                            Spacer(modifier = Modifier.width(10.dp))
+                                            Text(
+                                                text = "Continue with Google",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 13.sp,
+                                                color = Color.White
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -583,7 +709,7 @@ fun AuthScreen(
                                             }
                                         )
                                     },
-                                    enabled = !isLoading,
+                                    enabled = !isLoading && !isGoogleLoading,
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .height(48.dp)
@@ -601,6 +727,65 @@ fun AuthScreen(
                                             letterSpacing = 0.6.sp,
                                             color = Color.White
                                         )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(18.dp))
+
+                                // Divider "─── OR ───"
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    HorizontalDivider(modifier = Modifier.weight(1f), color = GoldBorderSubtle)
+                                    Text(
+                                        text = "  OR  ",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = SlateGray
+                                    )
+                                    HorizontalDivider(modifier = Modifier.weight(1f), color = GoldBorderSubtle)
+                                }
+
+                                Spacer(modifier = Modifier.height(18.dp))
+
+                                // Continue with Google Button
+                                OutlinedButton(
+                                    onClick = {
+                                        isGoogleLoading = true
+                                        errorMessage = null
+                                        onGoogleSignInClick {
+                                            isGoogleLoading = false
+                                        }
+                                    },
+                                    enabled = !isLoading && !isGoogleLoading,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(48.dp)
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .testTag("btn_google_signin_signup"),
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        containerColor = ObsidianNavy,
+                                        contentColor = Color.White
+                                    ),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, GoldGradientMid)
+                                ) {
+                                    if (isGoogleLoading) {
+                                        CircularProgressIndicator(color = MintGreen, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                                    } else {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.Center
+                                        ) {
+                                            GoogleBrandIcon()
+                                            Spacer(modifier = Modifier.width(10.dp))
+                                            Text(
+                                                text = "Continue with Google",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 13.sp,
+                                                color = Color.White
+                                            )
+                                        }
                                     }
                                 }
                             }

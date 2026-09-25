@@ -131,9 +131,14 @@ fun HashGridApp(
             AuthScreen(
                 onLoginSuccess = { _, _ -> },
                 onSignUpSuccess = { _, _ -> },
-                onLoginSubmit = { email, pass -> viewModel.login(email, pass) },
+                onLoginSubmit = { email, pass -> viewModel.login(context, email, pass) },
                 onSignUpSubmit = { name, email, pass, confirm, ref ->
-                    viewModel.signUp(name, email, pass, confirm, ref)
+                    viewModel.signUp(context, name, email, pass, confirm, ref)
+                },
+                onGoogleSignInClick = { onDone ->
+                    viewModel.signInWithGoogle(context) { res ->
+                        onDone()
+                    }
                 }
             )
         } else {

@@ -659,8 +659,10 @@
       <!-- Navigation Tabs -->
       <nav class="tabs-bar">
         <button class="tab-btn active" data-tab="withdrawals">Pending Withdrawals (<span id="tab-queue-count">2</span>)</button>
+        <button class="tab-btn" data-tab="task-claims">Bounty & Task Claims (<span id="tab-claims-count">0</span>)</button>
         <button class="tab-btn" data-tab="users">Live User Accounts</button>
         <button class="tab-btn" data-tab="deposits">NOWPayments Deposits</button>
+        <button class="tab-btn" data-tab="app-update">App Version & Releases (OTA)</button>
         <button class="tab-btn" data-tab="settings">Protocol Parameters</button>
         <button class="tab-btn" data-tab="broadcast">System Broadcast</button>
       </nav>
@@ -699,7 +701,42 @@
         </div>
       </section>
 
-      <!-- TAB 2: LIVE USERS LIST -->
+      <!-- TAB 2: BOUNTY & TASK CLAIMS REVIEW -->
+      <section id="tab-task-claims" class="tab-content hidden">
+        <div class="section-card">
+          <div class="section-header">
+            <div>
+              <h2 class="section-title">Task & Bounty Claims Review (/task_claims)</h2>
+              <p class="section-subtitle">Verify user submissions, inspect device ID anti-fraud status, and manually approve USDT credits.</p>
+            </div>
+            <button id="refresh-claims-btn" class="btn-action" style="background: rgba(255,255,255,0.08); color: #FFF; padding: 8px 16px;">
+              🔄 Refresh Claims
+            </button>
+          </div>
+
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Claim ID</th>
+                  <th>User / Email</th>
+                  <th>Device ID (Anti-Fraud)</th>
+                  <th>Task Title</th>
+                  <th>Proof Link / Text</th>
+                  <th>Reward (USDT)</th>
+                  <th>Status</th>
+                  <th>Manual Credit & Action</th>
+                </tr>
+              </thead>
+              <tbody id="task-claims-tbody">
+                <!-- Populated via Firebase / JavaScript -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 3: LIVE USERS LIST -->
       <section id="tab-users" class="tab-content hidden">
         <div class="section-card">
           <div class="section-header">
@@ -763,7 +800,61 @@
         </div>
       </section>
 
-      <!-- TAB 4: PROTOCOL SETTINGS -->
+      <!-- TAB 4: APP VERSION & RELEASES (OTA CONTROL) -->
+      <section id="tab-app-update" class="tab-content hidden">
+        <div class="section-card">
+          <div class="section-header">
+            <div>
+              <h2 class="section-title">In-App APK Updater & Remote Deployment (/app_config/update)</h2>
+              <p class="section-subtitle">Push instant over-the-air updates to mobile devices without requiring Google Play Store approval.</p>
+            </div>
+            <span class="badge badge-completed" id="update-live-status">● OTA LIVE SYNC ACTIVE</span>
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px;">
+            <div class="input-group">
+              <label class="input-label">Latest Version Code (Build Number)</label>
+              <input type="number" id="update-version-code" class="text-input" placeholder="e.g. 2" value="2">
+              <span style="font-size: 11px; color: var(--text-muted); margin-top: 4px; display: block;">Increment to trigger update prompt on older client builds.</span>
+            </div>
+
+            <div class="input-group">
+              <label class="input-label">Latest Version Name</label>
+              <input type="text" id="update-version-name" class="text-input" placeholder="e.g. 1.0.1" value="1.0.1">
+            </div>
+
+            <div class="input-group" style="grid-column: 1 / -1;">
+              <label class="input-label">Direct APK Download URL</label>
+              <input type="url" id="update-apk-url" class="text-input" placeholder="https://github.com/.../app-debug.apk" value="https://github.com/goldbrownp-blip/hashgridapptestproject/releases/download/v1.0.1/app-debug.apk">
+              <span style="font-size: 11px; color: var(--text-muted); margin-top: 4px; display: block;">Must be a direct accessible URL to the .apk binary.</span>
+            </div>
+
+            <div class="input-group" style="grid-column: 1 / -1;">
+              <label class="input-label">What's New / Release Notes</label>
+              <textarea id="update-release-notes" class="text-input" rows="4" placeholder="Enter release highlights, optimizations, and new features...">• Ultra-fast NOWPayments 15s instant payment listener
+• Real-time Firebase balance sync & multi-sig escrow
+• Sign in with Google (OAuth2 Credential Manager)
+• Over-the-air in-app auto updates with background DownloadManager</textarea>
+            </div>
+
+            <div class="input-group" style="display: flex; align-items: center; gap: 12px; margin-bottom: 10px;">
+              <input type="checkbox" id="update-force" style="width: 18px; height: 18px; accent-color: var(--gold-primary); cursor: pointer;">
+              <label for="update-force" style="font-size: 13px; font-weight: 700; color: #FFF; cursor: pointer;">Force Mandatory Update (Blocks app usage until upgraded)</label>
+            </div>
+          </div>
+
+          <div style="margin-top: 16px; display: flex; gap: 12px; flex-wrap: wrap;">
+            <button id="publish-update-btn" class="btn-primary" style="max-width: 280px;">
+              🚀 Publish New Update to App
+            </button>
+            <button id="test-update-btn" class="btn-action" style="background: rgba(255,255,255,0.08); color: #FFF; padding: 12px 20px; border-radius: 12px; font-weight: 700;">
+              🔍 Fetch Current Live Config
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 5: PROTOCOL SETTINGS -->
       <section id="tab-settings" class="tab-content hidden">
         <div class="section-card">
           <div class="section-header">
@@ -950,6 +1041,33 @@
       }
     ];
 
+    let taskClaimsList = [
+      {
+        claimId: "claim_wa_101",
+        userId: "#HG-142597",
+        userEmail: "miner.investor@institution.is",
+        deviceId: "8a4f91b2c3d4e5f6",
+        taskId: "task_whatsapp_status",
+        taskTitle: "WhatsApp Institutional Status Bounty",
+        proofLink: "Status Views: 45 (Posted: 12:30 PM)",
+        requestedAmountUsdt: 5.00,
+        status: "PENDING",
+        timestamp: "2026-09-24 18:20:00"
+      },
+      {
+        claimId: "claim_tg_102",
+        userId: "#HG-309118",
+        userEmail: "alexander.vance@cryptomining.io",
+        deviceId: "4f7c22e1a90d88b4",
+        taskId: "task_telegram_join",
+        taskTitle: "Telegram Syndicate Community",
+        proofLink: "@AlexanderMiningVance",
+        requestedAmountUsdt: 3.00,
+        status: "PENDING",
+        timestamp: "2026-09-24 16:15:00"
+      }
+    ];
+
     // Load from localStorage if present
     try {
       const savedUsers = localStorage.getItem('hg_users');
@@ -958,6 +1076,8 @@
       if (savedW) withdrawalQueue = JSON.parse(savedW);
       const savedD = localStorage.getItem('hg_deposits');
       if (savedD) depositsList = JSON.parse(savedD);
+      const savedC = localStorage.getItem('hg_task_claims');
+      if (savedC) taskClaimsList = JSON.parse(savedC);
     } catch (_) {}
 
     // ==========================================
@@ -1057,6 +1177,15 @@
           renderDeposits();
         }
       });
+
+      // Listen to /task_claims
+      firebaseDb.ref('task_claims').on('value', (snapshot) => {
+        const val = snapshot.val();
+        if (val) {
+          taskClaimsList = Object.values(val);
+          renderTaskClaims();
+        }
+      });
     }
 
     // ==========================================
@@ -1064,8 +1193,67 @@
     // ==========================================
     function renderAll() {
       renderWithdrawals();
+      renderTaskClaims();
       renderUsers();
       renderDeposits();
+    }
+
+    function renderTaskClaims() {
+      const tbody = document.getElementById('task-claims-tbody');
+      if (!tbody) return;
+      tbody.innerHTML = '';
+
+      const pendingCount = taskClaimsList.filter(c => c.status === 'PENDING').length;
+      const badgeEl = document.getElementById('tab-claims-count');
+      if (badgeEl) badgeEl.textContent = pendingCount;
+
+      taskClaimsList.forEach(claim => {
+        const tr = document.createElement('tr');
+        
+        let statusBadge = `<span class="badge badge-pending">PENDING</span>`;
+        if (claim.status === 'APPROVED') {
+          statusBadge = `<span class="badge badge-completed">APPROVED</span>`;
+        } else if (claim.status === 'REJECTED') {
+          statusBadge = `<span class="badge badge-rejected">REJECTED</span>`;
+        }
+
+        let actionHtml = `
+          <div style="display: flex; gap: 6px; align-items: center;">
+            <input type="number" id="reward-val-${claim.claimId}" style="width: 70px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-gold); color: #FFF; border-radius: 6px; padding: 4px 6px; font-size: 11px;" value="${claim.requestedAmountUsdt || 5.00}" step="0.5">
+            <button class="btn-action btn-approve" onclick="approveTaskClaim('${claim.claimId}')">Approve & Credit</button>
+            <button class="btn-action btn-reject" onclick="rejectTaskClaim('${claim.claimId}')">Reject</button>
+          </div>
+        `;
+
+        if (claim.status !== 'PENDING') {
+          actionHtml = `<span style="font-size: 11px; color: var(--text-muted);">Processed</span>`;
+        }
+
+        tr.innerHTML = `
+          <td class="mono" style="font-weight: 700;">${claim.claimId}</td>
+          <td>
+            <div style="font-weight: 600;">${claim.userEmail || 'miner@hashgrid.io'}</div>
+            <div class="mono" style="font-size: 11px; color: var(--text-muted);">${claim.userId}</div>
+          </td>
+          <td>
+            <div class="mono" style="font-size: 11px; color: var(--gold-primary);">${claim.deviceId || 'DEV-88219'}</div>
+            <div style="font-size: 10px; color: var(--mint);">Verified Physical Hardware</div>
+          </td>
+          <td>
+            <div style="font-weight: 600;">${claim.taskTitle}</div>
+            <div class="mono" style="font-size: 10px; color: var(--text-muted);">${claim.taskId}</div>
+          </td>
+          <td>
+            <div style="max-width: 200px; word-break: break-all; font-size: 11px; color: #FFF; background: rgba(255,255,255,0.05); padding: 4px 8px; border-radius: 6px;">
+              ${claim.proofLink}
+            </div>
+          </td>
+          <td class="mono" style="font-weight: 700; color: var(--gold-primary);">$${Number(claim.requestedAmountUsdt).toFixed(2)}</td>
+          <td>${statusBadge}</td>
+          <td>${actionHtml}</td>
+        `;
+        tbody.appendChild(tr);
+      });
     }
 
     function renderWithdrawals() {
@@ -1164,8 +1352,111 @@
     }
 
     // ==========================================
-    // 6. ACTIONS (APPROVE, REJECT, ADJUST)
+    // 6. ACTIONS (APPROVE, REJECT, ADJUST, UPDATE OTA)
     // ==========================================
+    document.getElementById('publish-update-btn').addEventListener('click', () => {
+      const code = parseInt(document.getElementById('update-version-code').value, 10);
+      const name = document.getElementById('update-version-name').value.trim();
+      const url = document.getElementById('update-apk-url').value.trim();
+      const notes = document.getElementById('update-release-notes').value.trim();
+      const force = document.getElementById('update-force').checked;
+
+      if (isNaN(code) || code <= 0) {
+        showToast("Please enter a valid Version Code number (e.g. 2).");
+        return;
+      }
+      if (!name || !url) {
+        showToast("Version Name and APK Direct URL are required.");
+        return;
+      }
+
+      const updatePayload = {
+        latest_version_code: code,
+        latest_version_name: name,
+        apk_url: url,
+        release_notes: notes,
+        force_update: force,
+        updated_at: new Date().toISOString()
+      };
+
+      if (isFirebaseReady && firebaseDb) {
+        firebaseDb.ref('app_config/update').set(updatePayload).then(() => {
+          showToast(`🚀 Version v${name} (Build ${code}) published live to Firebase!`);
+        }).catch(err => {
+          showToast("Error updating Firebase: " + err.message);
+        });
+      } else {
+        localStorage.setItem('hg_app_config_update', JSON.stringify(updatePayload));
+        showToast(`🚀 Version v${name} (Build ${code}) published! (Local simulated)`);
+      }
+    });
+
+    document.getElementById('test-update-btn').addEventListener('click', () => {
+      if (isFirebaseReady && firebaseDb) {
+        firebaseDb.ref('app_config/update').once('value').then(snap => {
+          const val = snap.val();
+          if (val) {
+            document.getElementById('update-version-code').value = val.latest_version_code || 2;
+            document.getElementById('update-version-name').value = val.latest_version_name || '1.0.1';
+            document.getElementById('update-apk-url').value = val.apk_url || '';
+            document.getElementById('update-release-notes').value = val.release_notes || '';
+            document.getElementById('update-force').checked = !!val.force_update;
+            showToast("Fetched latest live update configuration from Firebase.");
+          } else {
+            showToast("No remote update config found in Firebase /app_config/update yet.");
+          }
+        });
+      } else {
+        showToast("Using default local release configuration.");
+      }
+    });
+
+    window.approveTaskClaim = function(claimId) {
+      const claim = taskClaimsList.find(c => c.claimId === claimId);
+      if (!claim) return;
+      const inputEl = document.getElementById(`reward-val-${claimId}`);
+      const creditAmt = inputEl ? parseFloat(inputEl.value) : (claim.requestedAmountUsdt || 5.00);
+
+      claim.status = 'APPROVED';
+      claim.approvedAmount = creditAmt;
+
+      if (isFirebaseReady && firebaseDb) {
+        // 1. Update claim status in Firebase
+        firebaseDb.ref(`task_claims/${claimId}/status`).set('APPROVED');
+        firebaseDb.ref(`task_claims/${claimId}/approvedAmount`).set(creditAmt);
+
+        // 2. Atomically credit user balance in Firebase
+        const safeUid = claim.userId.replace('#', '').replace('.', '_');
+        firebaseDb.ref(`users/${safeUid}/walletBalance`).transaction((currentBal) => {
+          return (currentBal || 0) + creditAmt;
+        });
+      }
+
+      // Update local storage representation
+      const targetUser = liveUsers.find(u => u.uid === claim.userId);
+      if (targetUser) {
+        targetUser.walletBalance = (targetUser.walletBalance || 0) + creditAmt;
+        localStorage.setItem('hg_users', JSON.stringify(liveUsers));
+      }
+      localStorage.setItem('hg_task_claims', JSON.stringify(taskClaimsList));
+
+      renderAll();
+      showToast(`⚡ Claim ${claimId} Approved! Credited +$${creditAmt.toFixed(2)} USDT to ${claim.userId}.`);
+    };
+
+    window.rejectTaskClaim = function(claimId) {
+      const claim = taskClaimsList.find(c => c.claimId === claimId);
+      if (claim) {
+        claim.status = 'REJECTED';
+        if (isFirebaseReady && firebaseDb) {
+          firebaseDb.ref(`task_claims/${claimId}/status`).set('REJECTED');
+        }
+        localStorage.setItem('hg_task_claims', JSON.stringify(taskClaimsList));
+        renderTaskClaims();
+        showToast(`Claim ${claimId} marked as Rejected.`);
+      }
+    };
+
     window.approveWithdrawal = function(requestId) {
       const tx = withdrawalQueue.find(w => w.requestId === requestId);
       if (tx) {

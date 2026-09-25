@@ -18,13 +18,27 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Setup Environment and Keystore
+      - name: Setup Environment
         run: |
           if [ ! -f .env ]; then
             cp .env.example .env 2>/dev/null || touch .env
           fi
-          keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
-          cp debug.keystore app/debug.keystore 2>/dev/null || true
+          if [ -f debug.keystore.base64 ] && [ ! -f debug.keystore ]; then
+            base64 -d debug.keystore.base64 > debug.keystore 2>/dev/null || true
+          fi
+          if [ -f debug.keystore ] && [ ! -f app/debug.keystore ]; then
+            cp debug.keystore app/debug.keystore 2>/dev/null || true
+          fi
+
+      - name: Print Keystore SHA Fingerprints for Firebase
+        run: |
+          KEY_PATH="app/debug.keystore"
+          if [ ! -f "$KEY_PATH" ]; then KEY_PATH="debug.keystore"; fi
+          if [ -f "$KEY_PATH" ]; then
+            echo "================ KEYSTORE FINGERPRINTS ================"
+            keytool -list -v -keystore "$KEY_PATH" -alias androiddebugkey -storepass android || true
+            echo "======================================================="
+          fi
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4

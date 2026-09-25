@@ -1,0 +1,40 @@
+{
+  "rules": {
+    "app_config": {
+      "update": {
+        ".read": true,
+        ".write": "auth != null && auth.token.admin === true"
+      }
+    },
+    "users": {
+      "$uid": {
+        "profile": {
+          ".read": true,
+          ".write": "auth != null && auth.uid == $uid"
+        },
+        "wallet": {
+          ".read": "auth != null && auth.uid == $uid",
+          ".write": "auth != null && auth.token.admin === true"
+        }
+      }
+    },
+    "device_registry": {
+      ".read": true,
+      ".write": "auth != null"
+    },
+    "task_claims": {
+      ".read": true,
+      "$claimId": {
+        ".write": "auth != null && (!data.exists() || auth.token.admin === true)"
+      }
+    },
+    "withdrawals": {
+      ".read": true,
+      ".write": "auth != null"
+    },
+    "deposits": {
+      ".read": true,
+      ".write": "auth != null"
+    }
+  }
+}
