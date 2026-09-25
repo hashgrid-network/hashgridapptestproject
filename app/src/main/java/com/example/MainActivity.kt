@@ -47,6 +47,7 @@ import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.PlansScreen
 import com.example.ui.screens.WalletScreen
 import com.example.ui.theme.CanvasBackground
+import com.google.firebase.FirebaseApp
 import com.example.ui.theme.HashGridTheme
 import com.example.viewmodel.HashGridViewModel
 
@@ -54,8 +55,21 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        AuthService.init(this)
-        AppUpdateManager.initialize(this)
+        try {
+            FirebaseApp.initializeApp(applicationContext)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        try {
+            AuthService.init(this)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        try {
+            AppUpdateManager.initialize(this)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
         setContent {
             HashGridTheme {
                 HashGridApp()

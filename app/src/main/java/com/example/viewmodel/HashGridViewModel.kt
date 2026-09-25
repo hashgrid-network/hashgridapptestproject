@@ -241,34 +241,46 @@ class HashGridViewModel : ViewModel() {
     val miningSessionEndTimestamp: StateFlow<Long> = _miningSessionEndTimestamp.asStateFlow()
 
     init {
-        BinanceWebSocketService.start()
+        try {
+            BinanceWebSocketService.start()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
 
         viewModelScope.launch {
-            BinanceWebSocketService.tickers.collect { tickers ->
-                tickers.find { it.id.equals("BTCUSDT", ignoreCase = true) || it.id.equals("btc", ignoreCase = true) }?.let { btcTicker ->
-                    _btcPrice.value = btcTicker.price
+            try {
+                BinanceWebSocketService.tickers.collect { tickers ->
+                    try {
+                        tickers.find { it.id.equals("BTCUSDT", ignoreCase = true) || it.id.equals("btc", ignoreCase = true) }?.let { btcTicker ->
+                            _btcPrice.value = btcTicker.price
+                        }
+                        tickers.find { it.id.equals("KASUSDT", ignoreCase = true) || it.id.equals("kas", ignoreCase = true) }?.let { kasTicker ->
+                            _kasPrice.value = kasTicker.price
+                        }
+                    } catch (_: Exception) {}
                 }
-                tickers.find { it.id.equals("KASUSDT", ignoreCase = true) || it.id.equals("kas", ignoreCase = true) }?.let { kasTicker ->
-                    _kasPrice.value = kasTicker.price
-                }
-            }
+            } catch (_: Exception) {}
         }
 
         // Attach listener for currently logged in user
         viewModelScope.launch {
-            AuthService.currentUser.collect { user ->
-                if (user != null && user.id.isNotBlank()) {
-                    FirebaseSyncService.startRealtimeBalanceListener(user.id) { remoteBal ->
-                        _walletBalanceUsdt.value = remoteBal
-                    }
-                } else {
-                    _walletBalanceUsdt.value = 0.00
-                    _hashPower.value = 0.0
-                    _activeContracts.value = emptyList()
-                    _activityList.value = emptyList()
-                    _payoutsList.value = emptyList()
+            try {
+                AuthService.currentUser.collect { user ->
+                    try {
+                        if (user != null && user.id.isNotBlank()) {
+                            FirebaseSyncService.startRealtimeBalanceListener(user.id) { remoteBal ->
+                                _walletBalanceUsdt.value = remoteBal
+                            }
+                        } else {
+                            _walletBalanceUsdt.value = 0.00
+                            _hashPower.value = 0.0
+                            _activeContracts.value = emptyList()
+                            _activityList.value = emptyList()
+                            _payoutsList.value = emptyList()
+                        }
+                    } catch (_: Exception) {}
                 }
-            }
+            } catch (_: Exception) {}
         }
     }
 
