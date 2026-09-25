@@ -18,13 +18,13 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Setup Environment & Keystore
+      - name: Setup Environment
         run: |
-          if [ -f debug.keystore.base64 ]; then
-            base64 -d debug.keystore.base64 > debug.keystore
-          fi
           if [ ! -f .env ]; then
             cp .env.example .env 2>/dev/null || touch .env
+          fi
+          if [ -f debug.keystore.base64 ] && [ ! -f debug.keystore ]; then
+            base64 -d debug.keystore.base64 > debug.keystore 2>/dev/null || true
           fi
 
       - name: Setup Gradle
@@ -33,7 +33,13 @@ jobs:
           gradle-version: '9.3.1'
 
       - name: Build Debug APK
-        run: gradle :app:assembleDebug --stacktrace
+        run: |
+          if [ -f ./gradlew ]; then
+            chmod +x ./gradlew
+            ./gradlew assembleDebug --no-daemon --stacktrace
+          else
+            gradle :app:assembleDebug --no-daemon --stacktrace
+          fi
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
