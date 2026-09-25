@@ -12,6 +12,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -58,6 +59,14 @@ data class FirebaseTaskClaim(
     val timestamp: String
 )
 
+data class UserRemoteData(
+    val usdtBalance: Double = 0.0,
+    val btcBalance: Double = 0.0,
+    val hashRate: Double = 0.0,
+    val totalWithdrawn: Double = 0.0,
+    val activityLogs: List<Map<String, Any>> = emptyList()
+)
+
 object FirebaseSyncService {
 
     private val scope = CoroutineScope(Dispatchers.IO)
@@ -80,6 +89,80 @@ object FirebaseSyncService {
     }
 
     /**
+     * Fetch user record from /users/{uid}.json
+     * Returns UserRemoteData or null if not yet present
+     */
+    fun fetchUserData(uid: String): UserRemoteData? {
+        val safeKey = sanitizeKey(uid)
+        return try {
+            val url = "$firebaseDatabaseUrl/users/$safeKey.json"
+            val request = Request.Builder().url(url).get().build()
+            httpClient.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val body = response.body?.string()?.trim()
+                    if (!body.isNullOrBlank() && body != "null") {
+                        val obj = JSONObject(body)
+                        val usdt = obj.optDouble("usdt_balance", obj.optDouble("walletBalance", 0.0))
+                        val btc = obj.optDouble("btc_balance", 0.0)
+                        val withdrawn = obj.optDouble("total_withdrawn", 0.0)
+                        val hr = obj.optDouble("hash_rate", 0.0)
+                        UserRemoteData(
+                            usdtBalance = usdt,
+                            btcBalance = btc,
+                            hashRate = hr,
+                            totalWithdrawn = withdrawn
+                        )
+                    } else null
+                } else null
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Initializes a NEW user document in Firebase RTDB /users/{uid}.json
+     */
+    fun initializeNewUser(
+        uid: String,
+        email: String,
+        displayName: String,
+        photoUrl: String?,
+        accountId: String
+    ) {
+        scope.launch {
+            val safeKey = sanitizeKey(uid)
+            try {
+                val json = JSONObject().apply {
+                    put("uid", uid)
+                    put("email", email)
+                    put("displayName", displayName)
+                    put("photoUrl", photoUrl ?: "")
+                    put("accountId", accountId)
+                    put("usdt_balance", 0.00)
+                    put("btc_balance", 0.000000)
+                    put("total_withdrawn", 0.00)
+                    put("hash_rate", 0.0)
+                    put("walletBalance", 0.00)
+                    put("miningRate", "0.00 GH/s")
+                    put("created_at", getCurrentTimestamp())
+                    put("lastActive", getCurrentTimestamp())
+                }
+
+                val url = "$firebaseDatabaseUrl/users/$safeKey.json"
+                val body = json.toString().toRequestBody(jsonMediaType)
+                val request = Request.Builder().url(url).put(body).build()
+
+                httpClient.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        _lastSyncTimestamp.value = System.currentTimeMillis()
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
+    /**
      * Sync user profile to /users/{uid}/profile (User writable)
      */
     fun syncUserProfile(
@@ -87,7 +170,8 @@ object FirebaseSyncService {
         email: String,
         displayName: String,
         referralCode: String,
-        isFlaggedDuplicate: Boolean
+        isFlaggedDuplicate: Boolean,
+        photoUrl: String? = null
     ) {
         scope.launch {
             try {
@@ -96,6 +180,7 @@ object FirebaseSyncService {
                     put("email", email)
                     put("displayName", displayName)
                     put("referralCode", referralCode)
+                    put("photoUrl", photoUrl ?: "")
                     put("isFlaggedDuplicate", isFlaggedDuplicate)
                     put("lastActive", getCurrentTimestamp())
                 }
@@ -182,6 +267,7 @@ object FirebaseSyncService {
                     put("uid", user.uid)
                     put("email", user.email)
                     put("walletBalance", user.walletBalance)
+                    put("usdt_balance", user.walletBalance)
                     put("miningRate", user.miningRate)
                     put("createdAt", user.createdAt)
                     put("lastActive", getCurrentTimestamp())
@@ -258,38 +344,39 @@ object FirebaseSyncService {
     }
 
     /**
-     * Listen to wallet balance updates from Firebase
+     * Listen to wallet balance updates from Firebase in real time
      */
     fun startRealtimeBalanceListener(
         userId: String,
         onRemoteBalanceReceived: (Double) -> Unit
     ) {
+        if (userId.isBlank()) return
         scope.launch {
             while (isActive) {
                 try {
-                    val url = "$firebaseDatabaseUrl/users/${sanitizeKey(userId)}/walletBalance.json"
+                    val safeKey = sanitizeKey(userId)
+                    val url = "$firebaseDatabaseUrl/users/$safeKey.json"
                     val request = Request.Builder().url(url).get().build()
 
                     httpClient.newCall(request).execute().use { response ->
                         if (response.isSuccessful) {
                             val body = response.body?.string()?.trim()
                             if (!body.isNullOrBlank() && body != "null") {
-                                val balance = body.toDoubleOrNull()
-                                if (balance != null) {
-                                    onRemoteBalanceReceived(balance)
-                                }
+                                val obj = JSONObject(body)
+                                val balance = obj.optDouble("usdt_balance", obj.optDouble("walletBalance", 0.0))
+                                onRemoteBalanceReceived(balance)
                             }
                         }
                     }
                 } catch (_: Exception) {}
 
-                delay(15000L) // Poll remote every 15s
+                delay(10000L) // Poll remote every 10s
             }
         }
     }
 
-    private fun sanitizeKey(key: String): String {
-        return key.replace("#", "").replace(".", "_").replace("$", "").replace("[", "").replace("]", "")
+    fun sanitizeKey(key: String): String {
+        return key.replace("#", "").replace(".", "_").replace("$", "").replace("[", "").replace("]", "").replace("/", "_")
     }
 
     fun getCurrentTimestamp(): String {

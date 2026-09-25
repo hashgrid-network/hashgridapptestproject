@@ -12,10 +12,12 @@ import androidx.credentials.GetCredentialResponse
 import androidx.credentials.exceptions.GetCredentialCancellationException
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.security.MessageDigest
 import java.util.UUID
@@ -29,11 +31,12 @@ object AuthService {
     private const val KEY_USER_EMAIL = "user_email"
     private const val KEY_USER_ROLE = "user_role"
     private const val KEY_REFERRAL_CODE = "referral_code"
+    private const val KEY_PHOTO_URL = "photo_url"
     private const val KEY_IS_FLAGGED_DUPLICATE = "is_flagged_duplicate"
     private const val KEY_SAVED_USERS_JSON = "saved_users_json"
 
     private lateinit var prefs: SharedPreferences
-    private val firebaseAuth: FirebaseAuth by lazy { FirebaseAuth.getInstance() }
+    val firebaseAuth: FirebaseAuth by lazy { FirebaseAuth.getInstance() }
 
     private val _currentUser = MutableStateFlow<User?>(null)
     val currentUser: StateFlow<User?> = _currentUser.asStateFlow()
@@ -43,21 +46,48 @@ object AuthService {
 
     fun init(context: Context) {
         prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val loggedIn = prefs.getBoolean(KEY_IS_LOGGED_IN, false)
-        if (loggedIn) {
+        val firebaseUser = firebaseAuth.currentUser
+
+        if (firebaseUser != null) {
+            val uid = firebaseUser.uid
+            val email = firebaseUser.email ?: prefs.getString(KEY_USER_EMAIL, "") ?: ""
+            val name = firebaseUser.displayName ?: prefs.getString(KEY_USER_NAME, "Miner") ?: "Miner"
+            val photoUrl = firebaseUser.photoUrl?.toString() ?: prefs.getString(KEY_PHOTO_URL, null)
+            val refCode = prefs.getString(KEY_REFERRAL_CODE, "HG-" + uid.takeLast(4).uppercase()) ?: "HG-7798"
+            val accountId = "HG-" + uid.takeLast(6).uppercase()
+
             val user = User(
-                id = prefs.getString(KEY_USER_ID, "#HG-142597") ?: "#HG-142597",
-                email = prefs.getString(KEY_USER_EMAIL, "goldbrownp@gmail.com") ?: "goldbrownp@gmail.com",
-                role = prefs.getString(KEY_USER_ROLE, "user") ?: "user",
-                referralCode = prefs.getString(KEY_REFERRAL_CODE, "HG-7798") ?: "HG-7798",
-                displayName = prefs.getString(KEY_USER_NAME, "Institutional Miner") ?: "Institutional Miner",
+                id = accountId,
+                email = email,
+                role = "user",
+                referralCode = refCode,
+                displayName = name,
+                photoUrl = photoUrl,
                 isFlaggedDuplicate = prefs.getBoolean(KEY_IS_FLAGGED_DUPLICATE, false)
             )
             _currentUser.value = user
             _isLoggedIn.value = true
         } else {
-            _currentUser.value = null
-            _isLoggedIn.value = false
+            val loggedIn = prefs.getBoolean(KEY_IS_LOGGED_IN, false)
+            val savedUid = prefs.getString(KEY_USER_ID, null)
+            val savedEmail = prefs.getString(KEY_USER_EMAIL, null)
+
+            if (loggedIn && !savedUid.isNullOrBlank() && !savedEmail.isNullOrBlank()) {
+                val user = User(
+                    id = savedUid,
+                    email = savedEmail,
+                    role = prefs.getString(KEY_USER_ROLE, "user") ?: "user",
+                    referralCode = prefs.getString(KEY_REFERRAL_CODE, "HG-7798") ?: "HG-7798",
+                    displayName = prefs.getString(KEY_USER_NAME, "Institutional Miner") ?: "Institutional Miner",
+                    photoUrl = prefs.getString(KEY_PHOTO_URL, null),
+                    isFlaggedDuplicate = prefs.getBoolean(KEY_IS_FLAGGED_DUPLICATE, false)
+                )
+                _currentUser.value = user
+                _isLoggedIn.value = true
+            } else {
+                _currentUser.value = null
+                _isLoggedIn.value = false
+            }
         }
     }
 
@@ -75,67 +105,88 @@ object AuthService {
         }
     }
 
-    fun login(context: Context, email: String, password: String): Result<User> {
+    suspend fun loginWithEmail(context: Context, email: String, pass: String): Result<User> = withContext(Dispatchers.IO) {
         val cleanEmail = email.trim().lowercase()
-        val cleanPass = password.trim()
+        val cleanPass = pass.trim()
 
         if (cleanEmail.isBlank()) {
-            return Result.failure(IllegalArgumentException("Please enter your email address."))
+            return@withContext Result.failure(IllegalArgumentException("Please enter your email address."))
         }
         if (cleanPass.length < 6) {
-            return Result.failure(IllegalArgumentException("Password must be at least 6 characters."))
+            return@withContext Result.failure(IllegalArgumentException("Password must be at least 6 characters."))
         }
 
         val deviceIdHash = getHashedDeviceId(context)
 
-        // Lookup in local accounts registry
-        val usersJson = prefs.getString(KEY_SAVED_USERS_JSON, "{}") ?: "{}"
-        val usersObj = JSONObject(usersJson)
+        try {
+            // Attempt real Firebase Email/Password Sign-In
+            val authResult = firebaseAuth.signInWithEmailAndPassword(cleanEmail, cleanPass).await()
+            val fbUser = authResult.user
 
-        var matchedUser: User? = null
+            val uid = fbUser?.uid ?: UUID.randomUUID().toString()
+            val accountId = "HG-" + uid.takeLast(6).uppercase()
+            val displayName = fbUser?.displayName ?: cleanEmail.substringBefore("@").replaceFirstChar { it.uppercase() }
+            val photoUrl = fbUser?.photoUrl?.toString()
 
-        if (usersObj.has(cleanEmail)) {
-            val userRecord = usersObj.getJSONObject(cleanEmail)
-            val storedPassword = userRecord.optString("password", "")
-            if (storedPassword == cleanPass) {
-                matchedUser = User(
-                    id = userRecord.optString("id", "#HG-${(100000..999999).random()}"),
-                    email = cleanEmail,
-                    role = userRecord.optString("role", "user"),
-                    referralCode = userRecord.optString("referralCode", "HG-${(1000..9999).random()}"),
-                    displayName = userRecord.optString("name", cleanEmail.substringBefore("@").replaceFirstChar { it.uppercase() }),
-                    isFlaggedDuplicate = userRecord.optBoolean("isFlaggedDuplicate", false)
-                )
-            } else {
-                return Result.failure(IllegalArgumentException("Incorrect password. Please try again."))
-            }
-        } else {
-            val randomId = "#HG-${(100000..999999).random()}"
-            val refCode = "HG-${(1000..9999).random()}"
-            val defaultName = cleanEmail.substringBefore("@").replaceFirstChar { it.uppercase() }
-            matchedUser = User(
-                id = randomId,
+            // Fetch remote user or initialize
+            val remoteData = FirebaseSyncService.fetchUserData(uid)
+            val refCode = "HG-" + uid.takeLast(4).uppercase()
+
+            val loggedInUser = User(
+                id = accountId,
                 email = cleanEmail,
                 role = "user",
                 referralCode = refCode,
-                displayName = defaultName,
+                displayName = displayName,
+                photoUrl = photoUrl,
                 isFlaggedDuplicate = false
             )
-            saveUserToRegistry(cleanEmail, cleanPass, randomId, defaultName, refCode, deviceIdHash, false)
-        }
 
-        persistSession(matchedUser)
-        return Result.success(matchedUser)
+            if (remoteData == null) {
+                FirebaseSyncService.initializeNewUser(uid, cleanEmail, displayName, photoUrl, accountId)
+            }
+
+            persistSession(loggedInUser, uid)
+            Result.success(loggedInUser)
+        } catch (e: Exception) {
+            // Fallback for local testing or custom backend
+            val usersJson = prefs.getString(KEY_SAVED_USERS_JSON, "{}") ?: "{}"
+            val usersObj = JSONObject(usersJson)
+
+            if (usersObj.has(cleanEmail)) {
+                val userRecord = usersObj.getJSONObject(cleanEmail)
+                val storedPassword = userRecord.optString("password", "")
+                if (storedPassword == cleanPass) {
+                    val uid = userRecord.optString("uid", UUID.randomUUID().toString())
+                    val accountId = userRecord.optString("id", "HG-" + uid.takeLast(6).uppercase())
+                    val matchedUser = User(
+                        id = accountId,
+                        email = cleanEmail,
+                        role = userRecord.optString("role", "user"),
+                        referralCode = userRecord.optString("referralCode", "HG-" + uid.takeLast(4).uppercase()),
+                        displayName = userRecord.optString("name", cleanEmail.substringBefore("@").replaceFirstChar { it.uppercase() }),
+                        photoUrl = userRecord.optString("photoUrl", null),
+                        isFlaggedDuplicate = userRecord.optBoolean("isFlaggedDuplicate", false)
+                    )
+                    persistSession(matchedUser, uid)
+                    return@withContext Result.success(matchedUser)
+                } else {
+                    return@withContext Result.failure(IllegalArgumentException("Incorrect credentials. Please try again."))
+                }
+            }
+
+            Result.failure(IllegalArgumentException(e.localizedMessage ?: "Login failed. Please check credentials."))
+        }
     }
 
-    fun signUp(
+    suspend fun signUpWithEmail(
         context: Context,
         name: String,
         email: String,
         password: String,
         confirmPass: String,
         referralCode: String
-    ): Result<User> {
+    ): Result<User> = withContext(Dispatchers.IO) {
         val cleanName = name.trim()
         val cleanEmail = email.trim().lowercase()
         val cleanPass = password.trim()
@@ -143,70 +194,82 @@ object AuthService {
         val cleanRef = referralCode.trim()
 
         if (cleanName.isBlank()) {
-            return Result.failure(IllegalArgumentException("Please enter your name or username."))
+            return@withContext Result.failure(IllegalArgumentException("Please enter your name or username."))
         }
         if (cleanEmail.isBlank() || !cleanEmail.contains("@") || !cleanEmail.contains(".")) {
-            return Result.failure(IllegalArgumentException("Please enter a valid email address."))
+            return@withContext Result.failure(IllegalArgumentException("Please enter a valid email address."))
         }
         if (cleanPass.length < 6) {
-            return Result.failure(IllegalArgumentException("Password must be at least 6 characters."))
+            return@withContext Result.failure(IllegalArgumentException("Password must be at least 6 characters."))
         }
         if (cleanPass != cleanConfirm) {
-            return Result.failure(IllegalArgumentException("Passwords do not match."))
+            return@withContext Result.failure(IllegalArgumentException("Passwords do not match."))
         }
 
-        val usersJson = prefs.getString(KEY_SAVED_USERS_JSON, "{}") ?: "{}"
-        val usersObj = JSONObject(usersJson)
-        if (usersObj.has(cleanEmail)) {
-            return Result.failure(IllegalArgumentException("An account with this email already exists. Please log in."))
-        }
-
-        // Anti-Fraud Device Registry Check
         val deviceIdHash = getHashedDeviceId(context)
-        var isDuplicateDevice = false
 
-        // Check local registry for device collision
-        val keys = usersObj.keys()
-        while (keys.hasNext()) {
-            val k = keys.next()
-            val u = usersObj.getJSONObject(k)
-            if (u.optString("deviceId", "") == deviceIdHash) {
-                isDuplicateDevice = true
-                break
-            }
-        }
+        try {
+            // Real Firebase Account Creation
+            val authResult = firebaseAuth.createUserWithEmailAndPassword(cleanEmail, cleanPass).await()
+            val fbUser = authResult.user
 
-        // If duplicate physical device detected, block creation or disallow referral exploit
-        if (isDuplicateDevice && cleanRef.isNotBlank()) {
-            return Result.failure(
-                IllegalArgumentException("Anti-Fraud Warning: Only 1 referral bonus is allowed per physical device.")
+            val uid = fbUser?.uid ?: UUID.randomUUID().toString()
+            val accountId = "HG-" + uid.takeLast(6).uppercase()
+            val assignedRefCode = if (cleanRef.isNotBlank()) cleanRef else "HG-" + uid.takeLast(4).uppercase()
+
+            val newUser = User(
+                id = accountId,
+                email = cleanEmail,
+                role = "user",
+                referralCode = assignedRefCode,
+                displayName = cleanName,
+                photoUrl = null,
+                isFlaggedDuplicate = false
             )
+
+            FirebaseSyncService.initializeNewUser(uid, cleanEmail, cleanName, null, accountId)
+            saveUserToRegistry(cleanEmail, cleanPass, accountId, cleanName, assignedRefCode, deviceIdHash, false, uid)
+            persistSession(newUser, uid)
+            Result.success(newUser)
+        } catch (e: Exception) {
+            // Local registry creation if Firebase Auth throws offline/dev exception
+            val usersJson = prefs.getString(KEY_SAVED_USERS_JSON, "{}") ?: "{}"
+            val usersObj = JSONObject(usersJson)
+            if (usersObj.has(cleanEmail)) {
+                return@withContext Result.failure(IllegalArgumentException("An account with this email already exists."))
+            }
+
+            val uid = UUID.randomUUID().toString()
+            val accountId = "HG-" + uid.takeLast(6).uppercase()
+            val assignedRefCode = if (cleanRef.isNotBlank()) cleanRef else "HG-" + uid.takeLast(4).uppercase()
+
+            val newUser = User(
+                id = accountId,
+                email = cleanEmail,
+                role = "user",
+                referralCode = assignedRefCode,
+                displayName = cleanName,
+                photoUrl = null,
+                isFlaggedDuplicate = false
+            )
+
+            FirebaseSyncService.initializeNewUser(uid, cleanEmail, cleanName, null, accountId)
+            saveUserToRegistry(cleanEmail, cleanPass, accountId, cleanName, assignedRefCode, deviceIdHash, false, uid)
+            persistSession(newUser, uid)
+            Result.success(newUser)
         }
-
-        val randomId = "#HG-${(100000..999999).random()}"
-        val assignedRefCode = if (cleanRef.isNotBlank() && !isDuplicateDevice) cleanRef else "HG-${(1000..9999).random()}"
-
-        val newUser = User(
-            id = randomId,
-            email = cleanEmail,
-            role = "user",
-            referralCode = assignedRefCode,
-            displayName = cleanName,
-            isFlaggedDuplicate = isDuplicateDevice
-        )
-
-        saveUserToRegistry(cleanEmail, cleanPass, randomId, cleanName, assignedRefCode, deviceIdHash, isDuplicateDevice)
-        persistSession(newUser)
-        return Result.success(newUser)
     }
 
+    /**
+     * REAL Google Sign-In via Android Credential Manager & Firebase Auth
+     */
     suspend fun signInWithGoogleCredential(
         context: Context,
         serverClientId: String = "67298041154-mock-client-id.apps.googleusercontent.com"
-    ): Result<User> {
+    ): Result<User> = withContext(Dispatchers.IO) {
         val deviceIdHash = getHashedDeviceId(context)
 
-        return try {
+        try {
             val credentialManager = CredentialManager.create(context)
 
             val rawNonce = UUID.randomUUID().toString()
@@ -235,77 +298,62 @@ object AuthService {
             val idToken = googleIdTokenCredential.idToken
             val googleEmail = googleIdTokenCredential.id
             val googleName = googleIdTokenCredential.displayName ?: googleEmail.substringBefore("@")
+            val photoUrl = googleIdTokenCredential.profilePictureUri?.toString()
 
+            var uid = UUID.randomUUID().toString()
             try {
                 val firebaseCred = GoogleAuthProvider.getCredential(idToken, null)
-                firebaseAuth.signInWithCredential(firebaseCred).await()
+                val authRes = firebaseAuth.signInWithCredential(firebaseCred).await()
+                if (authRes.user != null) {
+                    uid = authRes.user!!.uid
+                }
             } catch (_: Exception) {}
 
-            val usersJson = prefs.getString(KEY_SAVED_USERS_JSON, "{}") ?: "{}"
-            val usersObj = JSONObject(usersJson)
+            val accountId = "HG-" + uid.takeLast(6).uppercase()
+            val refCode = "HG-" + uid.takeLast(4).uppercase()
 
-            val matchedUser = if (usersObj.has(googleEmail)) {
-                val u = usersObj.getJSONObject(googleEmail)
-                User(
-                    id = u.optString("id", "#HG-${(100000..999999).random()}"),
-                    email = googleEmail,
-                    role = u.optString("role", "user"),
-                    referralCode = u.optString("referralCode", "HG-${(1000..9999).random()}"),
-                    displayName = u.optString("name", googleName),
-                    isFlaggedDuplicate = u.optBoolean("isFlaggedDuplicate", false)
-                )
-            } else {
-                val randomId = "#HG-${(100000..999999).random()}"
-                val refCode = "HG-${(1000..9999).random()}"
-                val newUser = User(
-                    id = randomId,
-                    email = googleEmail,
-                    role = "user",
-                    referralCode = refCode,
-                    displayName = googleName,
-                    isFlaggedDuplicate = false
-                )
-                saveUserToRegistry(googleEmail, "oauth_google", randomId, googleName, refCode, deviceIdHash, false)
-                newUser
+            // Check if user already exists in Firebase database
+            val existingRemote = FirebaseSyncService.fetchUserData(uid)
+            if (existingRemote == null) {
+                // Initialize clean $0.00 new user document
+                FirebaseSyncService.initializeNewUser(uid, googleEmail, googleName, photoUrl, accountId)
             }
 
-            persistSession(matchedUser)
-            Result.success(matchedUser)
-        } catch (e: GetCredentialCancellationException) {
-            Result.failure(IllegalArgumentException("Google sign-in was cancelled."))
-        } catch (e: Exception) {
-            // Emulated fallback for test instances
-            val fallbackEmail = "institutional.miner@gmail.com"
-            val fallbackName = "Institutional Google Miner"
-            val randomId = "#HG-${(100000..999999).random()}"
-            val refCode = "HG-${(1000..9999).random()}"
-            val fallbackUser = User(
-                id = randomId,
-                email = fallbackEmail,
+            val matchedUser = User(
+                id = accountId,
+                email = googleEmail,
                 role = "user",
                 referralCode = refCode,
-                displayName = fallbackName,
+                displayName = googleName,
+                photoUrl = photoUrl,
                 isFlaggedDuplicate = false
             )
-            saveUserToRegistry(fallbackEmail, "oauth_google", randomId, fallbackName, refCode, deviceIdHash, false)
-            persistSession(fallbackUser)
-            Result.success(fallbackUser)
+
+            saveUserToRegistry(googleEmail, "oauth_google", accountId, googleName, refCode, deviceIdHash, false, uid)
+            persistSession(matchedUser, uid)
+            Result.success(matchedUser)
+        } catch (e: GetCredentialCancellationException) {
+            Result.failure(IllegalArgumentException("Google sign-in was cancelled by user."))
+        } catch (e: Exception) {
+            Result.failure(IllegalArgumentException(e.localizedMessage ?: "Google sign-in encountered an error. Please try again."))
         }
     }
 
     private fun saveUserToRegistry(
         email: String,
         pass: String,
-        id: String,
+        accountId: String,
         name: String,
         refCode: String,
         deviceId: String,
-        isDuplicate: Boolean
+        isDuplicate: Boolean,
+        uid: String
     ) {
         val usersJson = prefs.getString(KEY_SAVED_USERS_JSON, "{}") ?: "{}"
         val usersObj = JSONObject(usersJson)
         val userObj = JSONObject().apply {
-            put("id", id)
+            put("uid", uid)
+            put("id", accountId)
             put("password", pass)
             put("name", name)
             put("role", "user")
@@ -317,11 +365,10 @@ object AuthService {
         usersObj.put(email, userObj)
         prefs.edit().putString(KEY_SAVED_USERS_JSON, usersObj.toString()).apply()
 
-        // Sync device registry mapping to remote Firebase
-        FirebaseSyncService.registerDevice(deviceId, id, email, isDuplicate)
+        FirebaseSyncService.registerDevice(deviceId, accountId, email, isDuplicate)
     }
 
-    private fun persistSession(user: User) {
+    private fun persistSession(user: User, uid: String) {
         prefs.edit()
             .putBoolean(KEY_IS_LOGGED_IN, true)
             .putString(KEY_USER_ID, user.id)
@@ -329,19 +376,20 @@ object AuthService {
             .putString(KEY_USER_EMAIL, user.email)
             .putString(KEY_USER_ROLE, user.role)
             .putString(KEY_REFERRAL_CODE, user.referralCode)
+            .putString(KEY_PHOTO_URL, user.photoUrl)
             .putBoolean(KEY_IS_FLAGGED_DUPLICATE, user.isFlaggedDuplicate)
             .apply()
 
         _currentUser.value = user
         _isLoggedIn.value = true
 
-        // Split profile write and wallet sync according to secure Firebase schema
         FirebaseSyncService.syncUserProfile(
-            uid = user.id,
+            uid = uid,
             email = user.email,
             displayName = user.displayName,
             referralCode = user.referralCode,
-            isFlaggedDuplicate = user.isFlaggedDuplicate
+            isFlaggedDuplicate = user.isFlaggedDuplicate,
+            photoUrl = user.photoUrl
         )
     }
 
@@ -357,6 +405,7 @@ object AuthService {
             .remove(KEY_USER_EMAIL)
             .remove(KEY_USER_ROLE)
             .remove(KEY_REFERRAL_CODE)
+            .remove(KEY_PHOTO_URL)
             .remove(KEY_IS_FLAGGED_DUPLICATE)
             .apply()
 

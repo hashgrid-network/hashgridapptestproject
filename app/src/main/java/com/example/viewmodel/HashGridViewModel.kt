@@ -15,6 +15,7 @@ import com.example.model.MilestoneStatus
 import com.example.model.MiningPlan
 import com.example.model.PayoutItem
 import com.example.model.PayoutStatus
+import com.example.model.PriceDirection
 import com.example.model.User
 import com.example.service.AppUpdateInfo
 import com.example.service.AppUpdateManager
@@ -27,24 +28,20 @@ import com.example.service.FirebaseUser
 import com.example.service.FirebaseWithdrawal
 import com.example.service.GeminiSupportService
 import com.example.service.UpdateStatus
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import kotlin.random.Random
+import java.util.UUID
 
 class HashGridViewModel : ViewModel() {
 
     // --- Navigation & Sub-Tabs ---
-    private val _currentTab = MutableStateFlow(0) // 0:Home, 1:Plans, 2:Wallet, 3:Growth, 4:Account
+    private val _currentTab = MutableStateFlow(0) // 0: Home, 1: Plans, 2: Wallet, 3: Growth, 4: Account
     val currentTab: StateFlow<Int> = _currentTab.asStateFlow()
 
-    private val _plansSubTab = MutableStateFlow(0) // 0: Marketplace, 1: Active
+    private val _plansSubTab = MutableStateFlow(0) // 0: Active Mining, 1: Hardware Marketplace
     val plansSubTab: StateFlow<Int> = _plansSubTab.asStateFlow()
 
     private val _walletSubTab = MutableStateFlow(0) // 0: Activity, 1: Payouts
@@ -57,19 +54,20 @@ class HashGridViewModel : ViewModel() {
     private val _kasPrice = MutableStateFlow(0.1428)
     val kasPrice: StateFlow<Double> = _kasPrice.asStateFlow()
 
-    private val _hashPower = MutableStateFlow(520.87)
+    private val _hashPower = MutableStateFlow(0.0)
     val hashPower: StateFlow<Double> = _hashPower.asStateFlow()
 
     // --- User Profile & Auth State ---
     val currentUser: StateFlow<User?> = AuthService.currentUser
     val isLoggedIn: StateFlow<Boolean> = AuthService.isLoggedIn
 
-    val userId: String get() = currentUser.value?.id ?: "#HG-142597"
-    val userEmail: String get() = currentUser.value?.email ?: "goldbrownp@gmail.com"
-    val userDisplayName: String get() = currentUser.value?.displayName ?: "Institutional Miner"
+    val userId: String get() = currentUser.value?.id?.ifBlank { "HG-ACCOUNT" } ?: "HG-ACCOUNT"
+    val userEmail: String get() = currentUser.value?.email ?: ""
+    val userDisplayName: String get() = currentUser.value?.displayName ?: "User"
     val referralCode: String get() = currentUser.value?.referralCode ?: "HG-7798"
 
-    private val _walletBalanceUsdt = MutableStateFlow(84.20)
+    // Real dynamic balances (Starts at 0.00 for new user, updated via Firebase Realtime listener)
+    private val _walletBalanceUsdt = MutableStateFlow(0.00)
     val walletBalanceUsdt: StateFlow<Double> = _walletBalanceUsdt.asStateFlow()
 
     // Atomic Escrow Balance (Locked in 24h Audit)
@@ -138,178 +136,97 @@ class HashGridViewModel : ViewModel() {
             monthlyYieldPercent = 16.0,
             termDays = 30,
             dailyYieldUsdtEst = 1.60,
-            hardwareType = "Antminer S21 Hydro (335 TH/s)",
+            hardwareType = "Antminer S21 Hydro (Sub-Zero)",
             tag = "Most Popular"
         ),
         MiningPlan(
-            id = "plan_btc_pro",
-            name = "Enterprise ASIC Cluster",
-            subtitle = "Geothermal Sub-Zero Direct",
+            id = "plan_free_ad",
+            name = "Free 4-Hour Mining Ad Node",
+            subtitle = "Sponsored Micro Hashrate Booster",
             cryptoSymbol = "BTC",
-            iconCrypto = "₿",
+            iconCrypto = "⚡",
+            minDepositUsdt = 0.0,
+            hashPowerGh = 50.0,
+            monthlyYieldPercent = 0.0,
+            termDays = 1,
+            dailyYieldUsdtEst = 0.15,
+            hardwareType = "Micro Hydro Shared Pool",
+            tag = "Free Ad Booster"
+        ),
+        MiningPlan(
+            id = "plan_institutional",
+            name = "Institutional Geothermal Cluster",
+            subtitle = "Direct Volcano Sub-Zero Connection",
+            cryptoSymbol = "BTC",
+            iconCrypto = "🌋",
             minDepositUsdt = 1000.0,
             hashPowerGh = 12500.0,
             monthlyYieldPercent = 19.5,
-            termDays = 30,
+            termDays = 60,
             dailyYieldUsdtEst = 6.50,
-            hardwareType = "MicroBT Whatsminer M63S+",
+            hardwareType = "Dedicated Whatsminer M63S Container",
             tag = "Institutional"
-        ),
-        MiningPlan(
-            id = "plan_doge_ltc",
-            name = "Scrypt Fusion Rig",
-            subtitle = "Dual Merged DOGE + LTC",
-            cryptoSymbol = "LTC",
-            iconCrypto = "Ł",
-            minDepositUsdt = 250.0,
-            hashPowerGh = 1800.0,
-            monthlyYieldPercent = 15.0,
-            termDays = 30,
-            dailyYieldUsdtEst = 1.25,
-            hardwareType = "Antminer L9 16GH/s Hydro",
-            tag = "Dual Mining"
         )
     )
 
-    // --- Active Contracts ---
-    private val _activeContracts = MutableStateFlow(
-        listOf(
-            ActiveContract(
-                id = "ct_01",
-                planName = "Prime BTC Hydro Tier-II",
-                cryptoSymbol = "BTC",
-                depositUsdt = 300.0,
-                hashPowerGh = 3150.0,
-                elapsedDays = 14,
-                totalDays = 30,
-                accruedProfitUsdt = 22.40,
-                dailyYieldUsdt = 1.60,
-                isRestakeEnabled = true,
-                startDateStr = "Sep 10, 2026",
-                maturityDateStr = "Oct 10, 2026"
-            ),
-            ActiveContract(
-                id = "ct_02",
-                planName = "Starter Kaspa Array",
-                cryptoSymbol = "KAS",
-                depositUsdt = 100.0,
-                hashPowerGh = 25.0,
-                elapsedDays = 8,
-                totalDays = 30,
-                accruedProfitUsdt = 3.84,
-                dailyYieldUsdt = 0.48,
-                isRestakeEnabled = false,
-                startDateStr = "Sep 16, 2026",
-                maturityDateStr = "Oct 16, 2026"
-            )
-        )
-    )
+    // Dynamic Contracts list
+    private val _activeContracts = MutableStateFlow<List<ActiveContract>>(emptyList())
     val activeContracts: StateFlow<List<ActiveContract>> = _activeContracts.asStateFlow()
 
-    // --- Activity List ---
-    private val _activityList = MutableStateFlow(
-        listOf(
-            ActivityItem(
-                id = "act_01",
-                title = "+5.85 USDT",
-                subtitle = "Sub-Zero Daily Hydro Mining Payout",
-                btcAmountStr = "+0.00006540 BTC",
-                usdtAmount = 5.85,
-                timestampStr = "Today, 00:01 UTC",
-                isCredit = true
-            ),
-            ActivityItem(
-                id = "act_02",
-                title = "-145.00 USDT",
-                subtitle = "Audited Multi-Sig Cold Withdrawal",
-                btcAmountStr = "-0.00162000 BTC",
-                usdtAmount = 145.00,
-                timestampStr = "Sep 15, 2026",
-                isCredit = false
-            ),
-            ActivityItem(
-                id = "act_03",
-                title = "+3.03 USDT",
-                subtitle = "Daily Lucky Wheel Prize Credit",
-                btcAmountStr = "+0.00003820 BTC",
-                usdtAmount = 3.03,
-                timestampStr = "Yesterday, 14:22 UTC",
-                isCredit = true
-            ),
-            ActivityItem(
-                id = "act_04",
-                title = "+14.00 USDT",
-                subtitle = "Syndicate Direct Referral Commission",
-                btcAmountStr = "+0.00017650 BTC",
-                usdtAmount = 14.00,
-                timestampStr = "Sep 22, 2026",
-                isCredit = true
-            )
-        )
-    )
+    // Dynamic Activity List
+    private val _activityList = MutableStateFlow<List<ActivityItem>>(emptyList())
     val activityList: StateFlow<List<ActivityItem>> = _activityList.asStateFlow()
 
-    // --- Payouts History ---
-    private val _payoutsList = MutableStateFlow(
-        listOf(
-            PayoutItem(
-                id = "po_01",
-                dateStr = "Sep 15, 2026",
-                amountUsdt = 145.00,
-                targetAddress = "TL7N8...x9Wq2",
-                network = "TRC20",
-                status = PayoutStatus.AUDITED_DISBURSED
-            ),
-            PayoutItem(
-                id = "po_02",
-                dateStr = "Aug 28, 2026",
-                amountUsdt = 160.00,
-                targetAddress = "0x892...f54A1",
-                network = "BEP20",
-                status = PayoutStatus.COMPLETED
-            )
-        )
-    )
+    // Dynamic Payouts History
+    private val _payoutsList = MutableStateFlow<List<PayoutItem>>(emptyList())
     val payoutsList: StateFlow<List<PayoutItem>> = _payoutsList.asStateFlow()
 
-    // --- Bounty Tasks (Community Micro-Tasks) ---
+    // --- Bounty Tasks List ---
     private val _bountyTasks = MutableStateFlow(
         listOf(
             BountyTask(
-                id = "task_tg",
-                type = BountyType.TELEGRAM,
-                title = "Join Official Institutional Telegram",
-                description = "Join @HashGrid_Official & verify handle",
-                rewardUsdt = 0.20,
+                id = "bt_01",
+                type = BountyType.WHATSAPP,
+                title = "WhatsApp Status Verification",
+                description = "Post the official HashGrid promotional poster on your WhatsApp status for 24 hours.",
+                rewardUsdt = 5.00,
                 status = BountyStatus.AVAILABLE
             ),
             BountyTask(
-                id = "task_wa",
-                type = BountyType.WHATSAPP,
-                title = "WhatsApp Status Daily Mining Share",
-                description = "Post referral link with 10+ views for 24h",
-                rewardUsdt = 0.20,
+                id = "bt_02",
+                type = BountyType.TELEGRAM,
+                title = "Telegram Global Syndicate Community",
+                description = "Join the official HashGrid announcements and institutional miners group.",
+                rewardUsdt = 3.00,
                 status = BountyStatus.AVAILABLE
             )
         )
     )
     val bountyTasks: StateFlow<List<BountyTask>> = _bountyTasks.asStateFlow()
 
-    // --- Creator Milestones ---
-    private val _creatorMilestones = MutableStateFlow<List<CreatorMilestoneSubmission>>(emptyList())
-    val creatorMilestones: StateFlow<List<CreatorMilestoneSubmission>> = _creatorMilestones.asStateFlow()
+    private val _creatorSubmissions = MutableStateFlow<List<CreatorMilestoneSubmission>>(emptyList())
+    val creatorSubmissions: StateFlow<List<CreatorMilestoneSubmission>> = _creatorSubmissions.asStateFlow()
 
-    // --- Live WebSocket Tickers ---
+    // Live Tickers
     val liveTickers: StateFlow<List<LiveTickerItem>> = BinanceWebSocketService.tickers
     val isWsConnected: StateFlow<Boolean> = BinanceWebSocketService.isConnected
     val wsStatusText: StateFlow<String> = BinanceWebSocketService.connectionStatusText
 
-    // --- AI Support Chat ---
+    // In-app Notifications
+    val notifications = listOf(
+        "⚡ Sub-Zero Geothermal Cluster online: 99.98% uptime.",
+        "🔒 256-Bit Multi-Sig Escrow is actively monitoring withdrawal batches.",
+        "🎁 Daily Lucky Wheel has reset. Claim your bonus."
+    )
+    private val _unreadNotificationsCount = MutableStateFlow(3)
+    val unreadNotificationsCount: StateFlow<Int> = _unreadNotificationsCount.asStateFlow()
+
+    // AI Chat Support
     private val _chatMessages = MutableStateFlow(
         listOf(
             ChatMessage(
-                id = "welcome_1",
-                text = "Hello! I am your HashGrid AI Assistant. How can I assist you with your sub-zero mining contracts, NOWPayments deposits, or withdrawal status?",
+                id = "ai_welcome",
+                text = "Welcome to HashGrid Institutional Support. I can help answer questions regarding our sub-zero geothermal mining clusters, active contracts, payouts, and cold storage security.",
                 isUser = false
             )
         )
@@ -319,85 +236,44 @@ class HashGridViewModel : ViewModel() {
     private val _isAiTyping = MutableStateFlow(false)
     val isAiTyping: StateFlow<Boolean> = _isAiTyping.asStateFlow()
 
-    // --- Notifications ---
-    private val _unreadNotificationsCount = MutableStateFlow(4)
-    val unreadNotificationsCount: StateFlow<Int> = _unreadNotificationsCount.asStateFlow()
-
-    fun clearNotifications() {
-        _unreadNotificationsCount.value = 0
-    }
-
-    // --- Server-Timestamp Mining Progress ---
-    private val _miningSessionEndTimestamp = MutableStateFlow(
-        System.currentTimeMillis() + (7L * 60 * 1000 + 45 * 1000)
-    )
+    // Mining Session countdown
+    private val _miningSessionEndTimestamp = MutableStateFlow(System.currentTimeMillis() + (14L * 3600 * 1000 + 22L * 60 * 1000))
     val miningSessionEndTimestamp: StateFlow<Long> = _miningSessionEndTimestamp.asStateFlow()
 
-    fun extendMiningSession() {
-        _miningSessionEndTimestamp.value = Math.max(
-            System.currentTimeMillis(),
-            _miningSessionEndTimestamp.value
-        ) + (2L * 3600 * 1000)
-    }
-
-    val notifications = listOf(
-        "⚡ Daily Payout Settled: +$5.85 USDT successfully routed from Arctic Sub-Zero Node.",
-        "🔒 Security Audit: 24h Cold-Storage Reconciliation passed with 99.8% multi-sig integrity.",
-        "🎁 Lucky Spin Available: Your 24h daily wheel spin has reset. Claim your bonus hash!",
-        "🌱 PPA Telemetry: Landsvirkjun Geothermal Grid output stable at 45.2 MW ($0.034/kWh)."
-    )
-
     init {
-        // Start live Binance WebSocket stream and Kaspa oscillator
         BinanceWebSocketService.start()
 
-        // Sync main BTC and KAS ticker prices
         viewModelScope.launch {
-            BinanceWebSocketService.tickers.collect { tickerList ->
-                tickerList.find { it.id == "BTCUSDT" }?.let { btc ->
-                    _btcPrice.value = btc.price
+            BinanceWebSocketService.tickers.collect { tickers ->
+                tickers.find { it.id.equals("BTCUSDT", ignoreCase = true) || it.id.equals("btc", ignoreCase = true) }?.let { btcTicker ->
+                    _btcPrice.value = btcTicker.price
                 }
-                tickerList.find { it.id == "KASUSDT" }?.let { kas ->
-                    _kasPrice.value = kas.price
+                tickers.find { it.id.equals("KASUSDT", ignoreCase = true) || it.id.equals("kas", ignoreCase = true) }?.let { kasTicker ->
+                    _kasPrice.value = kasTicker.price
                 }
             }
         }
 
-        // Start background oscillating hashpower
-        startOscillatingHashpower()
-
-        // Auto-check for updates on launch
-        AppUpdateManager.checkForUpdates()
-
-        // Sync initial user state with Firebase
-        FirebaseSyncService.syncUser(
-            FirebaseUser(
-                uid = userId,
-                email = userEmail,
-                walletBalance = _walletBalanceUsdt.value,
-                miningRate = "520.87 TH/s",
-                createdAt = "2026-09-01"
-            )
-        )
-
-        // Start real-time Firebase balance sync listener
-        FirebaseSyncService.startRealtimeBalanceListener(userId) { remoteBal ->
-            _walletBalanceUsdt.value = remoteBal
-        }
-    }
-
-    private fun startOscillatingHashpower() {
+        // Attach listener for currently logged in user
         viewModelScope.launch {
-            while (true) {
-                delay(2200)
-                val hashDelta = (Random.nextDouble() - 0.48) * 0.85
-                _hashPower.value = ((_hashPower.value + hashDelta) * 100).toInt() / 100.0
+            AuthService.currentUser.collect { user ->
+                if (user != null && user.id.isNotBlank()) {
+                    FirebaseSyncService.startRealtimeBalanceListener(user.id) { remoteBal ->
+                        _walletBalanceUsdt.value = remoteBal
+                    }
+                } else {
+                    _walletBalanceUsdt.value = 0.00
+                    _hashPower.value = 0.0
+                    _activeContracts.value = emptyList()
+                    _activityList.value = emptyList()
+                    _payoutsList.value = emptyList()
+                }
             }
         }
     }
 
     fun setTab(index: Int) {
-        _currentTab.value = index.coerceIn(0, 4)
+        _currentTab.value = index
     }
 
     fun setPlansSubTab(index: Int) {
@@ -408,10 +284,8 @@ class HashGridViewModel : ViewModel() {
         _walletSubTab.value = index
     }
 
-    fun toggleRestake(contractId: String) {
-        _activeContracts.value = _activeContracts.value.map {
-            if (it.id == contractId) it.copy(isRestakeEnabled = !it.isRestakeEnabled) else it
-        }
+    fun clearNotifications() {
+        _unreadNotificationsCount.value = 0
     }
 
     fun toggle2FA() {
@@ -420,77 +294,114 @@ class HashGridViewModel : ViewModel() {
 
     fun selectLanguage(lang: String) {
         _selectedLanguage.value = lang
-        showLanguageModal.value = false
     }
 
-    // --- Lucky Wheel Execution ---
-    fun executeSpin(onResult: (String, Double, Double) -> Unit) {
-        if (!_canSpinToday.value || _isSpinning.value) return
-        _isSpinning.value = true
+    fun extendMiningSession() {
+        _miningSessionEndTimestamp.value = System.currentTimeMillis() + (24L * 3600 * 1000)
+    }
 
-        viewModelScope.launch {
-            delay(3500)
-            val outcomes = listOf(
-                Triple("0.5 USDT Instant Cash", 0.5, 0.0),
-                Triple("100 Gh/s Power Booster", 0.0, 100.0),
-                Triple("1.0 USDT Cash Voucher", 1.0, 0.0),
-                Triple("250 Gh/s (24h) Superboost", 0.0, 250.0),
-                Triple("0.5 USDT Instant Cash", 0.5, 0.0)
-            )
-            val win = outcomes[Random.nextInt(outcomes.size)]
-            _spinResultText.value = win.first
+    fun getFreeAdCooldownHoursRemaining(): Int {
+        val lastTs = _lastFreeAdSessionTimestamp.value ?: return 0
+        val diffMs = System.currentTimeMillis() - lastTs
+        val twentyFourHoursMs = 24L * 3600 * 1000
+        val remainingMs = twentyFourHoursMs - diffMs
+        return if (remainingMs > 0) ((remainingMs / (3600 * 1000)).toInt() + 1) else 0
+    }
 
-            if (win.second > 0) {
-                _walletBalanceUsdt.value += win.second
-                val df = SimpleDateFormat("HH:mm 'UTC'", Locale.US)
-                _activityList.value = listOf(
-                    ActivityItem(
-                        id = "spin_${System.currentTimeMillis()}",
-                        title = "+$${win.second} USDT",
-                        subtitle = "Daily Lucky Wheel Prize",
-                        btcAmountStr = "+0.00000630 BTC",
-                        usdtAmount = win.second,
-                        timestampStr = "Today, " + df.format(Date()),
-                        isCredit = true
-                    )
-                ) + _activityList.value
+    fun claimFreeAdSession(): Pair<Boolean, String> {
+        val remaining = getFreeAdCooldownHoursRemaining()
+        if (remaining > 0) {
+            return Pair(false, "Device cooldown active: $remaining hours remaining before next free session.")
+        }
+        _lastFreeAdSessionTimestamp.value = System.currentTimeMillis()
+        _hashPower.value += 50.0
 
-                // Sync balance to Firebase
-                FirebaseSyncService.syncUser(
-                    FirebaseUser(
-                        uid = userId,
-                        email = userEmail,
-                        walletBalance = _walletBalanceUsdt.value,
-                        miningRate = "${_hashPower.value} TH/s",
-                        createdAt = "2026-09-01"
-                    )
-                )
-            }
-            if (win.third > 0) {
-                _hashPower.value += win.third
-            }
+        val newContract = ActiveContract(
+            id = "c_${UUID.randomUUID().toString().take(6)}",
+            planName = "Free 4-Hour Mining Ad Node",
+            cryptoSymbol = "BTC",
+            depositUsdt = 0.0,
+            hashPowerGh = 50.0,
+            elapsedDays = 0,
+            totalDays = 1,
+            accruedProfitUsdt = 0.0,
+            dailyYieldUsdt = 0.15,
+            isRestakeEnabled = false,
+            startDateStr = "Today",
+            maturityDateStr = "Tomorrow"
+        )
+        _activeContracts.value = listOf(newContract) + _activeContracts.value
 
-            onResult(win.first, win.second, win.third)
+        val newAct = ActivityItem(
+            id = "act_${System.currentTimeMillis()}",
+            title = "+0.15 USDT",
+            subtitle = "Free 4h Ad Session Micro Yield",
+            btcAmountStr = "+0.00000170 BTC",
+            usdtAmount = 0.15,
+            timestampStr = "Just now",
+            isCredit = true
+        )
+        _activityList.value = listOf(newAct) + _activityList.value
+        return Pair(true, "Free 4-Hour Ad Node activated! +50 GH/s hashrate credited.")
+    }
+
+    fun activatePlan(plan: MiningPlan): Boolean {
+        if (_walletBalanceUsdt.value < plan.minDepositUsdt) {
+            return false
+        }
+        _walletBalanceUsdt.value -= plan.minDepositUsdt
+        _hashPower.value += plan.hashPowerGh
+
+        val newContract = ActiveContract(
+            id = "c_${UUID.randomUUID().toString().take(6)}",
+            planName = plan.name,
+            cryptoSymbol = plan.cryptoSymbol,
+            depositUsdt = plan.minDepositUsdt,
+            hashPowerGh = plan.hashPowerGh,
+            elapsedDays = 0,
+            totalDays = plan.termDays,
+            accruedProfitUsdt = 0.0,
+            dailyYieldUsdt = plan.dailyYieldUsdtEst,
+            isRestakeEnabled = false,
+            startDateStr = "Today",
+            maturityDateStr = "In ${plan.termDays} Days"
+        )
+        _activeContracts.value = listOf(newContract) + _activeContracts.value
+
+        val newAct = ActivityItem(
+            id = "act_${System.currentTimeMillis()}",
+            title = "-${plan.minDepositUsdt} USDT",
+            subtitle = "Activated ${plan.name}",
+            btcAmountStr = "-${"%.6f".format(plan.minDepositUsdt / _btcPrice.value)} BTC",
+            usdtAmount = plan.minDepositUsdt,
+            timestampStr = "Just now",
+            isCredit = false
+        )
+        _activityList.value = listOf(newAct) + _activityList.value
+        return true
+    }
+
+    fun toggleRestake(contractId: String) {
+        _activeContracts.value = _activeContracts.value.map {
+            if (it.id == contractId) {
+                it.copy(isRestakeEnabled = !it.isRestakeEnabled)
+            } else it
         }
     }
 
-    // --- Deposit Settlement via NOWPayments & Firebase ---
     fun onDepositSuccess(amountUsdt: Double, txId: String) {
         _walletBalanceUsdt.value += amountUsdt
-        val df = SimpleDateFormat("MMM dd, HH:mm", Locale.US)
-        _activityList.value = listOf(
-            ActivityItem(
-                id = "dep_${System.currentTimeMillis()}",
-                title = "+$${amountUsdt} USDT",
-                subtitle = "NOWPayments Gateway Confirmed ($txId)",
-                btcAmountStr = "+${String.format(Locale.US, "%.6f", amountUsdt / _btcPrice.value)} BTC",
-                usdtAmount = amountUsdt,
-                timestampStr = df.format(Date()),
-                isCredit = true
-            )
-        ) + _activityList.value
+        val newAct = ActivityItem(
+            id = "act_${System.currentTimeMillis()}",
+            title = "+$amountUsdt USDT",
+            subtitle = "NOWPayments Confirmed (${txId.take(8)}...)",
+            btcAmountStr = "+${"%.6f".format(amountUsdt / _btcPrice.value)} BTC",
+            usdtAmount = amountUsdt,
+            timestampStr = "Just now",
+            isCredit = true
+        )
+        _activityList.value = listOf(newAct) + _activityList.value
 
-        // Record in Firebase /deposits and sync /users/{userId}
         FirebaseSyncService.pushDeposit(
             FirebaseDeposit(
                 paymentId = txId,
@@ -501,197 +412,108 @@ class HashGridViewModel : ViewModel() {
                 timestamp = FirebaseSyncService.getCurrentTimestamp()
             )
         )
-
-        FirebaseSyncService.syncUser(
-            FirebaseUser(
-                uid = userId,
-                email = userEmail,
-                walletBalance = _walletBalanceUsdt.value,
-                miningRate = "${_hashPower.value} TH/s",
-                createdAt = "2026-09-01"
-            )
-        )
     }
 
-    // --- Plan Activation ---
-    fun activatePlan(plan: MiningPlan): Boolean {
-        if (_walletBalanceUsdt.value >= plan.minDepositUsdt) {
-            _walletBalanceUsdt.value -= plan.minDepositUsdt
-            _hashPower.value += plan.hashPowerGh
-
-            val df = SimpleDateFormat("MMM dd, yyyy", Locale.US)
-            val startDate = df.format(Date())
-            val maturityDate = df.format(Date(System.currentTimeMillis() + 30L * 24 * 3600 * 1000))
-
-            val newContract = ActiveContract(
-                id = "ct_${System.currentTimeMillis()}",
-                planName = plan.name,
-                cryptoSymbol = plan.cryptoSymbol,
-                depositUsdt = plan.minDepositUsdt,
-                hashPowerGh = plan.hashPowerGh,
-                elapsedDays = 0,
-                totalDays = 30,
-                accruedProfitUsdt = 0.0,
-                dailyYieldUsdt = plan.dailyYieldUsdtEst,
-                isRestakeEnabled = true,
-                startDateStr = startDate,
-                maturityDateStr = maturityDate
-            )
-            _activeContracts.value = listOf(newContract) + _activeContracts.value
-
-            _activityList.value = listOf(
-                ActivityItem(
-                    id = "act_buy_${System.currentTimeMillis()}",
-                    title = "-$${plan.minDepositUsdt} USDT",
-                    subtitle = "Plan Allocation: ${plan.name}",
-                    btcAmountStr = "-${String.format(Locale.US, "%.6f", plan.minDepositUsdt / _btcPrice.value)} BTC",
-                    usdtAmount = plan.minDepositUsdt,
-                    timestampStr = "Today, Just now",
-                    isCredit = false
-                )
-            ) + _activityList.value
-
-            // Sync updated balance to Firebase
-            FirebaseSyncService.syncUser(
-                FirebaseUser(
-                    uid = userId,
-                    email = userEmail,
-                    walletBalance = _walletBalanceUsdt.value,
-                    miningRate = "${_hashPower.value} TH/s",
-                    createdAt = "2026-09-01"
-                )
-            )
-
-            return true
-        }
-        return false
-    }
-
-    // --- Ad Plan Anti-Abuse & Device Limit ---
-    fun getFreeAdCooldownHoursRemaining(): Int {
-        val last = _lastFreeAdSessionTimestamp.value ?: return 0
-        val diff = (last + 24L * 3600 * 1000) - System.currentTimeMillis()
-        return if (diff > 0) {
-            val hours = (diff / (3600 * 1000)).toInt() + 1
-            hours.coerceAtLeast(1)
-        } else {
-            0
-        }
-    }
-
-    fun claimFreeAdSession(): Pair<Boolean, String> {
-        val cooldownHours = getFreeAdCooldownHoursRemaining()
-        if (cooldownHours > 0) {
-            return Pair(
-                false,
-                "Device Limit Exceeded: Only 1 Free Ad Plan session allowed per device/IP every 24 hours. Next session opens in $cooldownHours hours."
-            )
-        }
-
-        _lastFreeAdSessionTimestamp.value = System.currentTimeMillis()
-        _hashPower.value += 5.0
-
-        return Pair(
-            true,
-            "Free Ad Plan Activated! +5.00 Gh/s allocated. (Anti-Abuse Rule: 0% referral commission & $0 team volume credited for free ad plans)."
-        )
-    }
-
-    // --- Server-Side Database Withdrawal Enforcement ($130) ---
     fun requestWithdrawal(amountUsdt: Double, address: String, network: String): String? {
-        if (amountUsdt < 130.00) {
-            return "Minimum withdrawal limit is $130.00 USDT."
-        }
         if (amountUsdt > _walletBalanceUsdt.value) {
-            return "Insufficient available balance. Available: $${String.format(Locale.US, "%.2f", _walletBalanceUsdt.value)} USDT."
+            return "Insufficient available balance ($${"%.2f".format(_walletBalanceUsdt.value)} USDT available)."
         }
-        if (address.trim().length < 15) {
-            return "Please enter a valid $network wallet destination address."
+        if (amountUsdt < 10.0) {
+            return "Minimum withdrawal amount is 10.00 USDT."
+        }
+        if (address.isBlank() || address.length < 10) {
+            return "Please provide a valid $network wallet address."
         }
 
-        // Atomic deduction
         _walletBalanceUsdt.value -= amountUsdt
         _lockedAuditBalanceUsdt.value += amountUsdt
 
-        val df = SimpleDateFormat("MMM dd, yyyy", Locale.US)
-        val todayStr = df.format(Date())
-
-        val requestId = "TX-" + System.currentTimeMillis().toString().takeLast(6)
-
-        val newPayout = PayoutItem(
-            id = "po_${System.currentTimeMillis()}",
-            dateStr = todayStr,
+        val reqId = "wd_${System.currentTimeMillis().toString().takeLast(6)}"
+        val payoutItem = PayoutItem(
+            id = reqId,
+            dateStr = "Today",
             amountUsdt = amountUsdt,
-            targetAddress = address.trim(),
+            targetAddress = address.take(6) + "..." + address.takeLast(4),
             network = network,
             status = PayoutStatus.PENDING_24H_AUDIT
         )
-        _payoutsList.value = listOf(newPayout) + _payoutsList.value
+        _payoutsList.value = listOf(payoutItem) + _payoutsList.value
 
-        // Push directly to Firebase /withdrawals/{requestId} with status 'pending'
+        val newAct = ActivityItem(
+            id = "act_${System.currentTimeMillis()}",
+            title = "-$amountUsdt USDT",
+            subtitle = "Audited Multi-Sig Escrow ($network)",
+            btcAmountStr = "-${"%.6f".format(amountUsdt / _btcPrice.value)} BTC",
+            usdtAmount = amountUsdt,
+            timestampStr = "Just now",
+            isCredit = false
+        )
+        _activityList.value = listOf(newAct) + _activityList.value
+
         FirebaseSyncService.pushWithdrawal(
             FirebaseWithdrawal(
-                requestId = requestId,
+                requestId = reqId,
                 userId = userId,
                 amount = amountUsdt,
-                cryptoAddress = address.trim(),
+                cryptoAddress = address,
                 network = network,
                 status = "pending",
                 timestamp = FirebaseSyncService.getCurrentTimestamp()
             )
         )
-
-        // Sync new balance to Firebase
-        FirebaseSyncService.syncUser(
-            FirebaseUser(
-                uid = userId,
-                email = userEmail,
-                walletBalance = _walletBalanceUsdt.value,
-                miningRate = "${_hashPower.value} TH/s",
-                createdAt = "2026-09-01"
-            )
-        )
-
-        showWithdrawModal.value = false
         return null
     }
 
-    // --- Creator Milestone ---
+    fun executeSpin(onResult: (prizeAmount: Double, prizeType: String, message: String) -> Unit) {
+        if (!_canSpinToday.value || _isSpinning.value) return
+
+        _isSpinning.value = true
+        _canSpinToday.value = false
+
+        viewModelScope.launch {
+            kotlinx.coroutines.delay(2000L)
+            _isSpinning.value = false
+
+            val prizeAmount = 1.50
+            val prizeType = "USDT"
+            _walletBalanceUsdt.value += prizeAmount
+            _spinResultText.value = "+$prizeAmount USDT Prize Credited!"
+
+            val newAct = ActivityItem(
+                id = "act_${System.currentTimeMillis()}",
+                title = "+$prizeAmount USDT",
+                subtitle = "Daily Lucky Wheel Reward",
+                btcAmountStr = "+${"%.6f".format(prizeAmount / _btcPrice.value)} BTC",
+                usdtAmount = prizeAmount,
+                timestampStr = "Just now",
+                isCredit = true
+            )
+            _activityList.value = listOf(newAct) + _activityList.value
+            onResult(prizeAmount, prizeType, "+$prizeAmount USDT Prize Credited!")
+        }
+    }
+
     fun submitCreatorMilestone(channelUrl: String, videoUrl: String, contactTelegram: String): String? {
-        val cUrl = channelUrl.trim()
-        val vUrl = videoUrl.trim()
-        val tg = contactTelegram.trim()
-
-        if (cUrl.isBlank() || !cUrl.contains("youtube.com", ignoreCase = true)) {
-            return "Please enter a valid YouTube channel profile URL."
+        if (channelUrl.isBlank() || videoUrl.isBlank()) {
+            return "Please provide both channel and video review URLs."
         }
-        if (vUrl.isBlank() || (!vUrl.contains("youtube.com", ignoreCase = true) && !vUrl.contains("youtu.be", ignoreCase = true))) {
-            return "Please enter a valid YouTube video link with 50,000+ views."
-        }
-        if (tg.isBlank()) {
-            return "Please enter your executive contact Telegram handle."
-        }
-
-        val submission = CreatorMilestoneSubmission(
-            id = "ms_${System.currentTimeMillis()}",
+        val sub = CreatorMilestoneSubmission(
+            id = "ms_${System.currentTimeMillis().toString().takeLast(6)}",
             userId = userId,
-            channelUrl = cUrl,
-            videoUrl = vUrl,
-            contactTelegram = tg,
-            submittedAt = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date()),
+            channelUrl = channelUrl.trim(),
+            videoUrl = videoUrl.trim(),
+            contactTelegram = contactTelegram.trim(),
+            submittedAt = "Just now",
             status = MilestoneStatus.PENDING_EXECUTIVE_AUDIT
         )
-        _creatorMilestones.value = listOf(submission) + _creatorMilestones.value
-
-        showCreatorMilestoneModal.value = false
+        _creatorSubmissions.value = listOf(sub) + _creatorSubmissions.value
         return null
     }
 
-    // --- Bounty Submissions ---
-    fun submitWhatsAppBounty(views: String, timePosted: String): String? {
-        val trimmedViews = views.trim()
-        val viewCount = trimmedViews.toIntOrNull() ?: 0
-        if (viewCount < 10) {
+    fun submitWhatsAppBounty(viewsCount: String, timePosted: String): String? {
+        val trimmedViews = viewsCount.trim()
+        val num = trimmedViews.toIntOrNull()
+        if (num == null || num < 10) {
             return "Minimum 10 status views required for verification."
         }
 
@@ -700,8 +522,7 @@ class HashGridViewModel : ViewModel() {
             if (it.type == BountyType.WHATSAPP) {
                 it.copy(
                     status = BountyStatus.PENDING_ADMIN_REVIEW,
-                    submissionProof = "Screenshot Proof Uploaded ($trimmedViews views)",
-                    extraDetail = timePosted,
+                    submissionProof = "Status Views: $trimmedViews (Posted: $timePosted)",
                     rejectionReason = null
                 )
             } else it
@@ -725,10 +546,10 @@ class HashGridViewModel : ViewModel() {
         return null
     }
 
-    fun submitTelegramBounty(username: String): String? {
-        val trimmed = username.trim()
-        if (trimmed.isBlank()) {
-            return "Please enter your Telegram @username."
+    fun submitTelegramBounty(telegramUsername: String): String? {
+        val trimmed = telegramUsername.trim()
+        if (trimmed.length < 3) {
+            return "Please enter a valid Telegram username or handle."
         }
         val handle = if (trimmed.startsWith("@")) trimmed else "@$trimmed"
 
@@ -785,43 +606,33 @@ class HashGridViewModel : ViewModel() {
     }
 
     // --- Authentication Actions ---
-    fun login(context: Context, email: String, pass: String): Result<Unit> {
-        val res = AuthService.login(context, email, pass)
-        return if (res.isSuccess) {
-            val user = res.getOrThrow()
-            FirebaseSyncService.syncUserProfile(
-                uid = user.id,
-                email = user.email,
-                displayName = user.displayName,
-                referralCode = user.referralCode,
-                isFlaggedDuplicate = user.isFlaggedDuplicate
-            )
-            FirebaseSyncService.startRealtimeBalanceListener(user.id) { remoteBal ->
-                _walletBalanceUsdt.value = remoteBal
+    fun login(context: Context, email: String, pass: String, onComplete: (Result<Unit>) -> Unit) {
+        viewModelScope.launch {
+            val res = AuthService.loginWithEmail(context, email, pass)
+            if (res.isSuccess) {
+                val user = res.getOrThrow()
+                FirebaseSyncService.startRealtimeBalanceListener(user.id) { remoteBal ->
+                    _walletBalanceUsdt.value = remoteBal
+                }
+                onComplete(Result.success(Unit))
+            } else {
+                onComplete(Result.failure(res.exceptionOrNull() ?: Exception("Login failed")))
             }
-            Result.success(Unit)
-        } else {
-            Result.failure(res.exceptionOrNull() ?: Exception("Login failed"))
         }
     }
 
-    fun signUp(context: Context, name: String, email: String, pass: String, confirmPass: String, refCode: String): Result<Unit> {
-        val res = AuthService.signUp(context, name, email, pass, confirmPass, refCode)
-        return if (res.isSuccess) {
-            val user = res.getOrThrow()
-            FirebaseSyncService.syncUserProfile(
-                uid = user.id,
-                email = user.email,
-                displayName = user.displayName,
-                referralCode = user.referralCode,
-                isFlaggedDuplicate = user.isFlaggedDuplicate
-            )
-            FirebaseSyncService.startRealtimeBalanceListener(user.id) { remoteBal ->
-                _walletBalanceUsdt.value = remoteBal
+    fun signUp(context: Context, name: String, email: String, pass: String, confirmPass: String, refCode: String, onComplete: (Result<Unit>) -> Unit) {
+        viewModelScope.launch {
+            val res = AuthService.signUpWithEmail(context, name, email, pass, confirmPass, refCode)
+            if (res.isSuccess) {
+                val user = res.getOrThrow()
+                FirebaseSyncService.startRealtimeBalanceListener(user.id) { remoteBal ->
+                    _walletBalanceUsdt.value = remoteBal
+                }
+                onComplete(Result.success(Unit))
+            } else {
+                onComplete(Result.failure(res.exceptionOrNull() ?: Exception("Registration failed")))
             }
-            Result.success(Unit)
-        } else {
-            Result.failure(res.exceptionOrNull() ?: Exception("Registration failed"))
         }
     }
 
@@ -830,15 +641,6 @@ class HashGridViewModel : ViewModel() {
             val res = AuthService.signInWithGoogleCredential(context)
             if (res.isSuccess) {
                 val user = res.getOrThrow()
-                FirebaseSyncService.syncUser(
-                    FirebaseUser(
-                        uid = user.id,
-                        email = user.email,
-                        walletBalance = _walletBalanceUsdt.value,
-                        miningRate = "${_hashPower.value} TH/s",
-                        createdAt = FirebaseSyncService.getCurrentTimestamp()
-                    )
-                )
                 FirebaseSyncService.startRealtimeBalanceListener(user.id) { remoteBal ->
                     _walletBalanceUsdt.value = remoteBal
                 }
@@ -851,6 +653,11 @@ class HashGridViewModel : ViewModel() {
 
     fun logout() {
         AuthService.logout()
+        _walletBalanceUsdt.value = 0.00
+        _hashPower.value = 0.0
+        _activeContracts.value = emptyList()
+        _activityList.value = emptyList()
+        _payoutsList.value = emptyList()
     }
 
     // --- App Update Actions ---

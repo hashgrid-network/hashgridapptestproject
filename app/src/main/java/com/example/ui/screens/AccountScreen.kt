@@ -72,7 +72,7 @@ import com.example.ui.theme.SlateNavy
 fun AccountScreen(
     userId: String,
     userEmail: String,
-    displayName: String = "Alexander Vance",
+    displayName: String = "Institutional Miner",
     twoFactorEnabled: Boolean,
     selectedLanguage: String,
     onToggle2FA: () -> Unit,

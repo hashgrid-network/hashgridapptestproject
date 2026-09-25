@@ -52,11 +52,12 @@ data class LiveTickerItem(
 )
 
 data class User(
-    val id: String = "#HG-142597",
-    val email: String = "goldbrownp@gmail.com",
+    val id: String = "",
+    val email: String = "",
     val role: String = "user",
-    val referralCode: String = "HG-7798",
+    val referralCode: String = "",
     val displayName: String = "Institutional Miner",
+    val photoUrl: String? = null,
     val isFlaggedDuplicate: Boolean = false
 )
 

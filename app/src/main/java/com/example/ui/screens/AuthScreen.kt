@@ -64,7 +64,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
@@ -93,7 +92,6 @@ fun GoogleBrandIcon(modifier: Modifier = Modifier) {
         val h = size.height
         val center = Offset(w / 2f, h / 2f)
 
-        // Draw clean stylized Google 'G' icon
         val blue = Color(0xFF4285F4)
         val red = Color(0xFFEA4335)
         val yellow = Color(0xFFFBBC05)
@@ -154,11 +152,9 @@ fun GoogleBrandIcon(modifier: Modifier = Modifier) {
 
 @Composable
 fun AuthScreen(
-    onLoginSuccess: (email: String, name: String) -> Unit,
-    onSignUpSuccess: (email: String, name: String) -> Unit,
-    onLoginSubmit: (String, String) -> Result<Unit>,
-    onSignUpSubmit: (String, String, String, String, String) -> Result<Unit>,
-    onGoogleSignInClick: (() -> Unit) -> Unit,
+    onLoginSubmit: (String, String, (Result<Unit>) -> Unit) -> Unit,
+    onSignUpSubmit: (String, String, String, String, String, (Result<Unit>) -> Unit) -> Unit,
+    onGoogleSignInClick: ((Result<Unit>) -> Unit) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -415,7 +411,7 @@ fun AuthScreen(
                                         color = GoldGradientEnd,
                                         modifier = Modifier
                                             .clickable {
-                                                Toast.makeText(context, "Password reset link sent to registered email.", Toast.LENGTH_SHORT).show()
+                                                Toast.makeText(context, "Password reset instructions sent to email.", Toast.LENGTH_SHORT).show()
                                             }
                                             .testTag("forgot_password_btn")
                                     )
@@ -428,16 +424,12 @@ fun AuthScreen(
                                         focusManager.clearFocus()
                                         isLoading = true
                                         errorMessage = null
-                                        val result = onLoginSubmit(loginEmail, loginPassword)
-                                        isLoading = false
-                                        result.fold(
-                                            onSuccess = {
-                                                onLoginSuccess(loginEmail, loginEmail.substringBefore("@"))
-                                            },
-                                            onFailure = { err ->
+                                        onLoginSubmit(loginEmail, loginPassword) { res ->
+                                            isLoading = false
+                                            res.onFailure { err ->
                                                 errorMessage = err.message ?: "Login failed. Please check credentials."
                                             }
-                                        )
+                                        }
                                     },
                                     enabled = !isLoading && !isGoogleLoading,
                                     modifier = Modifier
@@ -484,8 +476,13 @@ fun AuthScreen(
                                     onClick = {
                                         isGoogleLoading = true
                                         errorMessage = null
-                                        onGoogleSignInClick {
+                                        onGoogleSignInClick { res ->
                                             isGoogleLoading = false
+                                            res.onFailure { err ->
+                                                val msg = err.message ?: "Google sign-in failed."
+                                                errorMessage = msg
+                                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                            }
                                         }
                                     },
                                     enabled = !isLoading && !isGoogleLoading,
@@ -692,22 +689,18 @@ fun AuthScreen(
                                         focusManager.clearFocus()
                                         isLoading = true
                                         errorMessage = null
-                                        val result = onSignUpSubmit(
+                                        onSignUpSubmit(
                                             signupName,
                                             signupEmail,
                                             signupPassword,
                                             signupConfirmPassword,
                                             signupReferralCode
-                                        )
-                                        isLoading = false
-                                        result.fold(
-                                            onSuccess = {
-                                                onSignUpSuccess(signupEmail, signupName)
-                                            },
-                                            onFailure = { err ->
+                                        ) { res ->
+                                            isLoading = false
+                                            res.onFailure { err ->
                                                 errorMessage = err.message ?: "Registration failed."
                                             }
-                                        )
+                                        }
                                     },
                                     enabled = !isLoading && !isGoogleLoading,
                                     modifier = Modifier
@@ -754,8 +747,13 @@ fun AuthScreen(
                                     onClick = {
                                         isGoogleLoading = true
                                         errorMessage = null
-                                        onGoogleSignInClick {
+                                        onGoogleSignInClick { res ->
                                             isGoogleLoading = false
+                                            res.onFailure { err ->
+                                                val msg = err.message ?: "Google sign-in failed."
+                                                errorMessage = msg
+                                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                            }
                                         }
                                     },
                                     enabled = !isLoading && !isGoogleLoading,

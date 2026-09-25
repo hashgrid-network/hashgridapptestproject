@@ -384,120 +384,200 @@ fun WalletScreen(
 
         if (subTabIndex == 0) {
             // Activity Log
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(activityList) { item ->
-                    Card(
+            if (activityList.isEmpty()) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 16.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .border(0.8.dp, GoldBorderSubtle, RoundedCornerShape(16.dp)),
+                    colors = CardDefaults.cardColors(containerColor = CardWhite)
+                ) {
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(14.dp))
-                            .border(0.8.dp, GoldBorderSubtle, RoundedCornerShape(14.dp)),
-                        colors = CardDefaults.cardColors(containerColor = CardWhite)
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Row(
+                        Icon(
+                            imageVector = Icons.Default.Payments,
+                            contentDescription = null,
+                            tint = GoldGradientEnd,
+                            modifier = Modifier.size(36.dp)
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = "No Activity Recorded",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                            color = ObsidianNavy
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "New account balance begins at $0.00 USDT. Start mining or activate a node to see realtime activity logs.",
+                            fontSize = 11.sp,
+                            color = SlateGray,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            lineHeight = 16.sp
+                        )
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(activityList) { item ->
+                        Card(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                                .clip(RoundedCornerShape(14.dp))
+                                .border(0.8.dp, GoldBorderSubtle, RoundedCornerShape(14.dp)),
+                            colors = CardDefaults.cardColors(containerColor = CardWhite)
                         ) {
-                            Column {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(
+                                        text = item.title,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (item.isCredit) MintDark else CrimsonRed,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                    Text(
+                                        text = item.subtitle,
+                                        fontSize = 10.sp,
+                                        color = ObsidianNavy
+                                    )
+                                    Text(
+                                        text = item.timestampStr,
+                                        fontSize = 9.sp,
+                                        color = SlateGray
+                                    )
+                                }
+
                                 Text(
-                                    text = item.title,
+                                    text = (if (item.isCredit) "+$" else "-$") + String.format(Locale.US, "%.2f", item.usdtAmount) + " USDT",
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = if (item.isCredit) MintDark else CrimsonRed,
                                     fontFamily = FontFamily.Monospace
                                 )
-                                Text(
-                                    text = item.subtitle,
-                                    fontSize = 10.sp,
-                                    color = ObsidianNavy
-                                )
-                                Text(
-                                    text = item.timestampStr,
-                                    fontSize = 9.sp,
-                                    color = SlateGray
-                                )
                             }
-
-                            Text(
-                                text = (if (item.isCredit) "+$" else "-$") + String.format(Locale.US, "%.2f", item.usdtAmount) + " USDT",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (item.isCredit) MintDark else CrimsonRed,
-                                fontFamily = FontFamily.Monospace
-                            )
                         }
                     }
+                    item { Spacer(modifier = Modifier.height(20.dp)) }
                 }
-                item { Spacer(modifier = Modifier.height(20.dp)) }
             }
         } else {
             // Payouts Log
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(payoutsList) { payout ->
-                    Card(
+            if (payoutsList.isEmpty()) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 16.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .border(0.8.dp, GoldBorderSubtle, RoundedCornerShape(16.dp)),
+                    colors = CardDefaults.cardColors(containerColor = CardWhite)
+                ) {
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(14.dp))
-                            .border(0.8.dp, GoldBorderSubtle, RoundedCornerShape(14.dp)),
-                        colors = CardDefaults.cardColors(containerColor = CardWhite)
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Row(
+                        Icon(
+                            imageVector = Icons.Default.Shield,
+                            contentDescription = null,
+                            tint = GoldGradientEnd,
+                            modifier = Modifier.size(36.dp)
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = "No Payout Requests Yet",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                            color = ObsidianNavy
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Withdrawals requested will appear here and undergo the automated 24-hour audit before dispatch.",
+                            fontSize = 11.sp,
+                            color = SlateGray,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            lineHeight = 16.sp
+                        )
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(payoutsList) { payout ->
+                        Card(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                                .clip(RoundedCornerShape(14.dp))
+                                .border(0.8.dp, GoldBorderSubtle, RoundedCornerShape(14.dp)),
+                            colors = CardDefaults.cardColors(containerColor = CardWhite)
                         ) {
-                            Column {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = "$${payout.amountUsdt.toInt()} USDT (${payout.network})",
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = ObsidianNavy,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                    }
                                     Text(
-                                        text = "$${payout.amountUsdt.toInt()} USDT (${payout.network})",
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = ObsidianNavy,
-                                        fontFamily = FontFamily.Monospace
+                                        text = "To: ${payout.targetAddress} • ${payout.dateStr}",
+                                        fontSize = 10.sp,
+                                        color = SlateGray
                                     )
                                 }
-                                Text(
-                                    text = "To: ${payout.targetAddress} • ${payout.dateStr}",
-                                    fontSize = 10.sp,
-                                    color = SlateGray
-                                )
-                            }
 
-                            val (statusBg, statusFg) = when (payout.status) {
-                                PayoutStatus.COMPLETED -> MintGreen.copy(alpha = 0.2f) to MintDark
-                                PayoutStatus.AUDITED_DISBURSED -> GoldLight to GoldGradientEnd
-                                PayoutStatus.PENDING_24H_AUDIT -> Color(0xFFF1ECE4) to SlateNavy
-                                PayoutStatus.PROCESSING -> Color(0xFFE8F0FE) to Color(0xFF1967D2)
-                                PayoutStatus.REJECTED -> Color(0xFFFFEBEE) to Color(0xFFC62828)
-                            }
+                                val (statusBg, statusFg) = when (payout.status) {
+                                    PayoutStatus.COMPLETED -> MintGreen.copy(alpha = 0.2f) to MintDark
+                                    PayoutStatus.AUDITED_DISBURSED -> GoldLight to GoldGradientEnd
+                                    PayoutStatus.PENDING_24H_AUDIT -> Color(0xFFF1ECE4) to SlateNavy
+                                    PayoutStatus.PROCESSING -> Color(0xFFE8F0FE) to Color(0xFF1967D2)
+                                    PayoutStatus.REJECTED -> Color(0xFFFFEBEE) to Color(0xFFC62828)
+                                }
 
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(statusBg)
-                                    .padding(horizontal = 7.dp, vertical = 3.dp)
-                            ) {
-                                Text(
-                                    text = payout.status.label,
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = statusFg
-                                )
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(statusBg)
+                                        .padding(horizontal = 7.dp, vertical = 3.dp)
+                                ) {
+                                    Text(
+                                        text = payout.status.label,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = statusFg
+                                    )
+                                }
                             }
                         }
                     }
+                    item { Spacer(modifier = Modifier.height(20.dp)) }
                 }
-                item { Spacer(modifier = Modifier.height(20.dp)) }
             }
         }
     }
