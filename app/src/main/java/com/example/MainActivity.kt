@@ -45,16 +45,32 @@ import com.example.ui.modals.SyndicateTermSheetModal
 import com.example.ui.modals.WithdrawModal
 import com.example.ui.screens.AccountScreen
 import com.example.ui.screens.AuthScreen
-import com.example.ui.screens.EmailVerificationScreen
+import com.example.ui.screens.TotpSetupScreen
+import com.example.ui.screens.TwoFactorAuthScreen
 import com.example.ui.screens.GrowthScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.PlansScreen
 import com.example.ui.screens.WalletScreen
 import com.example.ui.theme.CanvasBackground
 import com.google.firebase.FirebaseApp
-import com.google.firebase.auth.FirebaseAuth
 import com.example.ui.theme.HashGridTheme
 import com.example.viewmodel.HashGridViewModel
+
+sealed class AuthWorkflowState {
+    object AuthScreenView : AuthWorkflowState()
+    data class TotpSetupView(
+        val uid: String,
+        val email: String,
+        val displayName: String,
+        val secret: String
+    ) : AuthWorkflowState()
+    data class TotpChallengeView(
+        val uid: String,
+        val email: String,
+        val displayName: String,
+        val secret: String
+    ) : AuthWorkflowState()
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -92,26 +108,7 @@ fun HashGridApp(
 
     val isLoggedIn by viewModel.isLoggedIn.collectAsStateWithLifecycle()
     val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
-    val unverifiedEmail by AuthService.unverifiedUserEmail.collectAsStateWithLifecycle()
-
-    // Real-time app security reload guard
-    androidx.compose.runtime.LaunchedEffect(Unit) {
-        try {
-            val fbUser = FirebaseAuth.getInstance().currentUser
-            if (fbUser != null) {
-                val isGoogle = fbUser.providerData.any { it.providerId == "google.com" }
-                fbUser.reload().addOnCompleteListener { task ->
-                    if (task.isSuccessful) {
-                        if (!fbUser.isEmailVerified && !isGoogle) {
-                            AuthService.setUnverifiedEmail(fbUser.email)
-                        } else {
-                            AuthService.setUnverifiedEmail(null)
-                        }
-                    }
-                }
-            }
-        } catch (_: Exception) {}
-    }
+    var authWorkflowState by remember { mutableStateOf<AuthWorkflowState>(AuthWorkflowState.AuthScreenView) }
 
     val currentTab by viewModel.currentTab.collectAsStateWithLifecycle()
     val plansSubTab by viewModel.plansSubTab.collectAsStateWithLifecycle()
@@ -165,44 +162,113 @@ fun HashGridApp(
     var auditDossierTab by remember { androidx.compose.runtime.mutableIntStateOf(0) }
 
     AnimatedContent(
-        targetState = Pair(isLoggedIn, unverifiedEmail),
+        targetState = isLoggedIn,
         transitionSpec = { fadeIn() togetherWith fadeOut() },
         label = "AuthSessionTransition"
-    ) { (authenticated, unverified) ->
-        if (!unverified.isNullOrBlank()) {
+    ) { authenticated ->
+        if (!authenticated) {
             // ==========================================
-            // NON-BYPASSABLE STRICT EMAIL VERIFICATION SCREEN
+            // AUTH WORKFLOW (LOGIN / SIGN UP / 2FA TOTP)
             // ==========================================
-            EmailVerificationScreen(
-                email = unverified,
-                displayName = currentUser?.displayName ?: "Miner",
-                onVerificationSuccess = { verifiedUser ->
-                    AuthService.setUnverifiedEmail(null)
-                    viewModel.onDirectAuthSuccess(verifiedUser)
-                },
-                onSignOut = {
-                    AuthService.setUnverifiedEmail(null)
-                    viewModel.logout()
+            when (val state = authWorkflowState) {
+                is AuthWorkflowState.TotpSetupView -> {
+                    TotpSetupScreen(
+                        uid = state.uid,
+                        email = state.email,
+                        displayName = state.displayName,
+                        totpSecret = state.secret,
+                        onSetupSuccess = { user ->
+                            viewModel.onDirectAuthSuccess(user)
+                            authWorkflowState = AuthWorkflowState.AuthScreenView
+                        },
+                        onBackToLogin = {
+                            authWorkflowState = AuthWorkflowState.AuthScreenView
+                        }
+                    )
                 }
-            )
-        } else if (!authenticated) {
-            // ==========================================
-            // 1. AUTHENTICATION ENTRY (LOGIN / SIGN UP)
-            // ==========================================
-            AuthScreen(
-                onLoginSubmit = { email, pass, onResult ->
-                    viewModel.login(context, email, pass, onResult)
-                },
-                onSignUpSubmit = { name, email, pass, confirm, ref, onResult ->
-                    viewModel.signUp(context, name, email, pass, confirm, ref, onResult)
-                },
-                onGoogleSignInClick = { onResult ->
-                    viewModel.signInWithGoogle(context, onResult)
-                },
-                onAuthSuccess = { user ->
-                    viewModel.onDirectAuthSuccess(user)
+                is AuthWorkflowState.TotpChallengeView -> {
+                    TwoFactorAuthScreen(
+                        uid = state.uid,
+                        email = state.email,
+                        displayName = state.displayName,
+                        totpSecret = state.secret,
+                        onAuthSuccess = { user ->
+                            viewModel.onDirectAuthSuccess(user)
+                            authWorkflowState = AuthWorkflowState.AuthScreenView
+                        },
+                        onBackToLogin = {
+                            authWorkflowState = AuthWorkflowState.AuthScreenView
+                        }
+                    )
                 }
-            )
+                else -> {
+                    AuthScreen(
+                        onLoginSubmit = { email, pass, onResult ->
+                            viewModel.login(context, email, pass) { stepResult ->
+                                when (stepResult) {
+                                    is com.example.service.AuthStepResult.RequireTotpSetup -> {
+                                        authWorkflowState = AuthWorkflowState.TotpSetupView(
+                                            uid = stepResult.uid,
+                                            email = stepResult.email,
+                                            displayName = stepResult.displayName,
+                                            secret = stepResult.totpSecret
+                                        )
+                                    }
+                                    is com.example.service.AuthStepResult.RequireTotpChallenge -> {
+                                        authWorkflowState = AuthWorkflowState.TotpChallengeView(
+                                            uid = stepResult.uid,
+                                            email = stepResult.email,
+                                            displayName = stepResult.displayName,
+                                            secret = stepResult.totpSecret
+                                        )
+                                    }
+                                    is com.example.service.AuthStepResult.Authenticated -> {
+                                        viewModel.onDirectAuthSuccess(stepResult.user)
+                                        authWorkflowState = AuthWorkflowState.AuthScreenView
+                                    }
+                                    is com.example.service.AuthStepResult.Failure -> {}
+                                }
+                                onResult(stepResult)
+                            }
+                        },
+                        onSignUpSubmit = { name, email, pass, confirm, ref, onResult ->
+                            viewModel.signUp(context, name, email, pass, confirm, ref) { stepResult ->
+                                when (stepResult) {
+                                    is com.example.service.AuthStepResult.RequireTotpSetup -> {
+                                        authWorkflowState = AuthWorkflowState.TotpSetupView(
+                                            uid = stepResult.uid,
+                                            email = stepResult.email,
+                                            displayName = stepResult.displayName,
+                                            secret = stepResult.totpSecret
+                                        )
+                                    }
+                                    is com.example.service.AuthStepResult.RequireTotpChallenge -> {
+                                        authWorkflowState = AuthWorkflowState.TotpChallengeView(
+                                            uid = stepResult.uid,
+                                            email = stepResult.email,
+                                            displayName = stepResult.displayName,
+                                            secret = stepResult.totpSecret
+                                        )
+                                    }
+                                    is com.example.service.AuthStepResult.Authenticated -> {
+                                        viewModel.onDirectAuthSuccess(stepResult.user)
+                                        authWorkflowState = AuthWorkflowState.AuthScreenView
+                                    }
+                                    is com.example.service.AuthStepResult.Failure -> {}
+                                }
+                                onResult(stepResult)
+                            }
+                        },
+                        onGoogleSignInClick = { onResult ->
+                            viewModel.signInWithGoogle(context, onResult)
+                        },
+                        onAuthSuccess = { user ->
+                            viewModel.onDirectAuthSuccess(user)
+                            authWorkflowState = AuthWorkflowState.AuthScreenView
+                        }
+                    )
+                }
+            }
         } else {
             // ==========================================
             // 2. MAIN APP SCAFFOLD & DASHBOARD

@@ -861,33 +861,35 @@ class HashGridViewModel : ViewModel() {
     }
 
     // --- Authentication Actions ---
-    fun login(context: Context, email: String, pass: String, onComplete: (Result<Unit>) -> Unit) {
+    fun login(context: Context, email: String, pass: String, onResult: (com.example.service.AuthStepResult) -> Unit) {
         viewModelScope.launch {
-            val res = AuthService.loginWithEmail(context, email, pass)
-            if (res.isSuccess) {
-                val user = res.getOrThrow()
-                FirebaseSyncService.startRealtimeBalanceListener(user.id) { remoteBal ->
+            val stepResult = AuthService.loginWithEmail(context, email, pass)
+            if (stepResult is com.example.service.AuthStepResult.Authenticated) {
+                FirebaseSyncService.startRealtimeBalanceListener(stepResult.user.id) { remoteBal ->
                     _walletBalanceUsdt.value = remoteBal
                 }
-                onComplete(Result.success(Unit))
-            } else {
-                onComplete(Result.failure(res.exceptionOrNull() ?: Exception("Login failed")))
             }
+            onResult(stepResult)
         }
     }
 
-    fun signUp(context: Context, name: String, email: String, pass: String, confirmPass: String, refCode: String, onComplete: (Result<Unit>) -> Unit) {
+    fun signUp(
+        context: Context,
+        name: String,
+        email: String,
+        pass: String,
+        confirmPass: String,
+        refCode: String,
+        onResult: (com.example.service.AuthStepResult) -> Unit
+    ) {
         viewModelScope.launch {
-            val res = AuthService.signUpWithEmail(context, name, email, pass, confirmPass, refCode)
-            if (res.isSuccess) {
-                val user = res.getOrThrow()
-                FirebaseSyncService.startRealtimeBalanceListener(user.id) { remoteBal ->
+            val stepResult = AuthService.signUpWithEmail(context, name, email, pass, confirmPass, refCode)
+            if (stepResult is com.example.service.AuthStepResult.Authenticated) {
+                FirebaseSyncService.startRealtimeBalanceListener(stepResult.user.id) { remoteBal ->
                     _walletBalanceUsdt.value = remoteBal
                 }
-                onComplete(Result.success(Unit))
-            } else {
-                onComplete(Result.failure(res.exceptionOrNull() ?: Exception("Registration failed")))
             }
+            onResult(stepResult)
         }
     }
 

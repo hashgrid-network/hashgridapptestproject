@@ -23,10 +23,22 @@ import org.json.JSONObject
 import java.security.MessageDigest
 import java.util.UUID
 
-class EmailNotVerifiedException(
-    val unverifiedEmail: String,
-    val unverifiedDisplayName: String = "Miner"
-) : Exception("EMAIL_NOT_VERIFIED")
+sealed class AuthStepResult {
+    data class Authenticated(val user: User) : AuthStepResult()
+    data class RequireTotpSetup(
+        val uid: String,
+        val email: String,
+        val displayName: String,
+        val totpSecret: String
+    ) : AuthStepResult()
+    data class RequireTotpChallenge(
+        val uid: String,
+        val email: String,
+        val displayName: String,
+        val totpSecret: String
+    ) : AuthStepResult()
+    data class Failure(val message: String) : AuthStepResult()
+}
 
 object AuthService {
 
@@ -56,13 +68,6 @@ object AuthService {
     private val _isLoggedIn = MutableStateFlow(false)
     val isLoggedIn: StateFlow<Boolean> = _isLoggedIn.asStateFlow()
 
-    private val _unverifiedUserEmail = MutableStateFlow<String?>(null)
-    val unverifiedUserEmail: StateFlow<String?> = _unverifiedUserEmail.asStateFlow()
-
-    fun setUnverifiedEmail(email: String?) {
-        _unverifiedUserEmail.value = email
-    }
-
     fun init(context: Context) {
         try {
             try {
@@ -72,6 +77,10 @@ object AuthService {
             prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             val currentPrefs = prefs
 
+            val loggedIn = currentPrefs?.getBoolean(KEY_IS_LOGGED_IN, false) ?: false
+            val savedUid = currentPrefs?.getString(KEY_USER_ID, null)
+            val savedEmail = currentPrefs?.getString(KEY_USER_EMAIL, null)
+
             val fbAuth = firebaseAuth
             val firebaseUser = try {
                 fbAuth?.currentUser
@@ -79,10 +88,7 @@ object AuthService {
                 null
             }
 
-            if (firebaseUser != null && !firebaseUser.uid.isNullOrBlank()) {
-                val isGoogleUser = firebaseUser.providerData.any { it.providerId == "google.com" }
-                val isVerified = firebaseUser.isEmailVerified || isGoogleUser
-
+            if (loggedIn && firebaseUser != null && !firebaseUser.uid.isNullOrBlank()) {
                 val uid = firebaseUser.uid
                 val email = firebaseUser.email ?: currentPrefs?.getString(KEY_USER_EMAIL, "") ?: ""
                 val name = firebaseUser.displayName ?: currentPrefs?.getString(KEY_USER_NAME, "Miner") ?: "Miner"
@@ -100,43 +106,27 @@ object AuthService {
                     isFlaggedDuplicate = currentPrefs?.getBoolean(KEY_IS_FLAGGED_DUPLICATE, false) ?: false
                 )
 
-                if (!isVerified) {
-                    _currentUser.value = null
-                    _isLoggedIn.value = false
-                    _unverifiedUserEmail.value = email
-                } else {
-                    _currentUser.value = user
-                    _isLoggedIn.value = true
-                    _unverifiedUserEmail.value = null
-                }
+                _currentUser.value = user
+                _isLoggedIn.value = true
+            } else if (loggedIn && !savedUid.isNullOrBlank() && !savedEmail.isNullOrBlank()) {
+                val user = User(
+                    id = savedUid,
+                    email = savedEmail,
+                    role = currentPrefs.getString(KEY_USER_ROLE, "user") ?: "user",
+                    referralCode = currentPrefs.getString(KEY_REFERRAL_CODE, "HG-7798") ?: "HG-7798",
+                    displayName = currentPrefs.getString(KEY_USER_NAME, "Institutional Miner") ?: "Institutional Miner",
+                    photoUrl = currentPrefs.getString(KEY_PHOTO_URL, null),
+                    isFlaggedDuplicate = currentPrefs.getBoolean(KEY_IS_FLAGGED_DUPLICATE, false)
+                )
+                _currentUser.value = user
+                _isLoggedIn.value = true
             } else {
-                val loggedIn = currentPrefs?.getBoolean(KEY_IS_LOGGED_IN, false) ?: false
-                val savedUid = currentPrefs?.getString(KEY_USER_ID, null)
-                val savedEmail = currentPrefs?.getString(KEY_USER_EMAIL, null)
-
-                if (loggedIn && !savedUid.isNullOrBlank() && !savedEmail.isNullOrBlank()) {
-                    val user = User(
-                        id = savedUid,
-                        email = savedEmail,
-                        role = currentPrefs.getString(KEY_USER_ROLE, "user") ?: "user",
-                        referralCode = currentPrefs.getString(KEY_REFERRAL_CODE, "HG-7798") ?: "HG-7798",
-                        displayName = currentPrefs.getString(KEY_USER_NAME, "Institutional Miner") ?: "Institutional Miner",
-                        photoUrl = currentPrefs.getString(KEY_PHOTO_URL, null),
-                        isFlaggedDuplicate = currentPrefs.getBoolean(KEY_IS_FLAGGED_DUPLICATE, false)
-                    )
-                    _currentUser.value = user
-                    _isLoggedIn.value = true
-                    _unverifiedUserEmail.value = null
-                } else {
-                    _currentUser.value = null
-                    _isLoggedIn.value = false
-                    _unverifiedUserEmail.value = null
-                }
+                _currentUser.value = null
+                _isLoggedIn.value = false
             }
         } catch (e: Exception) {
             _currentUser.value = null
             _isLoggedIn.value = false
-            _unverifiedUserEmail.value = null
         }
     }
 
@@ -154,15 +144,21 @@ object AuthService {
         }
     }
 
-    suspend fun loginWithEmail(context: Context, email: String, pass: String): Result<User> = withContext(Dispatchers.IO) {
+    /**
+     * Step 1 Login with Email + Password.
+     * Evaluates 2FA state:
+     * - If user has TOTP enabled with secret -> returns RequireTotpChallenge
+     * - If user does not have TOTP setup -> returns RequireTotpSetup
+     */
+    suspend fun loginWithEmail(context: Context, email: String, pass: String): AuthStepResult = withContext(Dispatchers.IO) {
         val cleanEmail = email.trim().lowercase()
         val cleanPass = pass.trim()
 
         if (cleanEmail.isBlank()) {
-            return@withContext Result.failure(IllegalArgumentException("Please enter your email address."))
+            return@withContext AuthStepResult.Failure("Please enter your email address.")
         }
         if (cleanPass.length < 6) {
-            return@withContext Result.failure(IllegalArgumentException("Password must be at least 6 characters."))
+            return@withContext AuthStepResult.Failure("Password must be at least 6 characters.")
         }
 
         val deviceIdHash = getHashedDeviceId(context)
@@ -174,53 +170,34 @@ object AuthService {
                 val fbUser = authResult.user
 
                 if (fbUser != null) {
-                    val isGoogleUser = fbUser.providerData.any { it.providerId == "google.com" }
-                    val isVerified = fbUser.isEmailVerified || isGoogleUser
+                    val uid = fbUser.uid
+                    val displayName = fbUser.displayName ?: cleanEmail.substringBefore("@").replaceFirstChar { it.uppercase() }
 
-                    if (!isVerified) {
-                        try {
-                            fbUser.sendEmailVerification()
-                        } catch (_: Exception) {}
-                        _unverifiedUserEmail.value = cleanEmail
-                        return@withContext Result.failure(
-                            EmailNotVerifiedException(cleanEmail, fbUser.displayName ?: cleanEmail.substringBefore("@"))
+                    // Check user 2FA status in Firebase
+                    val (isTotpEnabled, totpSecret) = FirebaseSyncService.fetchTotpDetails(uid)
+                    return@withContext if (isTotpEnabled && !totpSecret.isNullOrBlank()) {
+                        AuthStepResult.RequireTotpChallenge(
+                            uid = uid,
+                            email = cleanEmail,
+                            displayName = displayName,
+                            totpSecret = totpSecret
+                        )
+                    } else {
+                        val generatedSecret = TotpHelper.generateSecret(16)
+                        AuthStepResult.RequireTotpSetup(
+                            uid = uid,
+                            email = cleanEmail,
+                            displayName = displayName,
+                            totpSecret = generatedSecret
                         )
                     }
-
-                    val uid = fbUser.uid
-                    val accountId = "HG-" + uid.takeLast(6).uppercase()
-                    val displayName = fbUser.displayName ?: cleanEmail.substringBefore("@").replaceFirstChar { it.uppercase() }
-                    val photoUrl = fbUser.photoUrl?.toString()
-
-                    val remoteData = FirebaseSyncService.fetchUserData(uid)
-                    val refCode = "HG-" + uid.takeLast(4).uppercase()
-
-                    val loggedInUser = User(
-                        id = accountId,
-                        email = cleanEmail,
-                        role = "user",
-                        referralCode = refCode,
-                        displayName = displayName,
-                        photoUrl = photoUrl,
-                        isFlaggedDuplicate = false
-                    )
-
-                    if (remoteData == null) {
-                        FirebaseSyncService.initializeNewUser(uid, cleanEmail, displayName, photoUrl, accountId)
-                    }
-
-                    persistSession(loggedInUser, uid)
-                    _unverifiedUserEmail.value = null
-                    return@withContext Result.success(loggedInUser)
                 }
             }
-        } catch (e: EmailNotVerifiedException) {
-            return@withContext Result.failure(e)
         } catch (e: Exception) {
-            // Check local fallback
+            // Check local credentials registry below
         }
 
-        // Fallback for local credentials
+        // Fallback for local credentials registry
         try {
             val usersJson = prefs?.getString(KEY_SAVED_USERS_JSON, "{}") ?: "{}"
             val usersObj = JSONObject(usersJson)
@@ -230,28 +207,39 @@ object AuthService {
                 val storedPassword = userRecord.optString("password", "")
                 if (storedPassword == cleanPass) {
                     val uid = userRecord.optString("uid", UUID.randomUUID().toString())
-                    val accountId = userRecord.optString("id", "HG-" + uid.takeLast(6).uppercase())
-                    val matchedUser = User(
-                        id = accountId,
-                        email = cleanEmail,
-                        role = userRecord.optString("role", "user"),
-                        referralCode = userRecord.optString("referralCode", "HG-" + uid.takeLast(4).uppercase()),
-                        displayName = userRecord.optString("name", cleanEmail.substringBefore("@").replaceFirstChar { it.uppercase() }),
-                        photoUrl = userRecord.optString("photoUrl", null),
-                        isFlaggedDuplicate = userRecord.optBoolean("isFlaggedDuplicate", false)
-                    )
-                    persistSession(matchedUser, uid)
-                    _unverifiedUserEmail.value = null
-                    return@withContext Result.success(matchedUser)
+                    val displayName = userRecord.optString("name", cleanEmail.substringBefore("@").replaceFirstChar { it.uppercase() })
+                    val storedTotpSecret = userRecord.optString("totpSecret", "")
+                    val isTotpEnabled = userRecord.optBoolean("totpEnabled", false)
+
+                    return@withContext if (isTotpEnabled && storedTotpSecret.isNotBlank()) {
+                        AuthStepResult.RequireTotpChallenge(
+                            uid = uid,
+                            email = cleanEmail,
+                            displayName = displayName,
+                            totpSecret = storedTotpSecret
+                        )
+                    } else {
+                        val generatedSecret = TotpHelper.generateSecret(16)
+                        AuthStepResult.RequireTotpSetup(
+                            uid = uid,
+                            email = cleanEmail,
+                            displayName = displayName,
+                            totpSecret = generatedSecret
+                        )
+                    }
                 } else {
-                    return@withContext Result.failure(IllegalArgumentException("Incorrect credentials. Please try again."))
+                    return@withContext AuthStepResult.Failure("Incorrect password. Please try again.")
                 }
             }
         } catch (_: Exception) {}
 
-        Result.failure(IllegalArgumentException("Login failed. Please verify your email and password."))
+        AuthStepResult.Failure("Login failed. Please verify your email and password.")
     }
 
+    /**
+     * Step 1 Sign-Up with Email + Password.
+     * Creates account and returns RequireTotpSetup with generated Base32 secret.
+     */
     suspend fun signUpWithEmail(
         context: Context,
         name: String,
@@ -259,7 +247,7 @@ object AuthService {
         password: String,
         confirmPass: String,
         referralCode: String
-    ): Result<User> = withContext(Dispatchers.IO) {
+    ): AuthStepResult = withContext(Dispatchers.IO) {
         val cleanName = name.trim()
         val cleanEmail = email.trim().lowercase()
         val cleanPass = password.trim()
@@ -267,19 +255,20 @@ object AuthService {
         val cleanRef = referralCode.trim()
 
         if (cleanName.isBlank()) {
-            return@withContext Result.failure(IllegalArgumentException("Please enter your name or username."))
+            return@withContext AuthStepResult.Failure("Please enter your name or username.")
         }
         if (cleanEmail.isBlank() || !cleanEmail.contains("@") || !cleanEmail.contains(".")) {
-            return@withContext Result.failure(IllegalArgumentException("Please enter a valid email address."))
+            return@withContext AuthStepResult.Failure("Please enter a valid email address.")
         }
         if (cleanPass.length < 6) {
-            return@withContext Result.failure(IllegalArgumentException("Password must be at least 6 characters."))
+            return@withContext AuthStepResult.Failure("Password must be at least 6 characters.")
         }
         if (cleanPass != cleanConfirm) {
-            return@withContext Result.failure(IllegalArgumentException("Passwords do not match."))
+            return@withContext AuthStepResult.Failure("Passwords do not match.")
         }
 
         val deviceIdHash = getHashedDeviceId(context)
+        val generatedSecret = TotpHelper.generateSecret(16)
 
         try {
             val auth = firebaseAuth
@@ -288,70 +277,52 @@ object AuthService {
                 val fbUser = authResult.user
 
                 if (fbUser != null) {
-                    try {
-                        fbUser.sendEmailVerification()
-                    } catch (_: Exception) {}
-
                     val uid = fbUser.uid
                     val accountId = "HG-" + uid.takeLast(6).uppercase()
                     val assignedRefCode = if (cleanRef.isNotBlank()) cleanRef else "HG-" + uid.takeLast(4).uppercase()
 
-                    val newUser = User(
-                        id = accountId,
-                        email = cleanEmail,
-                        role = "user",
-                        referralCode = assignedRefCode,
-                        displayName = cleanName,
-                        photoUrl = null,
-                        isFlaggedDuplicate = false
-                    )
-
                     FirebaseSyncService.initializeNewUser(uid, cleanEmail, cleanName, null, accountId)
-                    saveUserToRegistry(cleanEmail, cleanPass, accountId, cleanName, assignedRefCode, deviceIdHash, false, uid)
+                    saveUserToRegistry(cleanEmail, cleanPass, accountId, cleanName, assignedRefCode, deviceIdHash, false, uid, generatedSecret)
 
-                    // DO NOT navigate to dashboard or persist session - require verification first
-                    _unverifiedUserEmail.value = cleanEmail
-                    return@withContext Result.failure(EmailNotVerifiedException(cleanEmail, cleanName))
+                    return@withContext AuthStepResult.RequireTotpSetup(
+                        uid = uid,
+                        email = cleanEmail,
+                        displayName = cleanName,
+                        totpSecret = generatedSecret
+                    )
                 }
             }
-        } catch (e: EmailNotVerifiedException) {
-            return@withContext Result.failure(e)
         } catch (e: Exception) {
-            // Fallback to local user registry
+            // If Firebase fails or user exists, check local fallback
         }
 
         try {
             val usersJson = prefs?.getString(KEY_SAVED_USERS_JSON, "{}") ?: "{}"
             val usersObj = JSONObject(usersJson)
             if (usersObj.has(cleanEmail)) {
-                return@withContext Result.failure(IllegalArgumentException("An account with this email already exists."))
+                return@withContext AuthStepResult.Failure("An account with this email already exists.")
             }
 
             val uid = UUID.randomUUID().toString()
             val accountId = "HG-" + uid.takeLast(6).uppercase()
             val assignedRefCode = if (cleanRef.isNotBlank()) cleanRef else "HG-" + uid.takeLast(4).uppercase()
 
-            val newUser = User(
-                id = accountId,
-                email = cleanEmail,
-                role = "user",
-                referralCode = assignedRefCode,
-                displayName = cleanName,
-                photoUrl = null,
-                isFlaggedDuplicate = false
-            )
-
             FirebaseSyncService.initializeNewUser(uid, cleanEmail, cleanName, null, accountId)
-            saveUserToRegistry(cleanEmail, cleanPass, accountId, cleanName, assignedRefCode, deviceIdHash, false, uid)
-            persistSession(newUser, uid)
-            Result.success(newUser)
+            saveUserToRegistry(cleanEmail, cleanPass, accountId, cleanName, assignedRefCode, deviceIdHash, false, uid, generatedSecret)
+
+            AuthStepResult.RequireTotpSetup(
+                uid = uid,
+                email = cleanEmail,
+                displayName = cleanName,
+                totpSecret = generatedSecret
+            )
         } catch (e: Exception) {
-            Result.failure(IllegalArgumentException(e.localizedMessage ?: "Sign-up failed."))
+            AuthStepResult.Failure(e.localizedMessage ?: "Sign-up failed.")
         }
     }
 
     /**
-     * REAL Google Sign-In via Android Credential Manager & Firebase Auth
+     * Native Google Sign-In (Auto-authenticated with Google 2FA)
      */
     suspend fun signInWithGoogleCredential(
         context: Context,
@@ -418,7 +389,6 @@ object AuthService {
             val accountId = "HG-" + uid.takeLast(6).uppercase()
             val refCode = "HG-" + uid.takeLast(4).uppercase()
 
-            // Check if user already exists in Firebase database
             val existingRemote = FirebaseSyncService.fetchUserData(uid)
             if (existingRemote == null) {
                 FirebaseSyncService.initializeNewUser(uid, googleEmail, googleName, photoUrl, accountId)
@@ -434,8 +404,8 @@ object AuthService {
                 isFlaggedDuplicate = false
             )
 
-            saveUserToRegistry(googleEmail, "oauth_google", accountId, googleName, refCode, deviceIdHash, false, uid)
-            persistSession(matchedUser, uid)
+            saveUserToRegistry(googleEmail, "oauth_google", accountId, googleName, refCode, deviceIdHash, false, uid, null)
+            setSessionDirect(matchedUser, uid)
             Result.success(matchedUser)
         } catch (e: GetCredentialCancellationException) {
             Result.failure(IllegalArgumentException("Google sign-in was cancelled."))
@@ -452,7 +422,8 @@ object AuthService {
         refCode: String,
         deviceId: String,
         isDuplicate: Boolean,
-        uid: String
+        uid: String,
+        totpSecret: String?
     ) {
         try {
             val usersJson = prefs?.getString(KEY_SAVED_USERS_JSON, "{}") ?: "{}"
@@ -466,6 +437,10 @@ object AuthService {
                 put("referralCode", refCode)
                 put("deviceId", deviceId)
                 put("isFlaggedDuplicate", isDuplicate)
+                if (!totpSecret.isNullOrBlank()) {
+                    put("totpSecret", totpSecret)
+                    put("totpEnabled", true)
+                }
                 put("createdAt", FirebaseSyncService.getCurrentTimestamp())
             }
             usersObj.put(email, userObj)
@@ -475,7 +450,7 @@ object AuthService {
         } catch (_: Exception) {}
     }
 
-    private fun persistSession(user: User, uid: String) {
+    fun setSessionDirect(user: User, uid: String) {
         try {
             prefs?.edit()
                 ?.putBoolean(KEY_IS_LOGGED_IN, true)

@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -820,5 +821,73 @@ object FirebaseSyncService {
     fun getCurrentTimestamp(): String {
         val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
         return sdf.format(Date())
+    }
+
+    /**
+     * Activates TOTP 2FA for a user and stores secret in Firestore and RTDB
+     */
+    fun saveTotpSecret(uid: String, secret: String, onComplete: ((Boolean) -> Unit)? = null) {
+        scope.launch {
+            try {
+                // 1. Update Firestore /users/{uid}
+                val updateMap = hashMapOf<String, Any>(
+                    "totp_enabled" to true,
+                    "totp_secret" to secret,
+                    "two_factor_enabled" to true,
+                    "totp_activated_at" to FieldValue.serverTimestamp()
+                )
+                firestore?.collection("users")?.document(uid)?.set(updateMap, SetOptions.merge())
+
+                // 2. Update RTDB
+                val safeKey = sanitizeKey(uid)
+                val patchJson = JSONObject().apply {
+                    put("totp_enabled", true)
+                    put("totp_secret", secret)
+                    put("two_factor_enabled", true)
+                }
+                val url = "$firebaseDatabaseUrl/users/$safeKey.json"
+                val body = patchJson.toString().toRequestBody(jsonMediaType)
+                val request = Request.Builder().url(url).patch(body).build()
+                httpClient.newCall(request).execute().close()
+
+                onComplete?.invoke(true)
+            } catch (_: Exception) {
+                onComplete?.invoke(false)
+            }
+        }
+    }
+
+    /**
+     * Checks if user has TOTP enabled and retrieves secret
+     */
+    suspend fun fetchTotpDetails(uid: String): Pair<Boolean, String?> = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        try {
+            // Check Firestore first
+            val snap = firestore?.collection("users")?.document(uid)?.get()?.await()
+            if (snap != null && snap.exists()) {
+                val enabled = snap.getBoolean("totp_enabled") ?: snap.getBoolean("two_factor_enabled") ?: false
+                val secret = snap.getString("totp_secret")
+                if (secret != null && secret.isNotBlank()) {
+                    return@withContext Pair(enabled, secret)
+                }
+            }
+
+            // Fallback RTDB
+            val safeKey = sanitizeKey(uid)
+            val url = "$firebaseDatabaseUrl/users/$safeKey.json"
+            val request = Request.Builder().url(url).get().build()
+            httpClient.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val body = response.body?.string()?.trim()
+                    if (!body.isNullOrBlank() && body != "null") {
+                        val obj = JSONObject(body)
+                        val enabled = obj.optBoolean("totp_enabled", obj.optBoolean("two_factor_enabled", false))
+                        val secret = obj.optString("totp_secret", "")
+                        return@withContext Pair(enabled, if (secret.isNotBlank()) secret else null)
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        Pair(false, null)
     }
 }
