@@ -258,23 +258,23 @@ fun AuthScreen(
 
                     if (idToken != null) {
                         val credential = GoogleAuthProvider.getCredential(idToken, null)
-                        val auth = AuthService.firebaseAuth
-                        if (auth != null) {
-                            auth.signInWithCredential(credential)
-                                .addOnSuccessListener { authResult ->
-                                    val fbUser = authResult.user
-                                    val uid = fbUser?.uid ?: UUID.randomUUID().toString()
+                        val auth = FirebaseAuth.getInstance()
+                        auth.signInWithCredential(credential)
+                            .addOnSuccessListener { authResult ->
+                                val fbUser = authResult.user
+                                if (fbUser != null) {
+                                    val uid = fbUser.uid
                                     val accountId = "HG-" + uid.takeLast(6).uppercase()
                                     val refCode = "HG-" + uid.takeLast(4).uppercase()
 
-                                    // Save / Initialize Firestore & RTDB
+                                    // Check/create user document in Firestore '/users/${user.uid}'
                                     scope.launch(Dispatchers.IO) {
                                         try {
                                             val firestore = FirebaseFirestore.getInstance()
                                             val userDoc = hashMapOf(
                                                 "uid" to uid,
-                                                "email" to (fbUser?.email ?: email),
-                                                "displayName" to (fbUser?.displayName ?: name),
+                                                "email" to (fbUser.email ?: email),
+                                                "displayName" to (fbUser.displayName ?: name),
                                                 "accountId" to accountId,
                                                 "usdt_balance" to 0.00,
                                                 "btc_balance" to 0.000000,
@@ -299,43 +299,31 @@ fun AuthScreen(
                                     )
                                     onAuthSuccess(matchedUser)
                                     isGoogleLoading = false
-                                }
-                                .addOnFailureListener { e ->
+                                } else {
                                     isGoogleLoading = false
-                                    val msg = "Google Auth Failed: ${e.localizedMessage}"
-                                    errorMessage = msg
-                                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                                 }
-                        } else {
-                            // Fallback auth
-                            val uid = UUID.randomUUID().toString()
-                            val accountId = "HG-" + uid.takeLast(6).uppercase()
-                            val matchedUser = User(
-                                id = accountId,
-                                email = email,
-                                role = "user",
-                                referralCode = "HG-" + uid.takeLast(4).uppercase(),
-                                displayName = name,
-                                photoUrl = photoUrl,
-                                isFlaggedDuplicate = false
-                            )
-                            onAuthSuccess(matchedUser)
-                            isGoogleLoading = false
-                        }
+                            }
+                            .addOnFailureListener { firebaseEx ->
+                                isGoogleLoading = false
+                                val msg = "Firebase Auth Failed: ${firebaseEx.localizedMessage}"
+                                errorMessage = msg
+                                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                            }
                     } else {
                         isGoogleLoading = false
                         errorMessage = "Google authentication did not return an ID token."
+                        Toast.makeText(context, "Google Sign-In Error: Missing ID Token", Toast.LENGTH_LONG).show()
                     }
                 } catch (e: ApiException) {
                     isGoogleLoading = false
-                    val msg = "Sign in cancelled or failed (Code: ${e.statusCode})"
+                    val msg = "Google Sign-In Error Code: ${e.statusCode} - ${e.localizedMessage}"
                     errorMessage = msg
-                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                 } catch (e: Exception) {
                     isGoogleLoading = false
-                    val msg = e.localizedMessage ?: "Google Sign-In failed."
+                    val msg = "Google Sign-In Failed: ${e.localizedMessage}"
                     errorMessage = msg
-                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                 }
             }
         } else {
@@ -685,15 +673,10 @@ fun AuthScreen(
                             Spacer(modifier = Modifier.height(14.dp))
                         }
 
-                        AnimatedContent(
-                            targetState = selectedTabIndex,
-                            transitionSpec = { fadeIn() togetherWith fadeOut() },
-                            label = "AuthTabTransition"
-                        ) { tabIndex ->
-                            if (tabIndex == 0) {
-                                // ==========================================
-                                // 1. LOG IN FORM
-                                // ==========================================
+                        if (selectedTabIndex == 0) {
+                            // ==========================================
+                            // 1. LOG IN FORM
+                            // ==========================================
                                 Column(modifier = Modifier.fillMaxWidth()) {
                                     Text(
                                         text = "Email Address",
@@ -790,7 +773,14 @@ fun AuthScreen(
                                             onLoginSubmit(loginEmail, loginPassword) { res ->
                                                 isLoading = false
                                                 res.onFailure { err ->
-                                                    errorMessage = err.message ?: "Login failed. Please check credentials."
+                                                    if (err is com.example.service.EmailNotVerifiedException) {
+                                                        pendingVerifyEmail = err.unverifiedEmail
+                                                        pendingVerifyName = err.unverifiedDisplayName
+                                                        showVerifyEmailScreen = true
+                                                        Toast.makeText(context, "Please verify your email before entering.", Toast.LENGTH_LONG).show()
+                                                    } else {
+                                                        errorMessage = err.message ?: "Login failed. Please check credentials."
+                                                    }
                                                 }
                                             }
                                         },
@@ -1138,8 +1128,16 @@ fun AuthScreen(
                                                         pendingVerifyEmail = cleanEmail
                                                         pendingVerifyName = cleanName
                                                         showVerifyEmailScreen = true
+                                                        Toast.makeText(context, "Verification email sent to your Gmail inbox.", Toast.LENGTH_LONG).show()
                                                     }.onFailure { err ->
-                                                        errorMessage = err.message ?: "Registration failed."
+                                                        if (err is com.example.service.EmailNotVerifiedException) {
+                                                            pendingVerifyEmail = err.unverifiedEmail
+                                                            pendingVerifyName = err.unverifiedDisplayName
+                                                            showVerifyEmailScreen = true
+                                                            Toast.makeText(context, "Verification email sent to your Gmail inbox.", Toast.LENGTH_LONG).show()
+                                                        } else {
+                                                            errorMessage = err.message ?: "Registration failed."
+                                                        }
                                                     }
                                                 }
                                             }
@@ -1239,7 +1237,6 @@ fun AuthScreen(
                         }
                     }
                 }
-            }
 
             Spacer(modifier = Modifier.height(24.dp))
 

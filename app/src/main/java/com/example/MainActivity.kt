@@ -45,12 +45,14 @@ import com.example.ui.modals.SyndicateTermSheetModal
 import com.example.ui.modals.WithdrawModal
 import com.example.ui.screens.AccountScreen
 import com.example.ui.screens.AuthScreen
+import com.example.ui.screens.EmailVerificationScreen
 import com.example.ui.screens.GrowthScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.PlansScreen
 import com.example.ui.screens.WalletScreen
 import com.example.ui.theme.CanvasBackground
 import com.google.firebase.FirebaseApp
+import com.google.firebase.auth.FirebaseAuth
 import com.example.ui.theme.HashGridTheme
 import com.example.viewmodel.HashGridViewModel
 
@@ -90,6 +92,26 @@ fun HashGridApp(
 
     val isLoggedIn by viewModel.isLoggedIn.collectAsStateWithLifecycle()
     val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
+    val unverifiedEmail by AuthService.unverifiedUserEmail.collectAsStateWithLifecycle()
+
+    // Real-time app security reload guard
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        try {
+            val fbUser = FirebaseAuth.getInstance().currentUser
+            if (fbUser != null) {
+                val isGoogle = fbUser.providerData.any { it.providerId == "google.com" }
+                fbUser.reload().addOnCompleteListener { task ->
+                    if (task.isSuccessful) {
+                        if (!fbUser.isEmailVerified && !isGoogle) {
+                            AuthService.setUnverifiedEmail(fbUser.email)
+                        } else {
+                            AuthService.setUnverifiedEmail(null)
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+    }
 
     val currentTab by viewModel.currentTab.collectAsStateWithLifecycle()
     val plansSubTab by viewModel.plansSubTab.collectAsStateWithLifecycle()
@@ -143,13 +165,29 @@ fun HashGridApp(
     var auditDossierTab by remember { androidx.compose.runtime.mutableIntStateOf(0) }
 
     AnimatedContent(
-        targetState = isLoggedIn,
+        targetState = Pair(isLoggedIn, unverifiedEmail),
         transitionSpec = { fadeIn() togetherWith fadeOut() },
         label = "AuthSessionTransition"
-    ) { authenticated ->
-        if (!authenticated) {
+    ) { (authenticated, unverified) ->
+        if (!unverified.isNullOrBlank()) {
             // ==========================================
-            // 1. AUTHENTICATION ENTRY (LOGIN / SIGN UP / VERIFY)
+            // NON-BYPASSABLE STRICT EMAIL VERIFICATION SCREEN
+            // ==========================================
+            EmailVerificationScreen(
+                email = unverified,
+                displayName = currentUser?.displayName ?: "Miner",
+                onVerificationSuccess = { verifiedUser ->
+                    AuthService.setUnverifiedEmail(null)
+                    viewModel.onDirectAuthSuccess(verifiedUser)
+                },
+                onSignOut = {
+                    AuthService.setUnverifiedEmail(null)
+                    viewModel.logout()
+                }
+            )
+        } else if (!authenticated) {
+            // ==========================================
+            // 1. AUTHENTICATION ENTRY (LOGIN / SIGN UP)
             // ==========================================
             AuthScreen(
                 onLoginSubmit = { email, pass, onResult ->

@@ -23,6 +23,11 @@ import org.json.JSONObject
 import java.security.MessageDigest
 import java.util.UUID
 
+class EmailNotVerifiedException(
+    val unverifiedEmail: String,
+    val unverifiedDisplayName: String = "Miner"
+) : Exception("EMAIL_NOT_VERIFIED")
+
 object AuthService {
 
     private const val PREFS_NAME = "hashgrid_auth_prefs"
@@ -51,6 +56,13 @@ object AuthService {
     private val _isLoggedIn = MutableStateFlow(false)
     val isLoggedIn: StateFlow<Boolean> = _isLoggedIn.asStateFlow()
 
+    private val _unverifiedUserEmail = MutableStateFlow<String?>(null)
+    val unverifiedUserEmail: StateFlow<String?> = _unverifiedUserEmail.asStateFlow()
+
+    fun setUnverifiedEmail(email: String?) {
+        _unverifiedUserEmail.value = email
+    }
+
     fun init(context: Context) {
         try {
             try {
@@ -68,6 +80,9 @@ object AuthService {
             }
 
             if (firebaseUser != null && !firebaseUser.uid.isNullOrBlank()) {
+                val isGoogleUser = firebaseUser.providerData.any { it.providerId == "google.com" }
+                val isVerified = firebaseUser.isEmailVerified || isGoogleUser
+
                 val uid = firebaseUser.uid
                 val email = firebaseUser.email ?: currentPrefs?.getString(KEY_USER_EMAIL, "") ?: ""
                 val name = firebaseUser.displayName ?: currentPrefs?.getString(KEY_USER_NAME, "Miner") ?: "Miner"
@@ -84,8 +99,16 @@ object AuthService {
                     photoUrl = photoUrl,
                     isFlaggedDuplicate = currentPrefs?.getBoolean(KEY_IS_FLAGGED_DUPLICATE, false) ?: false
                 )
-                _currentUser.value = user
-                _isLoggedIn.value = true
+
+                if (!isVerified) {
+                    _currentUser.value = null
+                    _isLoggedIn.value = false
+                    _unverifiedUserEmail.value = email
+                } else {
+                    _currentUser.value = user
+                    _isLoggedIn.value = true
+                    _unverifiedUserEmail.value = null
+                }
             } else {
                 val loggedIn = currentPrefs?.getBoolean(KEY_IS_LOGGED_IN, false) ?: false
                 val savedUid = currentPrefs?.getString(KEY_USER_ID, null)
@@ -103,14 +126,17 @@ object AuthService {
                     )
                     _currentUser.value = user
                     _isLoggedIn.value = true
+                    _unverifiedUserEmail.value = null
                 } else {
                     _currentUser.value = null
                     _isLoggedIn.value = false
+                    _unverifiedUserEmail.value = null
                 }
             }
         } catch (e: Exception) {
             _currentUser.value = null
             _isLoggedIn.value = false
+            _unverifiedUserEmail.value = null
         }
     }
 
@@ -147,31 +173,49 @@ object AuthService {
                 val authResult = auth.signInWithEmailAndPassword(cleanEmail, cleanPass).await()
                 val fbUser = authResult.user
 
-                val uid = fbUser?.uid ?: UUID.randomUUID().toString()
-                val accountId = "HG-" + uid.takeLast(6).uppercase()
-                val displayName = fbUser?.displayName ?: cleanEmail.substringBefore("@").replaceFirstChar { it.uppercase() }
-                val photoUrl = fbUser?.photoUrl?.toString()
+                if (fbUser != null) {
+                    val isGoogleUser = fbUser.providerData.any { it.providerId == "google.com" }
+                    val isVerified = fbUser.isEmailVerified || isGoogleUser
 
-                val remoteData = FirebaseSyncService.fetchUserData(uid)
-                val refCode = "HG-" + uid.takeLast(4).uppercase()
+                    if (!isVerified) {
+                        try {
+                            fbUser.sendEmailVerification()
+                        } catch (_: Exception) {}
+                        _unverifiedUserEmail.value = cleanEmail
+                        return@withContext Result.failure(
+                            EmailNotVerifiedException(cleanEmail, fbUser.displayName ?: cleanEmail.substringBefore("@"))
+                        )
+                    }
 
-                val loggedInUser = User(
-                    id = accountId,
-                    email = cleanEmail,
-                    role = "user",
-                    referralCode = refCode,
-                    displayName = displayName,
-                    photoUrl = photoUrl,
-                    isFlaggedDuplicate = false
-                )
+                    val uid = fbUser.uid
+                    val accountId = "HG-" + uid.takeLast(6).uppercase()
+                    val displayName = fbUser.displayName ?: cleanEmail.substringBefore("@").replaceFirstChar { it.uppercase() }
+                    val photoUrl = fbUser.photoUrl?.toString()
 
-                if (remoteData == null) {
-                    FirebaseSyncService.initializeNewUser(uid, cleanEmail, displayName, photoUrl, accountId)
+                    val remoteData = FirebaseSyncService.fetchUserData(uid)
+                    val refCode = "HG-" + uid.takeLast(4).uppercase()
+
+                    val loggedInUser = User(
+                        id = accountId,
+                        email = cleanEmail,
+                        role = "user",
+                        referralCode = refCode,
+                        displayName = displayName,
+                        photoUrl = photoUrl,
+                        isFlaggedDuplicate = false
+                    )
+
+                    if (remoteData == null) {
+                        FirebaseSyncService.initializeNewUser(uid, cleanEmail, displayName, photoUrl, accountId)
+                    }
+
+                    persistSession(loggedInUser, uid)
+                    _unverifiedUserEmail.value = null
+                    return@withContext Result.success(loggedInUser)
                 }
-
-                persistSession(loggedInUser, uid)
-                return@withContext Result.success(loggedInUser)
             }
+        } catch (e: EmailNotVerifiedException) {
+            return@withContext Result.failure(e)
         } catch (e: Exception) {
             // Check local fallback
         }
@@ -197,6 +241,7 @@ object AuthService {
                         isFlaggedDuplicate = userRecord.optBoolean("isFlaggedDuplicate", false)
                     )
                     persistSession(matchedUser, uid)
+                    _unverifiedUserEmail.value = null
                     return@withContext Result.success(matchedUser)
                 } else {
                     return@withContext Result.failure(IllegalArgumentException("Incorrect credentials. Please try again."))
@@ -242,25 +287,35 @@ object AuthService {
                 val authResult = auth.createUserWithEmailAndPassword(cleanEmail, cleanPass).await()
                 val fbUser = authResult.user
 
-                val uid = fbUser?.uid ?: UUID.randomUUID().toString()
-                val accountId = "HG-" + uid.takeLast(6).uppercase()
-                val assignedRefCode = if (cleanRef.isNotBlank()) cleanRef else "HG-" + uid.takeLast(4).uppercase()
+                if (fbUser != null) {
+                    try {
+                        fbUser.sendEmailVerification()
+                    } catch (_: Exception) {}
 
-                val newUser = User(
-                    id = accountId,
-                    email = cleanEmail,
-                    role = "user",
-                    referralCode = assignedRefCode,
-                    displayName = cleanName,
-                    photoUrl = null,
-                    isFlaggedDuplicate = false
-                )
+                    val uid = fbUser.uid
+                    val accountId = "HG-" + uid.takeLast(6).uppercase()
+                    val assignedRefCode = if (cleanRef.isNotBlank()) cleanRef else "HG-" + uid.takeLast(4).uppercase()
 
-                FirebaseSyncService.initializeNewUser(uid, cleanEmail, cleanName, null, accountId)
-                saveUserToRegistry(cleanEmail, cleanPass, accountId, cleanName, assignedRefCode, deviceIdHash, false, uid)
-                persistSession(newUser, uid)
-                return@withContext Result.success(newUser)
+                    val newUser = User(
+                        id = accountId,
+                        email = cleanEmail,
+                        role = "user",
+                        referralCode = assignedRefCode,
+                        displayName = cleanName,
+                        photoUrl = null,
+                        isFlaggedDuplicate = false
+                    )
+
+                    FirebaseSyncService.initializeNewUser(uid, cleanEmail, cleanName, null, accountId)
+                    saveUserToRegistry(cleanEmail, cleanPass, accountId, cleanName, assignedRefCode, deviceIdHash, false, uid)
+
+                    // DO NOT navigate to dashboard or persist session - require verification first
+                    _unverifiedUserEmail.value = cleanEmail
+                    return@withContext Result.failure(EmailNotVerifiedException(cleanEmail, cleanName))
+                }
             }
+        } catch (e: EmailNotVerifiedException) {
+            return@withContext Result.failure(e)
         } catch (e: Exception) {
             // Fallback to local user registry
         }
