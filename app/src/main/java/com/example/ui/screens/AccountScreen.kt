@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material.icons.filled.ElectricBolt
 import com.example.BuildConfig
@@ -71,6 +72,7 @@ import com.example.ui.theme.SlateNavy
 fun AccountScreen(
     userId: String,
     userEmail: String,
+    displayName: String = "Alexander Vance",
     twoFactorEnabled: Boolean,
     selectedLanguage: String,
     onToggle2FA: () -> Unit,
@@ -78,9 +80,14 @@ fun AccountScreen(
     onOpenAuditDossier: () -> Unit,
     onOpenAiSupport: () -> Unit,
     onCheckForUpdates: () -> Unit = {},
+    onLogout: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+
+    val initials = if (displayName.isNotBlank()) {
+        displayName.split(" ").take(2).mapNotNull { it.firstOrNull()?.uppercase() }.joinToString("")
+    } else "HG"
 
     Column(
         modifier = modifier
@@ -119,7 +126,7 @@ fun AccountScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "AV",
+                            text = initials.ifBlank { "AV" },
                             fontSize = 20.sp,
                             fontWeight = FontWeight.Black,
                             color = GoldGradientMid
@@ -131,7 +138,7 @@ fun AccountScreen(
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = "Alexander Vance",
+                                text = displayName.ifBlank { "Alexander Vance" },
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Black,
                                 color = ObsidianNavy
@@ -490,7 +497,45 @@ fun AccountScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // ==========================================
+        // 6. LOG OUT ACTION BUTTON
+        // ==========================================
+        Button(
+            onClick = onLogout,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .border(1.dp, Color(0xFFFFCCCC), RoundedCornerShape(14.dp)),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFFFFF0F0),
+                contentColor = Color(0xFFD32F2F)
+            )
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ExitToApp,
+                    contentDescription = "Log Out",
+                    tint = Color(0xFFD32F2F),
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "LOG OUT OF ACCOUNT",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp,
+                    letterSpacing = 0.5.sp,
+                    color = Color(0xFFD32F2F)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
     }
 }
 

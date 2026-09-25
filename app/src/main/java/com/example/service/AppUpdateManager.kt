@@ -62,8 +62,8 @@ object AppUpdateManager {
     val updateStatus: StateFlow<UpdateStatus> = _updateStatus.asStateFlow()
 
     // Configurable endpoint for remote version manifest
-    var remoteVersionUrl: String = "https://raw.githubusercontent.com/hashgrid/hashgrid-mobile/main/version.json"
-    var githubReleasesApiUrl: String = "https://api.github.com/repos/hashgrid/hashgrid-mobile/releases/latest"
+    var remoteVersionUrl: String = "https://raw.githubusercontent.com/goldbrownp-blip/hashgridapptestproject/main/version.json"
+    var githubReleasesApiUrl: String = "https://api.github.com/repos/goldbrownp-blip/hashgridapptestproject/releases/latest"
 
     private val httpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
@@ -199,7 +199,7 @@ object AppUpdateManager {
             val obj = JSONObject(jsonStr)
             val versionCode = obj.optInt("versionCode", 0)
             val versionName = obj.optString("versionName", "1.0.0")
-            val downloadUrl = obj.optString("downloadUrl", "")
+            val downloadUrl = obj.optString("downloadUrl", obj.optString("apkUrl", ""))
             val releaseNotes = obj.optString("releaseNotes", "")
             val minSupported = obj.optInt("minSupportedVersionCode", 1)
             val isMandatory = obj.optBoolean("isMandatory", false)

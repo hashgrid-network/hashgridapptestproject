@@ -18,6 +18,7 @@ import com.example.model.PayoutStatus
 import com.example.model.User
 import com.example.service.AppUpdateInfo
 import com.example.service.AppUpdateManager
+import com.example.service.AuthService
 import com.example.service.BinanceWebSocketService
 import com.example.service.FirebaseDeposit
 import com.example.service.FirebaseSyncService
@@ -58,20 +59,14 @@ class HashGridViewModel : ViewModel() {
     private val _hashPower = MutableStateFlow(520.87)
     val hashPower: StateFlow<Double> = _hashPower.asStateFlow()
 
-    // --- User Profile State ---
-    private val _currentUser = MutableStateFlow<User?>(
-        User(
-            id = "#HG-142597",
-            email = "goldbrownp@gmail.com",
-            role = "user",
-            referralCode = "HG-7798"
-        )
-    )
-    val currentUser: StateFlow<User?> = _currentUser.asStateFlow()
+    // --- User Profile & Auth State ---
+    val currentUser: StateFlow<User?> = AuthService.currentUser
+    val isLoggedIn: StateFlow<Boolean> = AuthService.isLoggedIn
 
-    val userId: String get() = _currentUser.value?.id ?: "#HG-142597"
-    val userEmail: String get() = _currentUser.value?.email ?: "goldbrownp@gmail.com"
-    val referralCode: String get() = _currentUser.value?.referralCode ?: "HG-7798"
+    val userId: String get() = currentUser.value?.id ?: "#HG-142597"
+    val userEmail: String get() = currentUser.value?.email ?: "goldbrownp@gmail.com"
+    val userDisplayName: String get() = currentUser.value?.displayName ?: "Institutional Miner"
+    val referralCode: String get() = currentUser.value?.referralCode ?: "HG-7798"
 
     private val _walletBalanceUsdt = MutableStateFlow(84.20)
     val walletBalanceUsdt: StateFlow<Double> = _walletBalanceUsdt.asStateFlow()
@@ -754,6 +749,55 @@ class HashGridViewModel : ViewModel() {
             )
             _chatMessages.value = _chatMessages.value + aiMsg
         }
+    }
+
+    // --- Authentication Actions ---
+    fun login(email: String, pass: String): Result<Unit> {
+        val res = AuthService.login(email, pass)
+        return if (res.isSuccess) {
+            val user = res.getOrThrow()
+            FirebaseSyncService.syncUser(
+                FirebaseUser(
+                    uid = user.id,
+                    email = user.email,
+                    walletBalance = _walletBalanceUsdt.value,
+                    miningRate = "${_hashPower.value} TH/s",
+                    createdAt = FirebaseSyncService.getCurrentTimestamp()
+                )
+            )
+            FirebaseSyncService.startRealtimeBalanceListener(user.id) { remoteBal ->
+                _walletBalanceUsdt.value = remoteBal
+            }
+            Result.success(Unit)
+        } else {
+            Result.failure(res.exceptionOrNull() ?: Exception("Login failed"))
+        }
+    }
+
+    fun signUp(name: String, email: String, pass: String, confirmPass: String, refCode: String): Result<Unit> {
+        val res = AuthService.signUp(name, email, pass, confirmPass, refCode)
+        return if (res.isSuccess) {
+            val user = res.getOrThrow()
+            FirebaseSyncService.syncUser(
+                FirebaseUser(
+                    uid = user.id,
+                    email = user.email,
+                    walletBalance = _walletBalanceUsdt.value,
+                    miningRate = "${_hashPower.value} TH/s",
+                    createdAt = FirebaseSyncService.getCurrentTimestamp()
+                )
+            )
+            FirebaseSyncService.startRealtimeBalanceListener(user.id) { remoteBal ->
+                _walletBalanceUsdt.value = remoteBal
+            }
+            Result.success(Unit)
+        } else {
+            Result.failure(res.exceptionOrNull() ?: Exception("Registration failed"))
+        }
+    }
+
+    fun logout() {
+        AuthService.logout()
     }
 
     // --- App Update Actions ---

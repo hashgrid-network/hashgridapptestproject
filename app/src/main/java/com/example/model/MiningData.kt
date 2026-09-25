@@ -3,8 +3,9 @@ package com.example.model
 data class User(
     val id: String = "#HG-142597",
     val email: String = "goldbrownp@gmail.com",
-    val role: String = "super_admin",
-    val referralCode: String = "HG-7798"
+    val role: String = "user",
+    val referralCode: String = "HG-7798",
+    val displayName: String = "Institutional Miner"
 )
 
 data class MiningPlan(

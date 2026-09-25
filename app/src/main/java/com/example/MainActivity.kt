@@ -25,6 +25,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.model.BountyTask
 import com.example.service.AppUpdateManager
+import com.example.service.AuthService
 import com.example.service.UpdateStatus
 import com.example.ui.components.BottomNavBar
 import com.example.ui.components.TopBar
@@ -40,6 +41,7 @@ import com.example.ui.modals.NotificationSheet
 import com.example.ui.modals.SyndicateTermSheetModal
 import com.example.ui.modals.WithdrawModal
 import com.example.ui.screens.AccountScreen
+import com.example.ui.screens.AuthScreen
 import com.example.ui.screens.GrowthScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.PlansScreen
@@ -52,6 +54,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        AuthService.init(this)
         AppUpdateManager.initialize(this)
         setContent {
             HashGridTheme {
@@ -66,6 +69,9 @@ fun HashGridApp(
     viewModel: HashGridViewModel = viewModel()
 ) {
     val context = LocalContext.current
+
+    val isLoggedIn by viewModel.isLoggedIn.collectAsStateWithLifecycle()
+    val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
 
     val currentTab by viewModel.currentTab.collectAsStateWithLifecycle()
     val plansSubTab by viewModel.plansSubTab.collectAsStateWithLifecycle()
@@ -113,91 +119,116 @@ fun HashGridApp(
     var selectedBountyTask by remember { mutableStateOf<BountyTask?>(null) }
     var showCreatorMilestoneModal by remember { mutableStateOf(false) }
 
-    Scaffold(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(CanvasBackground),
-        topBar = {
-            TopBar(
-                unreadNotificationCount = unreadNotificationsCount,
-                onNotificationClick = { viewModel.showNotificationSheet.value = true },
-                modifier = Modifier.statusBarsPadding()
+    AnimatedContent(
+        targetState = isLoggedIn,
+        transitionSpec = { fadeIn() togetherWith fadeOut() },
+        label = "AuthSessionTransition"
+    ) { authenticated ->
+        if (!authenticated) {
+            // ==========================================
+            // 1. AUTHENTICATION ENTRY (LOGIN / SIGN UP)
+            // ==========================================
+            AuthScreen(
+                onLoginSuccess = { _, _ -> },
+                onSignUpSuccess = { _, _ -> },
+                onLoginSubmit = { email, pass -> viewModel.login(email, pass) },
+                onSignUpSubmit = { name, email, pass, confirm, ref ->
+                    viewModel.signUp(name, email, pass, confirm, ref)
+                }
             )
-        },
-        bottomBar = {
-            BottomNavBar(
-                selectedTab = currentTab,
-                onTabSelected = { tabIdx -> viewModel.setTab(tabIdx) }
-            )
-        }
-    ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-        ) {
-            AnimatedContent(
-                targetState = currentTab,
-                transitionSpec = { fadeIn() togetherWith fadeOut() },
-                label = "ScreenTransition"
-            ) { targetIndex ->
-                when (targetIndex) {
-                    0 -> HomeScreen(
-                        hashPower = hashPower,
-                        btcPrice = btcPrice,
-                        kasPrice = kasPrice,
-                        walletBalanceUsdt = walletBalance,
-                        miningSessionEndTimestampMs = miningSessionEndTimestamp,
-                        liveTickers = liveTickers,
-                        onClaimDailySpin = { viewModel.showLuckyWheelModal.value = true },
-                        onExtendMining = { viewModel.extendMiningSession() },
-                        onOpenAuditDossier = { viewModel.showAuditDossierModal.value = true },
-                        onNavigateToPlans = { subTab ->
-                            viewModel.setPlansSubTab(subTab)
-                            viewModel.setTab(1)
+        } else {
+            // ==========================================
+            // 2. MAIN APP SCAFFOLD & DASHBOARD
+            // ==========================================
+            Scaffold(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(CanvasBackground),
+                topBar = {
+                    TopBar(
+                        unreadNotificationCount = unreadNotificationsCount,
+                        onNotificationClick = { viewModel.showNotificationSheet.value = true },
+                        modifier = Modifier.statusBarsPadding()
+                    )
+                },
+                bottomBar = {
+                    BottomNavBar(
+                        selectedTab = currentTab,
+                        onTabSelected = { tabIdx -> viewModel.setTab(tabIdx) }
+                    )
+                }
+            ) { innerPadding ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding)
+                ) {
+                    AnimatedContent(
+                        targetState = currentTab,
+                        transitionSpec = { fadeIn() togetherWith fadeOut() },
+                        label = "ScreenTransition"
+                    ) { targetIndex ->
+                        when (targetIndex) {
+                            0 -> HomeScreen(
+                                hashPower = hashPower,
+                                btcPrice = btcPrice,
+                                kasPrice = kasPrice,
+                                walletBalanceUsdt = walletBalance,
+                                miningSessionEndTimestampMs = miningSessionEndTimestamp,
+                                liveTickers = liveTickers,
+                                onClaimDailySpin = { viewModel.showLuckyWheelModal.value = true },
+                                onExtendMining = { viewModel.extendMiningSession() },
+                                onOpenAuditDossier = { viewModel.showAuditDossierModal.value = true },
+                                onNavigateToPlans = { subTab ->
+                                    viewModel.setPlansSubTab(subTab)
+                                    viewModel.setTab(1)
+                                }
+                            )
+                            1 -> PlansScreen(
+                                subTabIndex = plansSubTab,
+                                onSubTabChanged = { subTab -> viewModel.setPlansSubTab(subTab) },
+                                activeContracts = activeContracts,
+                                marketplacePlans = viewModel.marketplacePlans,
+                                walletBalanceUsdt = walletBalance,
+                                onToggleRestake = { contractId -> viewModel.toggleRestake(contractId) },
+                                onActivatePlan = { plan -> viewModel.activatePlan(plan) },
+                                onTriggerDeposit = { viewModel.showDepositModal.value = true }
+                            )
+                            2 -> WalletScreen(
+                                userId = viewModel.userId,
+                                walletBalanceUsdt = walletBalance,
+                                btcPrice = btcPrice,
+                                subTabIndex = walletSubTab,
+                                onSubTabChanged = { subTab -> viewModel.setWalletSubTab(subTab) },
+                                activityList = activityList,
+                                payoutsList = payoutsList,
+                                onDepositClick = { viewModel.showDepositModal.value = true },
+                                onWithdrawClick = { viewModel.showWithdrawModal.value = true }
+                            )
+                            3 -> GrowthScreen(
+                                referralCode = viewModel.referralCode,
+                                bountyTasks = bountyTasks,
+                                freeAdCooldownHours = viewModel.getFreeAdCooldownHoursRemaining(),
+                                onClaimFreeAdSession = { viewModel.claimFreeAdSession() },
+                                onOpenBountyModal = { task -> selectedBountyTask = task },
+                                onOpenCreatorMilestoneModal = { showCreatorMilestoneModal = true },
+                                onOpenSyndicateTerms = { viewModel.showSyndicateModal.value = true }
+                            )
+                            4 -> AccountScreen(
+                                userId = viewModel.userId,
+                                userEmail = viewModel.userEmail,
+                                displayName = viewModel.userDisplayName,
+                                twoFactorEnabled = twoFactorEnabled,
+                                selectedLanguage = selectedLanguage,
+                                onToggle2FA = { viewModel.toggle2FA() },
+                                onOpenLanguageModal = { viewModel.showLanguageModal.value = true },
+                                onOpenAuditDossier = { viewModel.showAuditDossierModal.value = true },
+                                onOpenAiSupport = { viewModel.showAiSupportModal.value = true },
+                                onCheckForUpdates = { viewModel.checkForUpdates(context) },
+                                onLogout = { viewModel.logout() }
+                            )
                         }
-                    )
-                    1 -> PlansScreen(
-                        subTabIndex = plansSubTab,
-                        onSubTabChanged = { subTab -> viewModel.setPlansSubTab(subTab) },
-                        activeContracts = activeContracts,
-                        marketplacePlans = viewModel.marketplacePlans,
-                        walletBalanceUsdt = walletBalance,
-                        onToggleRestake = { contractId -> viewModel.toggleRestake(contractId) },
-                        onActivatePlan = { plan -> viewModel.activatePlan(plan) },
-                        onTriggerDeposit = { viewModel.showDepositModal.value = true }
-                    )
-                    2 -> WalletScreen(
-                        userId = viewModel.userId,
-                        walletBalanceUsdt = walletBalance,
-                        btcPrice = btcPrice,
-                        subTabIndex = walletSubTab,
-                        onSubTabChanged = { subTab -> viewModel.setWalletSubTab(subTab) },
-                        activityList = activityList,
-                        payoutsList = payoutsList,
-                        onDepositClick = { viewModel.showDepositModal.value = true },
-                        onWithdrawClick = { viewModel.showWithdrawModal.value = true }
-                    )
-                    3 -> GrowthScreen(
-                        referralCode = viewModel.referralCode,
-                        bountyTasks = bountyTasks,
-                        freeAdCooldownHours = viewModel.getFreeAdCooldownHoursRemaining(),
-                        onClaimFreeAdSession = { viewModel.claimFreeAdSession() },
-                        onOpenBountyModal = { task -> selectedBountyTask = task },
-                        onOpenCreatorMilestoneModal = { showCreatorMilestoneModal = true },
-                        onOpenSyndicateTerms = { viewModel.showSyndicateModal.value = true }
-                    )
-                    4 -> AccountScreen(
-                        userId = viewModel.userId,
-                        userEmail = viewModel.userEmail,
-                        twoFactorEnabled = twoFactorEnabled,
-                        selectedLanguage = selectedLanguage,
-                        onToggle2FA = { viewModel.toggle2FA() },
-                        onOpenLanguageModal = { viewModel.showLanguageModal.value = true },
-                        onOpenAuditDossier = { viewModel.showAuditDossierModal.value = true },
-                        onOpenAiSupport = { viewModel.showAiSupportModal.value = true },
-                        onCheckForUpdates = { viewModel.checkForUpdates(context) }
-                    )
+                    }
                 }
             }
         }
