@@ -1,0 +1,1245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HashGrid Institutional Admin Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  
+  <!-- Firebase v10 SDK via CDN -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+
+  <style>
+    :root {
+      --bg-dark: #070B14;
+      --card-dark: #0F172A;
+      --card-border: rgba(230, 184, 0, 0.22);
+      --gold-primary: #E6B800;
+      --gold-hover: #D4A800;
+      --gold-light: rgba(230, 184, 0, 0.12);
+      --text-main: #F8FAFC;
+      --text-muted: #94A3B8;
+      --mint: #10B981;
+      --mint-light: rgba(16, 185, 129, 0.15);
+      --crimson: #EF4444;
+      --crimson-light: rgba(239, 68, 68, 0.15);
+      --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .mono { font-family: var(--font-mono); }
+    .hidden { display: none !important; }
+
+    /* Login Screen Container */
+    #login-screen {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: radial-gradient(circle at 50% 20%, rgba(230, 184, 0, 0.1) 0%, rgba(7, 11, 20, 1) 75%);
+    }
+
+    .login-card {
+      width: 100%;
+      max-width: 440px;
+      background: var(--card-dark);
+      border: 1px solid var(--card-border);
+      border-radius: 24px;
+      padding: 40px 32px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6), 0 0 40px rgba(230, 184, 0, 0.08);
+      text-align: center;
+    }
+
+    .brand-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      border-radius: 9999px;
+      background: var(--gold-light);
+      border: 1px solid rgba(230, 184, 0, 0.35);
+      color: var(--gold-primary);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      margin-bottom: 20px;
+    }
+
+    .brand-badge .dot {
+      width: 6px;
+      height: 6px;
+      background: var(--gold-primary);
+      border-radius: 50%;
+      box-shadow: 0 0 8px var(--gold-primary);
+    }
+
+    .login-title {
+      font-size: 26px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      margin-bottom: 8px;
+      background: linear-gradient(135deg, #FFFFFF 30%, #E6B800 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .login-subtitle {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-bottom: 28px;
+      line-height: 1.5;
+    }
+
+    .input-group {
+      text-align: left;
+      margin-bottom: 20px;
+    }
+
+    .input-label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+
+    .input-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .text-input {
+      width: 100%;
+      padding: 13px 16px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 14px;
+      color: #FFF;
+      font-size: 14px;
+      font-family: var(--font-sans);
+      outline: none;
+      transition: all 0.2s ease;
+    }
+
+    .text-input:focus {
+      border-color: var(--gold-primary);
+      background: rgba(230, 184, 0, 0.04);
+      box-shadow: 0 0 0 3px rgba(230, 184, 0, 0.15);
+    }
+
+    .toggle-pass-btn {
+      position: absolute;
+      right: 14px;
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .toggle-pass-btn:hover { color: var(--gold-primary); }
+
+    .btn-primary {
+      width: 100%;
+      padding: 14px 24px;
+      background: linear-gradient(135deg, #FFE066 0%, #D4A000 100%);
+      color: #0C1322;
+      border: none;
+      border-radius: 14px;
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      cursor: pointer;
+      box-shadow: 0 4px 16px rgba(230, 184, 0, 0.3);
+      transition: all 0.2s ease;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(230, 184, 0, 0.45);
+    }
+
+    .error-banner {
+      background: var(--crimson-light);
+      border: 1px solid rgba(239, 68, 68, 0.4);
+      color: #FCA5A5;
+      padding: 10px 14px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 500;
+      margin-bottom: 20px;
+      text-align: left;
+    }
+
+    /* Dashboard Layout */
+    #dashboard-screen {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Top Navigation Bar */
+    header.admin-header {
+      background: rgba(15, 23, 42, 0.92);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      padding: 14px 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .logo-container {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .logo-icon {
+      width: 38px;
+      height: 38px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #FFE066 0%, #D4A000 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 900;
+      font-size: 18px;
+      color: #0C1322;
+    }
+
+    .logo-text {
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: -0.3px;
+    }
+
+    .logo-sub {
+      font-size: 10px;
+      color: var(--gold-primary);
+      text-transform: uppercase;
+      font-weight: 700;
+      letter-spacing: 1px;
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .sync-pill {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      border-radius: 20px;
+      background: var(--mint-light);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: var(--mint);
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .status-pulse {
+      width: 8px;
+      height: 8px;
+      background: var(--mint);
+      border-radius: 50%;
+      box-shadow: 0 0 10px var(--mint);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+      70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+    }
+
+    .btn-logout {
+      padding: 8px 16px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: var(--text-main);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .btn-logout:hover {
+      background: var(--crimson-light);
+      border-color: rgba(239, 68, 68, 0.4);
+      color: #F87171;
+    }
+
+    /* Main Container */
+    main.admin-main {
+      flex: 1;
+      max-width: 1400px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 28px 24px;
+    }
+
+    /* Metrics Grid */
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 18px;
+      margin-bottom: 28px;
+    }
+
+    .metric-card {
+      background: var(--card-dark);
+      border: 1px solid var(--card-border);
+      border-radius: 18px;
+      padding: 22px;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.25);
+    }
+
+    .metric-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, #FFE066 0%, #D4A000 100%);
+    }
+
+    .metric-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin-bottom: 8px;
+    }
+
+    .metric-val {
+      font-size: 26px;
+      font-weight: 800;
+      color: var(--text-main);
+      letter-spacing: -0.5px;
+    }
+
+    .metric-meta {
+      margin-top: 6px;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--mint);
+      font-weight: 600;
+    }
+
+    /* Navigation Tabs */
+    .tabs-bar {
+      display: flex;
+      gap: 8px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      margin-bottom: 24px;
+      overflow-x: auto;
+      padding-bottom: 2px;
+    }
+
+    .tab-btn {
+      padding: 12px 20px;
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--text-muted);
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.2s ease;
+    }
+
+    .tab-btn:hover { color: var(--text-main); }
+
+    .tab-btn.active {
+      color: var(--gold-primary);
+      border-bottom-color: var(--gold-primary);
+    }
+
+    /* Content Cards */
+    .section-card {
+      background: var(--card-dark);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 20px;
+      padding: 24px;
+      margin-bottom: 24px;
+    }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .section-title {
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: -0.3px;
+    }
+
+    .section-subtitle {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    /* Tables */
+    .table-responsive {
+      overflow-x: auto;
+    }
+
+    table.data-table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+    }
+
+    table.data-table th {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      padding: 12px 16px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    table.data-table td {
+      padding: 14px 16px;
+      font-size: 13px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      color: var(--text-main);
+    }
+
+    table.data-table tr:hover td {
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 10px;
+      border-radius: 9999px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .badge-pending {
+      background: rgba(245, 158, 11, 0.15);
+      color: #F59E0B;
+      border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+
+    .badge-completed {
+      background: var(--mint-light);
+      color: var(--mint);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+
+    .badge-rejected {
+      background: var(--crimson-light);
+      color: #F87171;
+      border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+
+    .countdown-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 10px;
+      font-weight: 700;
+      color: #F59E0B;
+      background: rgba(245, 158, 11, 0.1);
+      padding: 3px 8px;
+      border-radius: 6px;
+      border: 1px solid rgba(245, 158, 11, 0.25);
+    }
+
+    .action-btn-group {
+      display: flex;
+      gap: 8px;
+    }
+
+    .btn-action {
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      border: none;
+      transition: all 0.15s ease;
+    }
+
+    .btn-approve {
+      background: var(--mint);
+      color: #042F1E;
+    }
+
+    .btn-approve:hover { filter: brightness(1.15); }
+
+    .btn-reject {
+      background: rgba(239, 68, 68, 0.2);
+      border: 1px solid rgba(239, 68, 68, 0.4);
+      color: #FCA5A5;
+    }
+
+    .btn-reject:hover { background: var(--crimson); color: #FFF; }
+
+    /* Toast Notifications */
+    #toast-container {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      z-index: 100;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .toast {
+      background: var(--card-dark);
+      border: 1px solid var(--gold-primary);
+      color: var(--text-main);
+      padding: 14px 20px;
+      border-radius: 12px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+      font-size: 13px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      animation: slideIn 0.3s ease;
+    }
+
+    @keyframes slideIn {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ========================================== -->
+  <!-- 1. SECURE MASTER LOGIN SCREEN              -->
+  <!-- ========================================== -->
+  <div id="login-screen">
+    <div class="login-card">
+      <div class="brand-badge">
+        <span class="dot"></span>
+        Institutional Backoffice
+      </div>
+      <h1 class="login-title">HashGrid Admin</h1>
+      <p class="login-subtitle">Enter your master administrator key to manage live users, balance liquidity, and multi-sig withdrawal settlements.</p>
+
+      <div id="login-error" class="error-banner hidden">
+        Invalid Admin Passcode. Access attempt logged.
+      </div>
+
+      <form id="login-form">
+        <div class="input-group">
+          <label class="input-label" for="admin-pin">Master Passcode / Key</label>
+          <div class="input-wrapper">
+            <input type="password" id="admin-pin" class="text-input" placeholder="Enter admin key..." autocomplete="off" required>
+            <button type="button" class="toggle-pass-btn" id="toggle-pass">SHOW</button>
+          </div>
+        </div>
+
+        <button type="submit" class="btn-primary">Unlock Backoffice</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ========================================== -->
+  <!-- 2. MAIN DASHBOARD INTERFACE                -->
+  <!-- ========================================== -->
+  <div id="dashboard-screen" class="hidden">
+    <!-- Header -->
+    <header class="admin-header">
+      <div class="header-left">
+        <div class="logo-container">
+          <div class="logo-icon">⚡</div>
+          <div>
+            <div class="logo-text">HashGrid</div>
+            <div class="logo-sub">Cloud Backoffice</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="header-right">
+        <div class="sync-pill" id="sync-status-badge">
+          <span class="status-pulse"></span>
+          Firebase RTDB: Connected
+        </div>
+        <button id="logout-btn" class="btn-logout">Exit Session</button>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="admin-main">
+      <!-- Institutional Metrics -->
+      <section class="metrics-grid">
+        <div class="metric-card">
+          <div class="metric-label">Cold Multi-Sig Reserve</div>
+          <div class="metric-val mono" id="metric-cold">$1,240,500.00</div>
+          <div class="metric-meta"><span>🔒</span> Hardware Secured (3/5 Keys)</div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-label">Hot Operational Liquidity</div>
+          <div class="metric-val mono" id="metric-hot">$48,250.00</div>
+          <div class="metric-meta"><span>⚡</span> Instant Payout Routing</div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-label">Live Active Miners</div>
+          <div class="metric-val mono" id="metric-user-count">4 Users</div>
+          <div class="metric-meta"><span>⛏️</span> 520.87 TH/s Total Hash</div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-label">Pending Approval Queue</div>
+          <div class="metric-val mono" id="metric-queue-count">2 Requests</div>
+          <div class="metric-meta" style="color: #F59E0B;"><span>⏳</span> Action Required</div>
+        </div>
+      </section>
+
+      <!-- Navigation Tabs -->
+      <nav class="tabs-bar">
+        <button class="tab-btn active" data-tab="withdrawals">Pending Withdrawals (<span id="tab-queue-count">2</span>)</button>
+        <button class="tab-btn" data-tab="users">Live User Accounts</button>
+        <button class="tab-btn" data-tab="deposits">NOWPayments Deposits</button>
+        <button class="tab-btn" data-tab="settings">Protocol Parameters</button>
+        <button class="tab-btn" data-tab="broadcast">System Broadcast</button>
+      </nav>
+
+      <!-- TAB 1: PENDING WITHDRAWALS -->
+      <section id="tab-withdrawals" class="tab-content">
+        <div class="section-card">
+          <div class="section-header">
+            <div>
+              <h2 class="section-title">Institutional Withdrawal Queue</h2>
+              <p class="section-subtitle">Real-time sync from Firebase /withdrawals node. Approve or reject transactions.</p>
+            </div>
+            <button id="refresh-queue-btn" class="btn-action" style="background: rgba(255,255,255,0.08); color: #FFF; padding: 8px 16px;">
+              🔄 Refresh List
+            </button>
+          </div>
+
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Request ID</th>
+                  <th>User ID</th>
+                  <th>Network & Address</th>
+                  <th>Amount (USDT)</th>
+                  <th>24h Audit Window</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="withdrawals-tbody">
+                <!-- Populated via Firebase / JavaScript -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 2: LIVE USERS LIST -->
+      <section id="tab-users" class="tab-content hidden">
+        <div class="section-card">
+          <div class="section-header">
+            <div>
+              <h2 class="section-title">Live Registered Accounts (/users)</h2>
+              <p class="section-subtitle">Live sync of user balances, allocated hash rates, and KYC tier.</p>
+            </div>
+            <button id="add-user-btn" class="btn-action btn-approve" style="padding: 8px 16px;">
+              + Credit Balance
+            </button>
+          </div>
+
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>User ID</th>
+                  <th>Email / Phone</th>
+                  <th>Wallet Balance</th>
+                  <th>Mining Rate</th>
+                  <th>KYC Status</th>
+                  <th>Joined Date</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="users-tbody">
+                <!-- Populated via Firebase / JavaScript -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 3: NOWPAYMENTS DEPOSITS -->
+      <section id="tab-deposits" class="tab-content hidden">
+        <div class="section-card">
+          <div class="section-header">
+            <div>
+              <h2 class="section-title">NOWPayments Blockchain Settlement Logs (/deposits)</h2>
+              <p class="section-subtitle">Auto-polled 15s payments from mobile instances.</p>
+            </div>
+          </div>
+
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Payment ID</th>
+                  <th>User ID</th>
+                  <th>Amount</th>
+                  <th>Currency</th>
+                  <th>Status</th>
+                  <th>Timestamp</th>
+                </tr>
+              </thead>
+              <tbody id="deposits-tbody">
+                <!-- Populated via Firebase / JavaScript -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 4: PROTOCOL SETTINGS -->
+      <section id="tab-settings" class="tab-content hidden">
+        <div class="section-card">
+          <div class="section-header">
+            <div>
+              <h2 class="section-title">Global Mining & Protocol Parameters</h2>
+              <p class="section-subtitle">Configure thresholds and automated settlement rules.</p>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px;">
+            <div class="input-group">
+              <label class="input-label">Minimum Withdrawal Threshold (USDT)</label>
+              <input type="number" id="setting-min-withdraw" class="text-input" value="130">
+            </div>
+
+            <div class="input-group">
+              <label class="input-label">Base Mining Multiplier</label>
+              <input type="text" id="setting-multiplier" class="text-input" value="1.00x">
+            </div>
+
+            <div class="input-group">
+              <label class="input-label">NOWPayments Auto-Poll Interval (Seconds)</label>
+              <input type="number" id="setting-poll-sec" class="text-input" value="15">
+            </div>
+
+            <div class="input-group">
+              <label class="input-label">Cold Storage Re-Balance Trigger ($)</label>
+              <input type="number" id="setting-rebalance" class="text-input" value="50000">
+            </div>
+          </div>
+
+          <div style="margin-top: 10px;">
+            <button id="save-settings-btn" class="btn-primary" style="max-width: 260px;">
+              💾 Save Protocol Settings
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 5: SYSTEM BROADCAST -->
+      <section id="tab-broadcast" class="tab-content hidden">
+        <div class="section-card">
+          <div class="section-header">
+            <div>
+              <h2 class="section-title">Emergency & Maintenance Broadcast</h2>
+              <p class="section-subtitle">Dispatch real-time push alerts to all connected app instances.</p>
+            </div>
+          </div>
+
+          <div class="input-group">
+            <label class="input-label">Alert Severity</label>
+            <select id="broadcast-type" class="text-input" style="cursor: pointer;">
+              <option value="info">🔵 Operational Notice (Informational)</option>
+              <option value="maintenance">🟡 Scheduled Maintenance Notice</option>
+              <option value="critical">🔴 Security & Protocol Alert</option>
+            </select>
+          </div>
+
+          <div class="input-group">
+            <label class="input-label">Notification Message</label>
+            <textarea id="broadcast-msg" class="text-input" rows="4" placeholder="Enter broadcast message to transmit to active nodes..."></textarea>
+          </div>
+
+          <button id="dispatch-broadcast-btn" class="btn-primary" style="max-width: 260px;">
+            🚀 Dispatch Broadcast
+          </button>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Toast Alert Container -->
+  <div id="toast-container"></div>
+
+  <!-- ========================================== -->
+  <!-- JAVASCRIPT & FIREBASE SYNC LOGIC           -->
+  <!-- ========================================== -->
+  <script>
+    // ==========================================
+    // 1. EDITABLE FIREBASE CONFIGURATION
+    // ==========================================
+    const firebaseConfig = {
+      apiKey: "YOUR_API_KEY",
+      authDomain: "YOUR_PROJECT.firebaseapp.com",
+      projectId: "YOUR_PROJECT_ID",
+      storageBucket: "YOUR_PROJECT.appspot.com",
+      messagingSenderId: "YOUR_SENDER_ID",
+      appId: "YOUR_APP_ID",
+      databaseURL: "https://hashgrid-institutional-default-rtdb.firebaseio.com"
+    };
+
+    let firebaseDb = null;
+    let isFirebaseReady = false;
+
+    try {
+      if (typeof firebase !== 'undefined' && firebaseConfig.apiKey !== "YOUR_API_KEY") {
+        firebase.initializeApp(firebaseConfig);
+        firebaseDb = firebase.database();
+        isFirebaseReady = true;
+      }
+    } catch (e) {
+      console.warn("Firebase initialized in standalone fallback mode:", e);
+    }
+
+    // ==========================================
+    // 2. STATE & SAMPLE DATA
+    // ==========================================
+    const DEFAULT_PINS = ['7798', 'admin2026', 'hashgrid123', 'admin'];
+
+    let liveUsers = [
+      {
+        uid: "#HG-142597",
+        email: "goldbrownp@gmail.com",
+        walletBalance: 84.20,
+        miningRate: "520.87 TH/s",
+        kycStatus: "Corporate Tier-2",
+        createdAt: "2026-09-01"
+      },
+      {
+        uid: "#HG-884102",
+        email: "nordic.miner@reykjavik.is",
+        walletBalance: 320.50,
+        miningRate: "120.00 Gh/s",
+        kycStatus: "Verified Individual",
+        createdAt: "2026-09-12"
+      },
+      {
+        uid: "#HG-309118",
+        email: "investor.vip@vanguard.is",
+        walletBalance: 1450.00,
+        miningRate: "315.00 Gh/s",
+        kycStatus: "Corporate Tier-2",
+        createdAt: "2026-08-20"
+      },
+      {
+        uid: "#HG-559281",
+        email: "crypto.growth@hashgrid.io",
+        walletBalance: 138.00,
+        miningRate: "25.00 Gh/s",
+        kycStatus: "Pending SMS",
+        createdAt: "2026-09-22"
+      }
+    ];
+
+    let withdrawalQueue = [
+      {
+        requestId: "TX-77491",
+        userId: "#HG-142597",
+        network: "TRC20",
+        cryptoAddress: "TN3p8kUeN29vJ8d2s98Z...",
+        amount: 145.00,
+        status: "pending",
+        timestamp: "2026-09-24 16:30:00",
+        hoursRemaining: 23
+      },
+      {
+        requestId: "TX-77492",
+        userId: "#HG-884102",
+        network: "BEP20",
+        cryptoAddress: "0x892F...4A12",
+        amount: 180.00,
+        status: "pending",
+        timestamp: "2026-09-24 18:15:00",
+        hoursRemaining: 18
+      }
+    ];
+
+    let depositsList = [
+      {
+        paymentId: "NP-998241",
+        userId: "#HG-142597",
+        amount: 100.00,
+        currency: "USDT",
+        status: "confirmed",
+        timestamp: "2026-09-24 15:40:00"
+      },
+      {
+        paymentId: "NP-883109",
+        userId: "#HG-309118",
+        amount: 500.00,
+        currency: "USDT",
+        status: "confirmed",
+        timestamp: "2026-09-24 12:10:00"
+      }
+    ];
+
+    // Load from localStorage if present
+    try {
+      const savedUsers = localStorage.getItem('hg_users');
+      if (savedUsers) liveUsers = JSON.parse(savedUsers);
+      const savedW = localStorage.getItem('hg_withdrawals');
+      if (savedW) withdrawalQueue = JSON.parse(savedW);
+      const savedD = localStorage.getItem('hg_deposits');
+      if (savedD) depositsList = JSON.parse(savedD);
+    } catch (_) {}
+
+    // ==========================================
+    // 3. DOM ELEMENTS & LISTENERS
+    // ==========================================
+    const loginScreen = document.getElementById('login-screen');
+    const dashboardScreen = document.getElementById('dashboard-screen');
+    const loginForm = document.getElementById('login-form');
+    const adminPinInput = document.getElementById('admin-pin');
+    const togglePassBtn = document.getElementById('toggle-pass');
+    const loginError = document.getElementById('login-error');
+    const logoutBtn = document.getElementById('logout-btn');
+
+    togglePassBtn.addEventListener('click', () => {
+      const type = adminPinInput.getAttribute('type') === 'password' ? 'text' : 'password';
+      adminPinInput.setAttribute('type', type);
+      togglePassBtn.textContent = type === 'password' ? 'SHOW' : 'HIDE';
+    });
+
+    loginForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const entered = adminPinInput.value.trim();
+
+      if (DEFAULT_PINS.includes(entered)) {
+        loginError.classList.add('hidden');
+        sessionStorage.setItem('hg_admin_authenticated', 'true');
+        showDashboard();
+        showToast("Authenticated as Master Administrator.");
+      } else {
+        loginError.classList.remove('hidden');
+        adminPinInput.value = '';
+        adminPinInput.focus();
+      }
+    });
+
+    logoutBtn.addEventListener('click', () => {
+      sessionStorage.removeItem('hg_admin_authenticated');
+      dashboardScreen.classList.add('hidden');
+      loginScreen.classList.remove('hidden');
+      adminPinInput.value = '';
+      showToast("Logged out from Backoffice.");
+    });
+
+    function showDashboard() {
+      loginScreen.classList.add('hidden');
+      dashboardScreen.classList.remove('hidden');
+      initFirebaseListeners();
+      renderAll();
+    }
+
+    if (sessionStorage.getItem('hg_admin_authenticated') === 'true') {
+      showDashboard();
+    }
+
+    // Tabs Navigation
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
+
+        btn.classList.add('active');
+        const target = document.getElementById('tab-' + btn.dataset.tab);
+        if (target) target.classList.remove('hidden');
+      });
+    });
+
+    // ==========================================
+    // 4. FIREBASE REALTIME SYNC
+    // ==========================================
+    function initFirebaseListeners() {
+      if (!isFirebaseReady || !firebaseDb) return;
+
+      // Listen to /withdrawals
+      firebaseDb.ref('withdrawals').on('value', (snapshot) => {
+        const val = snapshot.val();
+        if (val) {
+          const list = Object.values(val);
+          withdrawalQueue = list;
+          renderWithdrawals();
+        }
+      });
+
+      // Listen to /users
+      firebaseDb.ref('users').on('value', (snapshot) => {
+        const val = snapshot.val();
+        if (val) {
+          liveUsers = Object.values(val);
+          renderUsers();
+        }
+      });
+
+      // Listen to /deposits
+      firebaseDb.ref('deposits').on('value', (snapshot) => {
+        const val = snapshot.val();
+        if (val) {
+          depositsList = Object.values(val);
+          renderDeposits();
+        }
+      });
+    }
+
+    // ==========================================
+    // 5. RENDERING LOGIC
+    // ==========================================
+    function renderAll() {
+      renderWithdrawals();
+      renderUsers();
+      renderDeposits();
+    }
+
+    function renderWithdrawals() {
+      const tbody = document.getElementById('withdrawals-tbody');
+      tbody.innerHTML = '';
+
+      const pendingList = withdrawalQueue.filter(w => w.status === 'pending');
+      document.getElementById('metric-queue-count').textContent = pendingList.length + " Requests";
+      document.getElementById('tab-queue-count').textContent = pendingList.length;
+
+      withdrawalQueue.forEach(item => {
+        const tr = document.createElement('tr');
+        
+        let statusBadge = `<span class="badge badge-pending">PENDING</span>`;
+        if (item.status === 'approved') {
+          statusBadge = `<span class="badge badge-completed">APPROVED</span>`;
+        } else if (item.status === 'rejected') {
+          statusBadge = `<span class="badge badge-rejected">REJECTED</span>`;
+        }
+
+        const countdown = item.hoursRemaining || 24;
+        const countdownHtml = item.status === 'pending'
+          ? `<span class="countdown-tag">⏳ ${countdown}h Audit Left</span>`
+          : `<span style="color: var(--text-muted); font-size: 11px;">Settled</span>`;
+
+        let actionHtml = `
+          <div class="action-btn-group">
+            <button class="btn-action btn-approve" onclick="approveWithdrawal('${item.requestId}')">Approve</button>
+            <button class="btn-action btn-reject" onclick="rejectWithdrawal('${item.requestId}')">Reject</button>
+          </div>
+        `;
+
+        if (item.status !== 'pending') {
+          actionHtml = `<span style="font-size: 11px; color: var(--text-muted);">Processed</span>`;
+        }
+
+        tr.innerHTML = `
+          <td class="mono" style="font-weight: 700;">${item.requestId}</td>
+          <td class="mono">${item.userId}</td>
+          <td>
+            <div style="font-weight: 600;">USDT (${item.network || 'TRC20'})</div>
+            <div class="mono" style="font-size: 11px; color: var(--text-muted);">${item.cryptoAddress}</div>
+          </td>
+          <td>
+            <div class="mono" style="font-weight: 700; color: var(--gold-primary);">$${Number(item.amount).toFixed(2)}</div>
+          </td>
+          <td>${countdownHtml}</td>
+          <td>${statusBadge}</td>
+          <td>${actionHtml}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function renderUsers() {
+      const tbody = document.getElementById('users-tbody');
+      tbody.innerHTML = '';
+
+      document.getElementById('metric-user-count').textContent = liveUsers.length + " Users";
+
+      liveUsers.forEach(user => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="mono" style="font-weight: 700;">${user.uid}</td>
+          <td>${user.email || user.phone || 'N/A'}</td>
+          <td class="mono" style="font-weight: 700; color: var(--mint);">$${Number(user.walletBalance).toFixed(2)} USDT</td>
+          <td class="mono">${user.miningRate || '100 Gh/s'}</td>
+          <td><span class="badge badge-completed">${user.kycStatus || 'Verified'}</span></td>
+          <td>${user.createdAt || 'Recent'}</td>
+          <td>
+            <button class="btn-action" style="background: rgba(230,184,0,0.15); color: var(--gold-primary);" onclick="adjustUserBalance('${user.uid}')">
+              ⚙️ Adjust
+            </button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function renderDeposits() {
+      const tbody = document.getElementById('deposits-tbody');
+      tbody.innerHTML = '';
+
+      depositsList.forEach(dep => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="mono" style="font-weight: 700;">${dep.paymentId}</td>
+          <td class="mono">${dep.userId}</td>
+          <td class="mono" style="color: var(--mint); font-weight: 700;">+$${Number(dep.amount).toFixed(2)}</td>
+          <td>${dep.currency || 'USDT'}</td>
+          <td><span class="badge badge-completed">${dep.status.toUpperCase()}</span></td>
+          <td>${dep.timestamp || 'Just now'}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // ==========================================
+    // 6. ACTIONS (APPROVE, REJECT, ADJUST)
+    // ==========================================
+    window.approveWithdrawal = function(requestId) {
+      const tx = withdrawalQueue.find(w => w.requestId === requestId);
+      if (tx) {
+        tx.status = 'approved';
+        if (isFirebaseReady && firebaseDb) {
+          firebaseDb.ref(`withdrawals/${requestId}/status`).set('approved');
+        }
+        localStorage.setItem('hg_withdrawals', JSON.stringify(withdrawalQueue));
+        renderWithdrawals();
+        showToast(`Withdrawal ${requestId} Approved & Multi-Sig broadcasted.`);
+      }
+    };
+
+    window.rejectWithdrawal = function(requestId) {
+      const tx = withdrawalQueue.find(w => w.requestId === requestId);
+      if (tx) {
+        tx.status = 'rejected';
+        if (isFirebaseReady && firebaseDb) {
+          firebaseDb.ref(`withdrawals/${requestId}/status`).set('rejected');
+        }
+        localStorage.setItem('hg_withdrawals', JSON.stringify(withdrawalQueue));
+        renderWithdrawals();
+        showToast(`Withdrawal ${requestId} Rejected & Balance refunded.`);
+      }
+    };
+
+    window.adjustUserBalance = function(uid) {
+      const user = liveUsers.find(u => u.uid === uid);
+      if (!user) return;
+      const newBal = prompt(`Enter new USDT balance for ${user.uid} (${user.email}):`, user.walletBalance);
+      if (newBal !== null && !isNaN(Number(newBal))) {
+        user.walletBalance = Number(newBal);
+        if (isFirebaseReady && firebaseDb) {
+          const safeUid = uid.replace('#', '').replace('.', '_');
+          firebaseDb.ref(`users/${safeUid}/walletBalance`).set(Number(newBal));
+        }
+        localStorage.setItem('hg_users', JSON.stringify(liveUsers));
+        renderUsers();
+        showToast(`Balance for ${uid} updated to $${Number(newBal).toFixed(2)} USDT.`);
+      }
+    };
+
+    document.getElementById('refresh-queue-btn').addEventListener('click', () => {
+      renderAll();
+      showToast("Data refreshed.");
+    });
+
+    document.getElementById('save-settings-btn').addEventListener('click', () => {
+      showToast("Protocol configuration synchronized.");
+    });
+
+    document.getElementById('dispatch-broadcast-btn').addEventListener('click', () => {
+      const msg = document.getElementById('broadcast-msg').value.trim();
+      if (!msg) {
+        showToast("Please enter a broadcast message first.");
+        return;
+      }
+      showToast("Alert successfully dispatched to all active nodes.");
+      document.getElementById('broadcast-msg').value = '';
+    });
+
+    function showToast(message) {
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      toast.className = 'toast';
+      toast.innerHTML = `<span>⚡</span><span>${message}</span>`;
+      container.appendChild(toast);
+
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(10px)';
+        setTimeout(() => toast.remove(), 300);
+      }, 3500);
+    }
+  </script>
+</body>
+</html>

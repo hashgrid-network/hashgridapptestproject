@@ -21,8 +21,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material.icons.filled.ElectricBolt
+import com.example.BuildConfig
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Lock
@@ -70,14 +71,13 @@ import com.example.ui.theme.SlateNavy
 fun AccountScreen(
     userId: String,
     userEmail: String,
-    userRole: String = "super_admin",
     twoFactorEnabled: Boolean,
     selectedLanguage: String,
     onToggle2FA: () -> Unit,
     onOpenLanguageModal: () -> Unit,
     onOpenAuditDossier: () -> Unit,
     onOpenAiSupport: () -> Unit,
-    onOpenAdminPin: () -> Unit,
+    onCheckForUpdates: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -177,22 +177,6 @@ fun AccountScreen(
                                     fontWeight = FontWeight.Bold,
                                     color = MintDark
                                 )
-                            }
-                            if (userRole == "super_admin") {
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .background(GoldGradientEnd.copy(alpha = 0.15f))
-                                        .border(0.6.dp, GoldBorderSubtle, RoundedCornerShape(4.dp))
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                ) {
-                                    Text(
-                                        text = "SUPER_ADMIN",
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = GoldGradientEnd
-                                    )
-                                }
                             }
                         }
                     }
@@ -458,36 +442,50 @@ fun AccountScreen(
         Spacer(modifier = Modifier.height(20.dp))
 
         // ==========================================
-        // 5. DISCREET ADMIN BACKOFFICE PORTAL ENTRY
+        // 5. APP VERSION & CLOUD SYNC TELEMETRY
         // ==========================================
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(14.dp))
                 .background(Color(0xFFF1ECE4))
-                .clickable {
-                    if (userRole != "super_admin") {
-                        Toast.makeText(context, "Access Denied: Super Admin Role Required.", Toast.LENGTH_SHORT).show()
-                    } else {
-                        onOpenAdminPin()
-                    }
-                }
+                .clickable { onCheckForUpdates() }
                 .padding(12.dp),
             contentAlignment = Alignment.Center
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Default.AdminPanelSettings,
-                    contentDescription = null,
-                    tint = SlateGray,
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.CloudQueue,
+                        contentDescription = null,
+                        tint = GoldGradientEnd,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
+                        Text(
+                            text = "Cloud Node & RTDB: Connected",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = ObsidianNavy
+                        )
+                        Text(
+                            text = "HashGrid App v${BuildConfig.VERSION_NAME} (Build ${BuildConfig.VERSION_CODE})",
+                            fontSize = 10.sp,
+                            color = SlateGray
+                        )
+                    }
+                }
+
                 Text(
-                    text = "Institutional Backoffice Console (Auditor PIN: 7798)",
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = SlateGray
+                    text = "Check Updates",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = GoldGradientEnd
                 )
             }
         }

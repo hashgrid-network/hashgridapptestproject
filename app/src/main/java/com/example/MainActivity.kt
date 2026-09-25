@@ -20,13 +20,16 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.model.BountyTask
+import com.example.service.AppUpdateManager
+import com.example.service.UpdateStatus
 import com.example.ui.components.BottomNavBar
 import com.example.ui.components.TopBar
-import com.example.ui.modals.AdminPinModal
 import com.example.ui.modals.AiSupportChatModal
+import com.example.ui.modals.AppUpdateModal
 import com.example.ui.modals.AuditDossierModal
 import com.example.ui.modals.BountySubmissionModal
 import com.example.ui.modals.CreatorMilestoneModal
@@ -37,7 +40,6 @@ import com.example.ui.modals.NotificationSheet
 import com.example.ui.modals.SyndicateTermSheetModal
 import com.example.ui.modals.WithdrawModal
 import com.example.ui.screens.AccountScreen
-import com.example.ui.screens.AdminScreen
 import com.example.ui.screens.GrowthScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.PlansScreen
@@ -50,6 +52,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        AppUpdateManager.initialize(this)
         setContent {
             HashGridTheme {
                 HashGridApp()
@@ -62,6 +65,8 @@ class MainActivity : ComponentActivity() {
 fun HashGridApp(
     viewModel: HashGridViewModel = viewModel()
 ) {
+    val context = LocalContext.current
+
     val currentTab by viewModel.currentTab.collectAsStateWithLifecycle()
     val plansSubTab by viewModel.plansSubTab.collectAsStateWithLifecycle()
     val walletSubTab by viewModel.walletSubTab.collectAsStateWithLifecycle()
@@ -84,17 +89,13 @@ fun HashGridApp(
     val isSpinning by viewModel.isSpinning.collectAsStateWithLifecycle()
     val lastSpinResult by viewModel.spinResultText.collectAsStateWithLifecycle()
 
-    // High-Frequency WebSocket Tickers
+    // Live Tickers
     val liveTickers by viewModel.liveTickers.collectAsStateWithLifecycle()
     val isWsConnected by viewModel.isWsConnected.collectAsStateWithLifecycle()
     val wsStatusText by viewModel.wsStatusText.collectAsStateWithLifecycle()
 
-    // Admin reserves & queue
-    val coldReserve by viewModel.coldReserveUsdt.collectAsStateWithLifecycle()
-    val hotReserve by viewModel.hotReserveUsdt.collectAsStateWithLifecycle()
-    val adminQueue by viewModel.adminWithdrawalQueue.collectAsStateWithLifecycle()
-    val adminBountyQueue by viewModel.adminBountyQueue.collectAsStateWithLifecycle()
-    val creatorMilestones by viewModel.creatorMilestones.collectAsStateWithLifecycle()
+    // Update Status
+    val updateStatus by viewModel.updateStatus.collectAsStateWithLifecycle()
 
     // Modals visibility
     val showLuckyWheel by viewModel.showLuckyWheelModal.collectAsStateWithLifecycle()
@@ -104,7 +105,6 @@ fun HashGridApp(
     val showSyndicate by viewModel.showSyndicateModal.collectAsStateWithLifecycle()
     val showAiSupport by viewModel.showAiSupportModal.collectAsStateWithLifecycle()
     val showLanguage by viewModel.showLanguageModal.collectAsStateWithLifecycle()
-    val showAdminPin by viewModel.showAdminPinModal.collectAsStateWithLifecycle()
     val showNotifications by viewModel.showNotificationSheet.collectAsStateWithLifecycle()
     val unreadNotificationsCount by viewModel.unreadNotificationsCount.collectAsStateWithLifecycle()
     val miningSessionEndTimestamp by viewModel.miningSessionEndTimestamp.collectAsStateWithLifecycle()
@@ -118,35 +118,30 @@ fun HashGridApp(
             .fillMaxSize()
             .background(CanvasBackground),
         topBar = {
-            if (currentTab != 5) { // Hide default top bar in admin backoffice
-                TopBar(
-                    unreadNotificationCount = unreadNotificationsCount,
-                    onNotificationClick = { viewModel.showNotificationSheet.value = true },
-                    modifier = Modifier.statusBarsPadding()
-                )
-            }
+            TopBar(
+                unreadNotificationCount = unreadNotificationsCount,
+                onNotificationClick = { viewModel.showNotificationSheet.value = true },
+                modifier = Modifier.statusBarsPadding()
+            )
         },
         bottomBar = {
-            if (currentTab != 5) { // Hide bottom nav in admin backoffice
-                BottomNavBar(
-                    selectedTab = currentTab,
-                    onTabSelected = { tabIdx -> viewModel.setTab(tabIdx) }
-                )
-            }
+            BottomNavBar(
+                selectedTab = currentTab,
+                onTabSelected = { tabIdx -> viewModel.setTab(tabIdx) }
+            )
         }
     ) { innerPadding ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .background(CanvasBackground)
         ) {
             AnimatedContent(
                 targetState = currentTab,
                 transitionSpec = { fadeIn() togetherWith fadeOut() },
-                label = "screenTransition"
-            ) { tab ->
-                when (tab) {
+                label = "ScreenTransition"
+            ) { targetIndex ->
+                when (targetIndex) {
                     0 -> HomeScreen(
                         hashPower = hashPower,
                         btcPrice = btcPrice,
@@ -195,48 +190,36 @@ fun HashGridApp(
                     4 -> AccountScreen(
                         userId = viewModel.userId,
                         userEmail = viewModel.userEmail,
-                        userRole = viewModel.userRole,
                         twoFactorEnabled = twoFactorEnabled,
                         selectedLanguage = selectedLanguage,
                         onToggle2FA = { viewModel.toggle2FA() },
                         onOpenLanguageModal = { viewModel.showLanguageModal.value = true },
                         onOpenAuditDossier = { viewModel.showAuditDossierModal.value = true },
                         onOpenAiSupport = { viewModel.showAiSupportModal.value = true },
-                        onOpenAdminPin = { viewModel.showAdminPinModal.value = true }
+                        onCheckForUpdates = { viewModel.checkForUpdates(context) }
                     )
-                    5 -> {
-                        val user by viewModel.currentUser.collectAsStateWithLifecycle()
-                        if (user == null || user?.role != "super_admin") {
-                            // if (!user || user.role !== 'super_admin') {
-                            //   return <Navigate to="/" replace />;
-                            // }
-                            androidx.compose.runtime.LaunchedEffect(Unit) {
-                                viewModel.setTab(0)
-                            }
-                        } else {
-                            AdminScreen(
-                                coldReserveUsdt = coldReserve,
-                                hotReserveUsdt = hotReserve,
-                                withdrawalQueue = adminQueue,
-                                bountyQueue = adminBountyQueue,
-                                creatorMilestones = creatorMilestones,
-                                onApproveWithdrawal = { reqId -> viewModel.adminApproveWithdrawal(reqId) },
-                                onRejectWithdrawal = { reqId -> viewModel.adminRejectWithdrawal(reqId) },
-                                onApproveBounty = { subId -> viewModel.adminApproveBounty(subId) },
-                                onRejectBounty = { subId, reason -> viewModel.adminRejectBounty(subId, reason) },
-                                onDisburseMilestone = { id, giftName, notes -> viewModel.adminDisburseCreatorMilestone(id, giftName, notes) },
-                                onRejectMilestone = { id, reason -> viewModel.adminRejectCreatorMilestone(id, reason) },
-                                onExitAdmin = { viewModel.setTab(4) }
-                            )
-                        }
-                    }
                 }
             }
         }
     }
 
     // ==========================================
-    // INTERACTIVE MODALS & GAMIFICATION
+    // IN-APP AUTO UPDATE MODAL DIALOG
+    // ==========================================
+    if (updateStatus is UpdateStatus.UpdateAvailable ||
+        updateStatus is UpdateStatus.Downloading ||
+        updateStatus is UpdateStatus.ReadyToInstall
+    ) {
+        AppUpdateModal(
+            status = updateStatus,
+            onDismiss = { viewModel.dismissAppUpdate() },
+            onUpdateNow = { info -> viewModel.startAppUpdate(context, info) },
+            onInstallNow = { file -> viewModel.installAppUpdate(context, file) }
+        )
+    }
+
+    // ==========================================
+    // INTERACTIVE MODALS
     // ==========================================
     if (showLuckyWheel) {
         LuckyWheelModal(
@@ -253,8 +236,8 @@ fun HashGridApp(
     if (showDeposit) {
         DepositModal(
             onDismiss = { viewModel.showDepositModal.value = false },
-            onSimulateDeposit = { amount, network ->
-                viewModel.simulateDeposit(amount, network)
+            onDepositSuccess = { amount, txId ->
+                viewModel.onDepositSuccess(amount, txId)
             }
         )
     }
@@ -262,6 +245,7 @@ fun HashGridApp(
     if (showWithdraw) {
         WithdrawModal(
             availableBalanceUsdt = walletBalance,
+            lockedAuditBalanceUsdt = viewModel.lockedAuditBalanceUsdt.collectAsStateWithLifecycle().value,
             onDismiss = { viewModel.showWithdrawModal.value = false },
             onSubmitWithdrawal = { amount, address, network ->
                 viewModel.requestWithdrawal(amount, address, network)
@@ -287,13 +271,6 @@ fun HashGridApp(
             isTyping = isAiTyping,
             onSendMessage = { query -> viewModel.sendChatMessage(query) },
             onDismiss = { viewModel.showAiSupportModal.value = false }
-        )
-    }
-
-    if (showAdminPin) {
-        AdminPinModal(
-            onDismiss = { viewModel.showAdminPinModal.value = false },
-            onUnlock = { pin -> viewModel.unlockAdmin(pin) }
         )
     }
 
