@@ -8,6 +8,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -40,8 +42,25 @@ jobs:
             gradle :app:assembleDebug --no-daemon --stacktrace
           fi
 
-      - name: Upload APK
+      - name: Prepare Direct APK Asset
+        run: |
+          mkdir -p release_apk
+          cp app/build/outputs/apk/debug/app-debug.apk release_apk/HashGrid-v1.0.apk 2>/dev/null || cp app/build/outputs/apk/**/*.apk release_apk/HashGrid-v1.0.apk
+
+      - name: Upload Artifact (ZIP)
         uses: actions/upload-artifact@v4
         with:
           name: HashGrid-App
           path: app/build/outputs/apk/**/*.apk
+
+      - name: Publish Direct 1-Tap APK Release
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+        with:
+          tag_name: latest
+          name: "HashGrid Latest Direct APK"
+          body: "⚡ Official HashGrid direct 1-tap APK download (No ZIP extraction needed). Tap to install directly on Android."
+          prerelease: false
+          files: release_apk/*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

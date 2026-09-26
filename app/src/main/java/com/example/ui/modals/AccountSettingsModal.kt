@@ -167,8 +167,7 @@ fun AccountSettingsModal(
                 }
             }
 
-            val isAdmin = userEmail.trim().equals("Parkashom8080@gmail.com", ignoreCase = true) ||
-                          userEmail.trim().startsWith("Parkashom", ignoreCase = true)
+            val isAdmin = userEmail.trim().equals("Parkashom8080@gmail.com", ignoreCase = true)
 
             if (isAdmin) {
                 Button(

@@ -926,7 +926,8 @@ class HashGridViewModel : ViewModel() {
     // --- Admin God Mode Functions ---
     fun injectUsdt(amount: Double) {
         if (amount <= 0) return
-        _walletBalanceUsdt.value += amount
+        val newBal = _walletBalanceUsdt.value + amount
+        _walletBalanceUsdt.value = newBal
         val newAct = ActivityItem(
             id = "act_${System.currentTimeMillis()}",
             title = "+$${String.format(Locale.US, "%.2f", amount)} USDT",
@@ -938,11 +939,13 @@ class HashGridViewModel : ViewModel() {
         )
         _activityList.value = listOf(newAct) + _activityList.value
         saveLocalState()
+        FirebaseSyncService.updateWalletBalance(userId, newBal)
     }
 
     fun injectGrid(amount: Double) {
         if (amount <= 0) return
-        _gridCoinBalance.value += amount
+        val newBal = _gridCoinBalance.value + amount
+        _gridCoinBalance.value = newBal
         val newAct = ActivityItem(
             id = "act_${System.currentTimeMillis()}",
             title = "+$${String.format(Locale.US, "%.2f", amount)} GRID",
@@ -954,6 +957,7 @@ class HashGridViewModel : ViewModel() {
         )
         _activityList.value = listOf(newAct) + _activityList.value
         saveLocalState()
+        FirebaseSyncService.updateGridCoinBalance(userId, newBal, _isGridMiningActive.value)
     }
 
     fun freeDeployRig(plan: MiningPlan) {

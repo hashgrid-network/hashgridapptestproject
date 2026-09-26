@@ -2,17 +2,23 @@ package com.example.ui.screens
 
 import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -60,12 +66,19 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -1611,6 +1624,297 @@ fun HomeScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+fun GeothermalPowerSwitchButton(
+    isGridMiningActive: Boolean,
+    effectiveGridRate: Double,
+    countdownText: String,
+    remainingMs: Long,
+    pulseAlpha: Float,
+    onExtendMining: () -> Unit,
+    onOpenMiningSheet: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
+
+    var isPressed by remember { mutableStateOf(false) }
+    var shockwaveProgress by remember { mutableStateOf(0f) }
+    var isShockwaveActive by remember { mutableStateOf(false) }
+    var showHudBanner by remember { mutableStateOf(false) }
+
+    // Spring dampened bounce animation
+    val scaleState by animateFloatAsState(
+        targetValue = if (isPressed) 0.88f else 1.0f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "switchScale"
+    )
+
+    // Continuous 360-degree radar rotation
+    val infiniteTransition = rememberInfiniteTransition(label = "power_switch_radar")
+    val rotationAngle by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(7000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "rotationAngle"
+    )
+
+    // Handle Shockwave Animation
+    LaunchedEffect(isShockwaveActive) {
+        if (isShockwaveActive) {
+            shockwaveProgress = 0f
+            val startTime = System.currentTimeMillis()
+            while (System.currentTimeMillis() - startTime < 600) {
+                val elapsed = System.currentTimeMillis() - startTime
+                shockwaveProgress = (elapsed / 600f).coerceIn(0f, 1f)
+                delay(16L)
+            }
+            isShockwaveActive = false
+        }
+    }
+
+    // Handle HUD Banner timer
+    LaunchedEffect(showHudBanner) {
+        if (showHudBanner) {
+            delay(3500L)
+            showHudBanner = false
+        }
+    }
+
+    val activeGlowColor = if (isGridMiningActive) Color(0xFF00E676) else GoldGradientEnd
+    val activeRateStr = String.format(Locale.US, "%.2f", effectiveGridRate)
+
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // SLEEK HUD BANNER POPUP
+        AnimatedVisibility(
+            visible = showHudBanner,
+            enter = fadeIn() + slideInVertically(initialOffsetY = { -20 }),
+            exit = fadeOut() + slideOutVertically(targetOffsetY = { -20 })
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 10.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(ObsidianNavy)
+                    .border(1.2.dp, Color(0xFF00E676), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.ElectricBolt,
+                        contentDescription = null,
+                        tint = Color(0xFF00E676),
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "⚡ Node Link Established | Connected to Geothermal Core #08 | 24-Hour Cycle Active",
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .size(140.dp)
+                .scale(scaleState),
+            contentAlignment = Alignment.Center
+        ) {
+            // CANVAS: RADIAL AMBIENT GLOW, DASHED RADAR RING, PROGRESS ARC & SHOCKWAVE
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val centerOffset = center
+                val radius = size.minDimension / 2f
+
+                // 1. Outer Radial Ambient Aura
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            activeGlowColor.copy(alpha = 0.35f * pulseAlpha),
+                            activeGlowColor.copy(alpha = 0.12f * pulseAlpha),
+                            Color.Transparent
+                        ),
+                        center = centerOffset,
+                        radius = radius
+                    ),
+                    radius = radius
+                )
+
+                // 2. Continuous Dashed Rotating Radar Ring
+                val ringRadius = radius * 0.82f
+                val strokeWidth = 3.dp.toPx()
+                rotate(degrees = rotationAngle, pivot = centerOffset) {
+                    drawCircle(
+                        color = activeGlowColor.copy(alpha = 0.65f),
+                        radius = ringRadius,
+                        style = Stroke(
+                            width = strokeWidth,
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(16f, 16f), 0f)
+                        )
+                    )
+                }
+
+                // 3. Active 24H Circular Progress Arc
+                if (isGridMiningActive) {
+                    val totalMs = 24L * 3600 * 1000
+                    val elapsedMs = (totalMs - remainingMs).coerceIn(0L, totalMs)
+                    val progressFraction = (elapsedMs.toFloat() / totalMs).coerceIn(0f, 1f)
+                    val sweepAngle = progressFraction * 360f
+
+                    drawArc(
+                        color = Color(0xFF00E676),
+                        startAngle = -90f,
+                        sweepAngle = sweepAngle,
+                        useCenter = false,
+                        style = Stroke(width = 4.dp.toPx())
+                    )
+                }
+
+                // 4. Expanding Energy Shockwave Ripple Effect
+                if (isShockwaveActive) {
+                    val shockwaveRadius = ringRadius * (0.8f + shockwaveProgress * 0.7f)
+                    val shockwaveAlpha = (1f - shockwaveProgress).coerceIn(0f, 1f)
+                    drawCircle(
+                        color = Color(0xFF00E676).copy(alpha = shockwaveAlpha),
+                        radius = shockwaveRadius,
+                        style = Stroke(width = (5 - shockwaveProgress * 3).dp.toPx())
+                    )
+                }
+            }
+
+            // CENTRAL 3D POWER SWITCH BUTTON
+            Button(
+                onClick = {
+                    try {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    } catch (_: Exception) {}
+                    isPressed = true
+                    isShockwaveActive = true
+                    showHudBanner = true
+
+                    onExtendMining()
+                    onOpenMiningSheet()
+
+                    Toast.makeText(
+                        context,
+                        "⚡ Node Link Established | Connected to Geothermal Core #08 | 24-Hour Cycle Active",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                },
+                modifier = Modifier
+                    .size(108.dp)
+                    .clip(CircleShape)
+                    .border(
+                        3.dp,
+                        Brush.verticalGradient(
+                            listOf(
+                                activeGlowColor,
+                                activeGlowColor.copy(alpha = 0.4f),
+                                ObsidianNavy
+                            )
+                        ),
+                        CircleShape
+                    )
+                    .testTag("mine_grid_tap_button"),
+                colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                contentPadding = PaddingValues(0.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                if (isGridMiningActive) {
+                                    listOf(Color(0xFF065F46), Color(0xFF022C22), ObsidianNavy)
+                                } else {
+                                    listOf(Color(0xFF263238), ObsidianNavy, Color(0xFF0F172A))
+                                }
+                            )
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ElectricBolt,
+                            contentDescription = "Power Switch",
+                            tint = if (isGridMiningActive) Color(0xFF00E676) else GoldGradientEnd,
+                            modifier = Modifier.size(32.dp)
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "MINE GRID",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 0.8.sp,
+                            color = Color.White
+                        )
+                        Text(
+                            text = if (isGridMiningActive) "ACTIVE • 24H" else "24h Session",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isGridMiningActive) Color(0xFF00E676) else MintGreen
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // LIVE COUNTDOWN & STATUS TAG DIRECTLY BELOW BUTTON
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (isGridMiningActive) Color(0xFF00E676).copy(alpha = pulseAlpha)
+                        else SlateGray
+                    )
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = if (isGridMiningActive) "GRID LIVE • 15.0 MH/s" else "GRID IDLE • TAP TO LINK",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Black,
+                letterSpacing = 0.6.sp,
+                color = if (isGridMiningActive) Color(0xFF00E676) else SlateGray
+            )
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Text(
+            text = "Cycle Countdown: $countdownText • +${activeRateStr} GRID/hr",
+            fontSize = 10.5.sp,
+            fontWeight = FontWeight.Bold,
+            color = SlateNavy,
+            fontFamily = FontFamily.Monospace
+        )
     }
 }
 

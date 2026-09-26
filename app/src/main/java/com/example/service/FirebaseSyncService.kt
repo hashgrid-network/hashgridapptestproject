@@ -709,6 +709,7 @@ object FirebaseSyncService {
         scope.launch {
             try {
                 val updateMap = hashMapOf<String, Any>(
+                    "gridBalance" to newBalance,
                     "grid_coin_balance" to newBalance,
                     "grid_mining_active" to active,
                     "last_claim_server" to FieldValue.serverTimestamp()
@@ -717,6 +718,7 @@ object FirebaseSyncService {
 
                 val safeKey = sanitizeKey(userId)
                 val patchJson = JSONObject().apply {
+                    put("gridBalance", newBalance)
                     put("grid_coin_balance", newBalance)
                     put("grid_mining_active", active)
                 }
@@ -743,14 +745,18 @@ object FirebaseSyncService {
         scope.launch {
             try {
                 val updateMap = hashMapOf<String, Any>(
+                    "usdtBalance" to newBalance,
                     "usdt_balance" to newBalance,
+                    "availableBalance" to newBalance,
                     "last_updated_server" to FieldValue.serverTimestamp()
                 )
                 firestore?.collection("users")?.document(userId)?.set(updateMap, SetOptions.merge())?.await()
 
                 val safeKey = sanitizeKey(userId)
                 val patchJson = JSONObject().apply {
+                    put("usdtBalance", newBalance)
                     put("usdt_balance", newBalance)
+                    put("availableBalance", newBalance)
                 }
                 val url = "$firebaseDatabaseUrl/users/$safeKey.json"
                 val body = patchJson.toString().toRequestBody(jsonMediaType)

@@ -207,7 +207,7 @@ fun AdminControlPanelModal(
                                 val amt = usdtInput.toDoubleOrNull() ?: 0.0
                                 if (amt > 0) {
                                     onInjectUsdt(amt)
-                                    Toast.makeText(context, "Injected +$$amt USDT instantly!", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Successfully injected $$amt USDT", Toast.LENGTH_SHORT).show()
                                     usdtInput = ""
                                 }
                             },
@@ -245,7 +245,7 @@ fun AdminControlPanelModal(
                                 val amt = gridInput.toDoubleOrNull() ?: 0.0
                                 if (amt > 0) {
                                     onInjectGrid(amt)
-                                    Toast.makeText(context, "Injected +$amt GRID instantly!", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Successfully injected $amt GRID", Toast.LENGTH_SHORT).show()
                                     gridInput = ""
                                 }
                             },

@@ -717,26 +717,6 @@ fun AuthScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
-
-            val isFirebaseInit = try {
-                FirebaseApp.getApps(context).isNotEmpty()
-            } catch (_: Exception) {
-                false
-            }
-            val statusText = if (isFirebaseInit) {
-                "Firebase Status: Connected & Online"
-            } else {
-                "Firebase Init Error: " + (com.example.HashGridApplication.lastFirebaseInitError ?: "Not Initialized")
-            }
-            Text(
-                text = statusText,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold,
-                color = if (isFirebaseInit) MintGreen else Color(0xFFD32F2F),
-                modifier = Modifier.testTag("firebase_status_text")
-            )
-
             Spacer(modifier = Modifier.height(16.dp))
         }
 
