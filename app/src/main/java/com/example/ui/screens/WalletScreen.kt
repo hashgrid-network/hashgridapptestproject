@@ -37,6 +37,10 @@ import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -47,9 +51,11 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.model.ActiveContract
 import com.example.model.ActivityItem
 import com.example.model.PayoutItem
 import com.example.model.PayoutStatus
+import com.example.ui.modals.HardwareStabilityNoticeDialog
 import com.example.ui.theme.CanvasBackground
 import com.example.ui.theme.CardWhite
 import com.example.ui.theme.CrimsonRed
@@ -75,14 +81,32 @@ fun WalletScreen(
     onSubTabChanged: (Int) -> Unit,
     activityList: List<ActivityItem>,
     payoutsList: List<PayoutItem>,
+    activeContracts: List<ActiveContract> = emptyList(),
     onDepositClick: () -> Unit,
     onWithdrawClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val btcEquivalent = if (btcPrice > 0) walletBalanceUsdt / btcPrice else 0.0
-    val withdrawalTarget = 130.0
-    val progressToThreshold = (walletBalanceUsdt / withdrawalTarget).coerceIn(0.0, 1.0).toFloat()
-    val progressPercent = (progressToThreshold * 100).toInt()
+
+    val inProgressContract = activeContracts.firstOrNull { it.work_status == "IN_PROGRESS" && it.depositUsdt > 0 }
+    val primaryContract = inProgressContract ?: activeContracts.firstOrNull { it.depositUsdt > 0 }
+    val rigPrice = primaryContract?.depositUsdt ?: 10.0
+    val minWithdrawalTarget = primaryContract?.target_yield_30_percent ?: (rigPrice * 0.30)
+    val currentEarnings = inProgressContract?.current_yield_mined ?: (walletBalanceUsdt.coerceAtMost(minWithdrawalTarget))
+    val progressFraction = (currentEarnings / minWithdrawalTarget).coerceIn(0.0, 1.0).toFloat()
+    val progressPercent = (progressFraction * 100).toInt()
+    val isWithdrawalLocked = inProgressContract != null && inProgressContract.current_yield_mined < minWithdrawalTarget
+
+    var showStabilityNotice by remember { mutableStateOf(false) }
+
+    if (showStabilityNotice) {
+        HardwareStabilityNoticeDialog(
+            rigName = primaryContract?.planName ?: "Cloud Rig",
+            rigPrice = rigPrice,
+            currentEarnings = currentEarnings,
+            onDismiss = { showStabilityNotice = false }
+        )
+    }
 
     val subTabs = listOf("Activity Log", "Payouts History")
 
@@ -238,28 +262,37 @@ fun WalletScreen(
 
                     // Withdraw Button
                     Button(
-                        onClick = onWithdrawClick,
+                        onClick = {
+                            if (isWithdrawalLocked) {
+                                showStabilityNotice = true
+                            } else {
+                                onWithdrawClick()
+                            }
+                        },
                         modifier = Modifier
                             .weight(1f)
                             .height(46.dp)
                             .clip(RoundedCornerShape(14.dp))
                             .testTag("wallet_withdraw_button"),
-                        colors = ButtonDefaults.buttonColors(containerColor = SlateNavy)
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isWithdrawalLocked) Color(0xFFE2E8F0) else SlateNavy,
+                            contentColor = if (isWithdrawalLocked) Color(0xFF64748B) else Color.White
+                        )
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
-                                imageVector = Icons.Default.ArrowUpward,
+                                imageVector = if (isWithdrawalLocked) Icons.Default.Lock else Icons.Default.ArrowUpward,
                                 contentDescription = null,
-                                tint = Color.White,
+                                tint = if (isWithdrawalLocked) Color(0xFF64748B) else Color.White,
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "WITHDRAW",
+                                text = if (isWithdrawalLocked) "LOCKED" else "WITHDRAW",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                                 letterSpacing = 1.sp,
-                                color = Color.White
+                                color = if (isWithdrawalLocked) Color(0xFF64748B) else Color.White
                             )
                         }
                     }
@@ -267,7 +300,7 @@ fun WalletScreen(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Security Disclaimer
+                // Security Disclaimer with Dynamic 30% Milestone
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
@@ -284,7 +317,7 @@ fun WalletScreen(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "Min Withdrawal: $130 USDT | Audited 24-Hour Review Window for Cold-Storage Safety",
+                        text = "Min Withdrawal: $${String.format(Locale.US, "%.2f", minWithdrawalTarget)} USDT (30% Milestone for $${String.format(Locale.US, "%.2f", rigPrice)} Rig) | Audited 24-Hour Review Window",
                         fontSize = 9.sp,
                         color = SlateGray,
                         lineHeight = 12.sp
@@ -296,7 +329,7 @@ fun WalletScreen(
         Spacer(modifier = Modifier.height(14.dp))
 
         // ==========================================
-        // 2. PROGRESS BAR: ROAD TO $130 WITHDRAWAL
+        // 2. PROGRESS BAR: ROAD TO 30% WORK MILESTONE
         // ==========================================
         Card(
             modifier = Modifier
@@ -317,13 +350,13 @@ fun WalletScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Road to $130 Withdrawal Threshold",
+                        text = "Road to $${String.format(Locale.US, "%.2f", minWithdrawalTarget)} Work Milestone (30%)",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         color = ObsidianNavy
                     )
                     Text(
-                        text = "$progressPercent% ($${String.format(Locale.US, "%.1f", walletBalanceUsdt)} / $130)",
+                        text = "$progressPercent% ($${String.format(Locale.US, "%.2f", currentEarnings)} / $${String.format(Locale.US, "%.2f", minWithdrawalTarget)})",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         color = GoldGradientEnd,
@@ -334,7 +367,7 @@ fun WalletScreen(
                 Spacer(modifier = Modifier.height(6.dp))
 
                 LinearProgressIndicator(
-                    progress = { progressToThreshold },
+                    progress = { progressFraction },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(8.dp)

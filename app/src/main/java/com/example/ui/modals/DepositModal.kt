@@ -25,14 +25,15 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.QrCode2
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -40,7 +41,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Tab
@@ -51,7 +51,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -75,6 +74,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.example.model.OFFICIAL_BEP20_ADDRESS
+import com.example.model.OFFICIAL_TRC20_ADDRESS
 import com.example.service.NowPaymentSession
 import com.example.service.NowPaymentStatus
 import com.example.service.NowPaymentsService
@@ -94,8 +95,9 @@ import com.example.ui.theme.SlateNavy
 import kotlinx.coroutines.delay
 import java.util.Locale
 
-const val BEP20_ADDRESS = "0x1fAcE21fc7cA33abb4B37fba82280266C12D9c09"
-const val TRC20_ADDRESS = "TJj7G3U8qVSzqcJaxAhQG34ADHihnR6WuD"
+// Top-level locked official constants
+const val BEP20_ADDRESS = OFFICIAL_BEP20_ADDRESS
+const val TRC20_ADDRESS = OFFICIAL_TRC20_ADDRESS
 
 @Composable
 fun DepositModal(
@@ -107,9 +109,10 @@ fun DepositModal(
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
 
+    // Default network: USDT (BEP-20 / BSC) (Default index 0)
     var selectedNetworkIndex by remember { mutableIntStateOf(0) }
-    val networks = listOf("USDT (TRC-20)", "USDT (BEP-20 / BSC)")
-    val networkCodes = listOf("usdttrc20", "usdtbsc")
+    val networks = listOf("USDT (BEP-20 / BSC)", "USDT (TRC-20 / TRON)")
+    val networkCodes = listOf("usdtbsc", "usdttrc20")
 
     var depositAmountInput by remember { mutableStateOf(initialAmount) }
     val quickAmounts = listOf(10, 20, 50, 100, 300, 500, 1000)
@@ -118,6 +121,10 @@ fun DepositModal(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var activeSession by remember { mutableStateOf<NowPaymentSession?>(null) }
     var paymentStatus by remember { mutableStateOf(NowPaymentStatus.WAITING) }
+
+    // Locked address based on network selection
+    val currentSelectedAddress = if (selectedNetworkIndex == 0) OFFICIAL_BEP20_ADDRESS else OFFICIAL_TRC20_ADDRESS
+    val currentNetworkName = networks[selectedNetworkIndex]
 
     // Countdown Timer (20 minutes from creation)
     var remainingSeconds by remember { mutableLongStateOf(20L * 60) }
@@ -222,7 +229,7 @@ fun DepositModal(
                     }
                 } else if (activeSession == null) {
                     // ==========================================
-                    // STEP 1: ENTER AMOUNT & SELECT NETWORK
+                    // STEP 1: DUAL NETWORK DEPOSIT SYSTEM
                     // ==========================================
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -232,8 +239,8 @@ fun DepositModal(
                         Column {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    text = "AUTOMATED DEPOSIT",
-                                    fontSize = 15.sp,
+                                    text = "USDT DEPOSIT",
+                                    fontSize = 16.sp,
                                     fontWeight = FontWeight.Black,
                                     letterSpacing = 1.sp,
                                     color = ObsidianNavy
@@ -243,18 +250,18 @@ fun DepositModal(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(4.dp))
                                         .background(GoldLight)
-                                        .padding(horizontal = 5.dp, vertical = 1.dp)
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
                                 ) {
                                     Text(
-                                        text = "NOWPAYMENTS",
-                                        fontSize = 8.sp,
+                                        text = "INSTANT",
+                                        fontSize = 8.5.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = GoldGradientEnd
                                     )
                                 }
                             }
                             Text(
-                                text = "Instant zero-manual TxID blockchain settlement",
+                                text = "Automated blockchain settlement & credit",
                                 fontSize = 11.sp,
                                 color = SlateGray
                             )
@@ -268,11 +275,11 @@ fun DepositModal(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
-                    // Network Selector Tabs
+                    // 1. Clean Network Selector Tab (BEP-20 Default & TRC-20)
                     Text(
-                        text = "Select USDT Network:",
+                        text = "Select Network:",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         color = SlateGray,
@@ -295,7 +302,10 @@ fun DepositModal(
                         networks.forEachIndexed { index, net ->
                             Tab(
                                 selected = selectedNetworkIndex == index,
-                                onClick = { selectedNetworkIndex = index },
+                                onClick = {
+                                    selectedNetworkIndex = index
+                                    errorMessage = null
+                                },
                                 text = {
                                     Text(
                                         text = net,
@@ -308,54 +318,118 @@ fun DepositModal(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
-                    // Selected Network Address Quick Preview
-                    val currentSelectedAddress = if (selectedNetworkIndex == 1) BEP20_ADDRESS else TRC20_ADDRESS
-                    Row(
+                    // 2. Dynamic QR Code (Instantly reflects selected network's locked address)
+                    Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(Color(0xFFF1ECE4))
-                            .border(0.8.dp, GoldBorderSubtle, RoundedCornerShape(10.dp))
-                            .clickable {
-                                clipboardManager.setText(AnnotatedString(currentSelectedAddress))
-                                Toast.makeText(context, "Address copied to clipboard!", Toast.LENGTH_SHORT).show()
-                            }
-                            .padding(horizontal = 10.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                            .size(145.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color.White)
+                            .border(1.2.dp, GoldBorder, RoundedCornerShape(16.dp))
+                            .padding(8.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Selected ${networks[selectedNetworkIndex]} Address:",
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = SlateGray
-                            )
-                            Text(
-                                text = currentSelectedAddress,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                fontFamily = FontFamily.Monospace,
-                                color = ObsidianNavy,
-                                maxLines = 1
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Icon(
-                            imageVector = Icons.Default.ContentCopy,
-                            contentDescription = "Copy Address",
-                            tint = GoldGradientEnd,
-                            modifier = Modifier.size(16.dp)
-                        )
+                        QrCodePlaceholder(address = currentSelectedAddress)
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
 
+                    // 3. Displayed Locked Address Card with Instant Copy Button
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .border(1.dp, GoldBorderSubtle, RoundedCornerShape(12.dp)),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFF7F4EE))
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Official $currentNetworkName Deposit Address:",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = SlateGray
+                                )
+
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(GoldLight)
+                                        .clickable {
+                                            clipboardManager.setText(AnnotatedString(currentSelectedAddress))
+                                            Toast.makeText(context, "Address copied!", Toast.LENGTH_SHORT).show()
+                                        }
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                        .testTag("copy_deposit_address_btn")
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = Icons.Default.ContentCopy,
+                                            contentDescription = "Copy",
+                                            tint = GoldGradientEnd,
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "COPY",
+                                            fontSize = 9.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = ObsidianNavy
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            Text(
+                                text = currentSelectedAddress,
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                color = ObsidianNavy,
+                                lineHeight = 16.sp
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Clearly display selected network name under address
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFFFFFBEB))
+                            .border(0.8.dp, Color(0xFFFDE68A), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 8.dp, vertical = 6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.WarningAmber,
+                            contentDescription = null,
+                            tint = Color(0xFFD97706),
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Selected Network: $currentNetworkName. Only send USDT via this network.",
+                            fontSize = 9.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF92400E)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
                     // Quick Amount Chips
                     Text(
-                        text = "Select Deposit Amount (USDT):",
+                        text = "Deposit Amount (USDT):",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         color = SlateGray,
@@ -366,7 +440,7 @@ fun DepositModal(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        quickAmounts.take(3).forEach { amt ->
+                        quickAmounts.take(4).forEach { amt ->
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
@@ -396,7 +470,7 @@ fun DepositModal(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        quickAmounts.drop(3).forEach { amt ->
+                        quickAmounts.drop(4).forEach { amt ->
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
@@ -451,7 +525,7 @@ fun DepositModal(
 
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    // Proceed to Deposit Button
+                    // Proceed to Deposit Tracking Button
                     Button(
                         onClick = {
                             val amt = depositAmountInput.toDoubleOrNull()
@@ -504,7 +578,7 @@ fun DepositModal(
                         } else {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    text = "GENERATE DEPOSIT ADDRESS",
+                                    text = "CONFIRM & TRACK SETTLEMENT",
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
                                     letterSpacing = 1.sp,
@@ -614,7 +688,7 @@ fun DepositModal(
                             .padding(10.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        QrCodePlaceholder(address = session.payAddress)
+                        QrCodePlaceholder(address = currentSelectedAddress)
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
@@ -634,7 +708,7 @@ fun DepositModal(
                             ) {
                                 Text("Amount to Send:", fontSize = 11.sp, color = SlateGray)
                                 Text(
-                                    text = "${String.format(Locale.US, "%.2f", session.payAmount)} ${session.payCurrency}",
+                                    text = "${String.format(Locale.US, "%.2f", session.payAmount)} USDT",
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Black,
                                     color = ObsidianNavy,
@@ -648,7 +722,7 @@ fun DepositModal(
                             ) {
                                 Text("Network:", fontSize = 11.sp, color = SlateGray)
                                 Text(
-                                    text = "USDT (${session.network})",
+                                    text = currentNetworkName,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = GoldGradientEnd
@@ -661,7 +735,7 @@ fun DepositModal(
 
                     // Deposit Address with Copy Button
                     Text(
-                        text = "Deposit Address:",
+                        text = "Locked Deposit Address:",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         color = SlateGray,
@@ -674,15 +748,15 @@ fun DepositModal(
                             .clip(RoundedCornerShape(10.dp))
                             .background(Color(0xFFF1ECE4))
                             .clickable {
-                                clipboardManager.setText(AnnotatedString(session.payAddress))
-                                Toast.makeText(context, "Address copied to clipboard!", Toast.LENGTH_SHORT).show()
+                                clipboardManager.setText(AnnotatedString(currentSelectedAddress))
+                                Toast.makeText(context, "Address copied!", Toast.LENGTH_SHORT).show()
                             }
                             .padding(10.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = session.payAddress,
+                            text = currentSelectedAddress,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
                             fontFamily = FontFamily.Monospace,
@@ -702,7 +776,7 @@ fun DepositModal(
 
                     // Automated status notice
                     Text(
-                        text = "⚡ Waiting for blockchain transfer... (Balance auto-credits once confirmed)",
+                        text = "⚡ Waiting for blockchain transfer on $currentNetworkName... (Balance auto-credits once confirmed)",
                         fontSize = 10.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = GoldGradientEnd,

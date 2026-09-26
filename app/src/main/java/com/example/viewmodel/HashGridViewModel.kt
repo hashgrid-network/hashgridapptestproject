@@ -140,7 +140,7 @@ class HashGridViewModel : ViewModel() {
     // --- In-App Auto Update State ---
     val updateStatus: StateFlow<UpdateStatus> = AppUpdateManager.updateStatus
 
-    // --- Marketplace Plans ---
+    // --- Marketplace Plans (Sustainable 10% - 15% Monthly Yield) ---
     val marketplacePlans = listOf(
         MiningPlan(
             id = "plan_starter_rig",
@@ -150,67 +150,67 @@ class HashGridViewModel : ViewModel() {
             iconCrypto = "⚡",
             minDepositUsdt = 10.0,
             hashPowerGh = 10000.0, // 10 TH/s
-            monthlyYieldPercent = 30.0,
+            monthlyYieldPercent = 11.5,
             termDays = 30,
-            dailyYieldUsdtEst = 0.35,
+            dailyYieldUsdtEst = 0.038,
             hardwareType = "Antminer Micro 10 TH/s Liquid Rig",
             tag = "Starter $10"
         ),
         MiningPlan(
-            id = "plan_kas",
-            name = "Starter Kaspa Node",
-            subtitle = "KHeavyHash ASIC Array",
+            id = "plan_kas_25",
+            name = "Kaspa Micro Array (25 TH/s)",
+            subtitle = "KHeavyHash ASIC Liquid Array",
             cryptoSymbol = "KAS",
             iconCrypto = "⚡",
-            minDepositUsdt = 100.0,
-            hashPowerGh = 25.0,
-            monthlyYieldPercent = 14.5,
+            minDepositUsdt = 25.0,
+            hashPowerGh = 25000.0,
+            monthlyYieldPercent = 12.5,
             termDays = 30,
-            dailyYieldUsdtEst = 0.48,
+            dailyYieldUsdtEst = 0.104,
             hardwareType = "IceRiver KS0 Ultra Liquid",
-            tag = "Low Entry"
+            tag = "Entry $25"
         ),
         MiningPlan(
-            id = "plan_btc",
-            name = "Prime BTC Hydro",
-            subtitle = "SHA-256 Hydro Immersion",
+            id = "plan_asic_50",
+            name = "Antminer Dual Node (50 TH/s)",
+            subtitle = "SHA-256 Dual Sub-Zero Rig",
+            cryptoSymbol = "BTC",
+            iconCrypto = "⛏️",
+            minDepositUsdt = 50.0,
+            hashPowerGh = 50000.0,
+            monthlyYieldPercent = 14.0,
+            termDays = 30,
+            dailyYieldUsdtEst = 0.233,
+            hardwareType = "Antminer Dual S19 Pro Hydro",
+            tag = "Standard $50"
+        ),
+        MiningPlan(
+            id = "plan_btc_100",
+            name = "Prime BTC Hydro (100 TH/s)",
+            subtitle = "Sub-Zero Hydro Immersion Node",
             cryptoSymbol = "BTC",
             iconCrypto = "₿",
-            minDepositUsdt = 300.0,
-            hashPowerGh = 3150.0,
-            monthlyYieldPercent = 16.0,
+            minDepositUsdt = 100.0,
+            hashPowerGh = 100000.0,
+            monthlyYieldPercent = 15.0,
             termDays = 30,
-            dailyYieldUsdtEst = 1.60,
+            dailyYieldUsdtEst = 0.500,
             hardwareType = "Antminer S21 Hydro (Sub-Zero)",
-            tag = "Most Popular"
+            tag = "Popular $100"
         ),
         MiningPlan(
-            id = "plan_free_ad",
-            name = "Free 4-Hour Mining Ad Node",
-            subtitle = "Sponsored Micro Hashrate Booster",
-            cryptoSymbol = "BTC",
-            iconCrypto = "⚡",
-            minDepositUsdt = 0.0,
-            hashPowerGh = 50.0,
-            monthlyYieldPercent = 0.0,
-            termDays = 1,
-            dailyYieldUsdtEst = 0.15,
-            hardwareType = "Micro Hydro Shared Pool",
-            tag = "Free Ad Booster"
-        ),
-        MiningPlan(
-            id = "plan_institutional",
-            name = "Institutional Geothermal Cluster",
+            id = "plan_institutional_500",
+            name = "Institutional Cluster (500 TH/s)",
             subtitle = "Direct Volcano Sub-Zero Connection",
             cryptoSymbol = "BTC",
             iconCrypto = "🌋",
-            minDepositUsdt = 1000.0,
-            hashPowerGh = 12500.0,
-            monthlyYieldPercent = 19.5,
-            termDays = 60,
-            dailyYieldUsdtEst = 6.50,
-            hardwareType = "Dedicated Whatsminer M63S Container",
-            tag = "Institutional"
+            minDepositUsdt = 500.0,
+            hashPowerGh = 500000.0,
+            monthlyYieldPercent = 15.0,
+            termDays = 30,
+            dailyYieldUsdtEst = 2.500,
+            hardwareType = "Dedicated Whatsminer M63S Immersion Array",
+            tag = "Enterprise $500"
         )
     )
 
@@ -792,14 +792,15 @@ class HashGridViewModel : ViewModel() {
 
     fun requestWithdrawal(amountUsdt: Double, address: String, network: String): String? {
         val inProgressContract = _activeContracts.value.firstOrNull { it.work_status == "IN_PROGRESS" && it.depositUsdt > 0 }
-        if (inProgressContract != null) {
+        if (inProgressContract != null && inProgressContract.current_yield_mined < inProgressContract.target_yield_30_percent) {
             val cur = String.format(Locale.US, "%.2f", inProgressContract.current_yield_mined)
             val tar = String.format(Locale.US, "%.2f", inProgressContract.target_yield_30_percent)
             val pct = inProgressContract.task_progress_pct.toInt()
-            return "Task In Progress: $$cur / $$tar USDT ($pct%). Withdrawal unlocks once this grid completes 100% of its 30% mining task."
+            return "Hardware Stability Notice: Minimum payout unlocks after completing the 30% work milestone ($$tar for this rig). Current progress: $$cur / $$tar ($pct%)."
         }
-        if (amountUsdt < 130.0) {
-            return "Minimum withdrawal threshold is 130.00 USDT."
+        val minWithdrawalTarget = _activeContracts.value.firstOrNull { it.depositUsdt > 0 }?.target_yield_30_percent ?: 3.0
+        if (amountUsdt < minWithdrawalTarget) {
+            return "Minimum withdrawal threshold is ${String.format(Locale.US, "%.2f", minWithdrawalTarget)} USDT."
         }
         if (amountUsdt > _walletBalanceUsdt.value) {
             return "Insufficient balance."

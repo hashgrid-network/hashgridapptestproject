@@ -60,6 +60,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.example.model.OFFICIAL_BEP20_ADDRESS
+import com.example.model.OFFICIAL_TRC20_ADDRESS
 import com.example.ui.theme.CardWhite
 import com.example.ui.theme.GoldBorder
 import com.example.ui.theme.GoldBorderSubtle
@@ -85,8 +87,8 @@ fun StarterGridDeployModal(
     val hasEnoughBalance = walletBalanceUsdt >= 10.0
 
     var selectedNetworkIndex by remember { mutableIntStateOf(0) }
-    val networks = listOf("USDT (TRC-20)", "USDT (BEP-20)")
-    val addresses = listOf(TRC20_ADDRESS, BEP20_ADDRESS)
+    val networks = listOf("USDT (BEP-20 / BSC)", "USDT (TRC-20 / TRON)")
+    val addresses = listOf(OFFICIAL_BEP20_ADDRESS, OFFICIAL_TRC20_ADDRESS)
 
     Dialog(onDismissRequest = onDismiss) {
         Card(

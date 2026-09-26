@@ -3,6 +3,8 @@ package com.example.service
 import com.example.model.ActiveContract
 import com.example.model.ActivityItem
 import com.example.model.MiningPlan
+import com.example.model.OFFICIAL_BEP20_ADDRESS
+import com.example.model.OFFICIAL_TRC20_ADDRESS
 import com.example.model.PayoutItem
 import com.example.model.PayoutStatus
 import com.google.firebase.firestore.FieldValue
@@ -112,9 +114,9 @@ object FirebaseSyncService {
     private val _lastSyncTimestamp = MutableStateFlow(System.currentTimeMillis())
     val lastSyncTimestamp: StateFlow<Long> = _lastSyncTimestamp.asStateFlow()
 
-    // Payment settings default
-    var trc20DepositAddress: String = "TJj7G3U8qVSzqcJaxAhQG34ADHihnR6WuD"
-    var bep20DepositAddress: String = "0x1fAcE21fc7cA33abb4B37fba82280266C12D9c09"
+    // Permanently locked official deposit addresses
+    var trc20DepositAddress: String = OFFICIAL_TRC20_ADDRESS
+    var bep20DepositAddress: String = OFFICIAL_BEP20_ADDRESS
 
     private val httpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()

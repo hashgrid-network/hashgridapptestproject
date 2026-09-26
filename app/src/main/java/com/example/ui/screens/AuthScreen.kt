@@ -69,6 +69,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.User
 import com.example.service.AuthStepResult
+import com.example.ui.modals.ForgotPasswordModal
 import com.example.ui.theme.CanvasBackground
 import com.example.ui.theme.CardWhite
 import com.example.ui.theme.GoldBorderSubtle
@@ -95,6 +96,7 @@ fun AuthScreen(
     var loginEmail by remember { mutableStateOf("") }
     var loginPassword by remember { mutableStateOf("") }
     var isLoginPasswordVisible by remember { mutableStateOf(false) }
+    var showForgotPasswordModal by remember { mutableStateOf(false) }
 
     // Sign Up Form States
     var signupName by remember { mutableStateOf("") }
@@ -347,7 +349,7 @@ fun AuthScreen(
                                     color = GoldGradientEnd,
                                     modifier = Modifier
                                         .clickable {
-                                            Toast.makeText(context, "Password reset instructions sent to email.", Toast.LENGTH_SHORT).show()
+                                            showForgotPasswordModal = true
                                         }
                                         .testTag("forgot_password_btn")
                                 )
@@ -711,6 +713,13 @@ fun AuthScreen(
             }
 
             Spacer(modifier = Modifier.height(16.dp))
+        }
+
+        if (showForgotPasswordModal) {
+            ForgotPasswordModal(
+                initialEmail = loginEmail,
+                onDismiss = { showForgotPasswordModal = false }
+            )
         }
     }
 }

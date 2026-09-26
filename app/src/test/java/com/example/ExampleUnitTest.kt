@@ -44,10 +44,10 @@ class ExampleUnitTest {
     @Test
     fun testWithdrawalValidation() {
         val vm = HashGridViewModel()
-        // Below minimum $130 threshold
-        val errLow = vm.requestWithdrawal(50.0, "TJj7G3U8qVSzqcJaxAhQG34ADHihnR6WuD", "TRC20")
+        // Below minimum 30% work milestone threshold ($3.00 default for $10 rig)
+        val errLow = vm.requestWithdrawal(1.0, "TJj7G3U8qVSzqcJaxAhQG34ADHihnR6WuD", "TRC20")
         assertNotNull(errLow)
-        assertTrue(errLow!!.contains("Minimum withdrawal threshold is $130.00 USDT"))
+        assertTrue(errLow!!.contains("Minimum withdrawal threshold"))
     }
 
     @Test

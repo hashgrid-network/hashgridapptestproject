@@ -516,11 +516,9 @@ fun HashGridApp(
                                 onSubTabChanged = { subTab -> viewModel.setWalletSubTab(subTab) },
                                 activityList = activityList,
                                 payoutsList = payoutsList,
+                                activeContracts = activeContracts,
                                 onDepositClick = { viewModel.showDepositModal.value = true },
                                 onWithdrawClick = {
-                                    if (walletBalance < 130.0) {
-                                        Toast.makeText(context, "Minimum withdrawal threshold is $130 USDT. Current balance: $${String.format(java.util.Locale.US, "%.2f", walletBalance)}", Toast.LENGTH_LONG).show()
-                                    }
                                     viewModel.showWithdrawModal.value = true
                                 }
                             )

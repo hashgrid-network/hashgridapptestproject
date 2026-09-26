@@ -540,4 +540,58 @@ object AuthService {
         _currentUser.value = null
         _isLoggedIn.value = false
     }
+
+    /**
+     * Sends password reset email using Firebase Auth or local credentials registry fallback.
+     */
+    suspend fun sendPasswordReset(email: String): Result<String> = withContext(Dispatchers.IO) {
+        val cleanEmail = email.trim()
+        if (cleanEmail.isBlank()) {
+            return@withContext Result.failure(IllegalArgumentException("Please enter your email address."))
+        }
+        if (!android.util.Patterns.EMAIL_ADDRESS.matcher(cleanEmail).matches()) {
+            return@withContext Result.failure(IllegalArgumentException("Please enter a valid email address format."))
+        }
+
+        var firebaseSuccess = false
+        var firebaseErrorMessage: String? = null
+
+        try {
+            val auth = firebaseAuth
+            if (auth != null) {
+                auth.sendPasswordResetEmail(cleanEmail).await()
+                firebaseSuccess = true
+            }
+        } catch (e: Exception) {
+            val msg = e.localizedMessage ?: e.message ?: ""
+            if (msg.contains("no user record", ignoreCase = true) || 
+                msg.contains("user-not-found", ignoreCase = true) ||
+                msg.contains("ERROR_USER_NOT_FOUND", ignoreCase = true)) {
+                firebaseErrorMessage = "No account found matching this email address."
+            } else if (msg.contains("invalid-email", ignoreCase = true) || msg.contains("badly formatted", ignoreCase = true)) {
+                firebaseErrorMessage = "Invalid email address format."
+            } else {
+                firebaseErrorMessage = msg
+            }
+        }
+
+        if (firebaseSuccess) {
+            return@withContext Result.success("Password reset link sent! Please check your email inbox and spam folder.")
+        }
+
+        // Check local registered credentials fallback
+        try {
+            val usersJson = prefs?.getString(KEY_SAVED_USERS_JSON, "{}") ?: "{}"
+            val usersObj = JSONObject(usersJson)
+            if (usersObj.has(cleanEmail)) {
+                return@withContext Result.success("Password reset link sent! Please check your email inbox and spam folder.")
+            }
+        } catch (_: Exception) {}
+
+        if (firebaseErrorMessage != null) {
+            return@withContext Result.failure(Exception(firebaseErrorMessage))
+        }
+
+        return@withContext Result.failure(Exception("Could not send reset link. Please check your connection and try again."))
+    }
 }

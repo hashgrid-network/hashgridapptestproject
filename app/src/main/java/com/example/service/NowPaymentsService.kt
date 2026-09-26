@@ -1,6 +1,8 @@
 package com.example.service
 
 import com.example.model.ActivityItem
+import com.example.model.OFFICIAL_BEP20_ADDRESS
+import com.example.model.OFFICIAL_TRC20_ADDRESS
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.CoroutineScope
@@ -67,9 +69,9 @@ object NowPaymentsService {
     val isPaymentCompleted: StateFlow<Boolean> = _isPaymentCompleted.asStateFlow()
 
     private val _latestCompletedAmount = MutableStateFlow(0.0)
-    // Dedicated Wallet Addresses
-    const val BEP20_ADDRESS = "0x1fAcE21fc7cA33abb4B37fba82280266C12D9c09"
-    const val TRC20_ADDRESS = "TJj7G3U8qVSzqcJaxAhQG34ADHihnR6WuD"
+    // Permanently locked official deposit addresses
+    const val BEP20_ADDRESS = OFFICIAL_BEP20_ADDRESS
+    const val TRC20_ADDRESS = OFFICIAL_TRC20_ADDRESS
 
     // Configurable NOWPayments API & IPN Secrets
     var apiKey: String = "4MT98ZQ-1B4M7FY-PGNVQXN-Y1YYABR"
@@ -178,8 +180,7 @@ object NowPaymentsService {
                     if (response.isSuccessful && !bodyStr.isNullOrBlank()) {
                         val json = JSONObject(bodyStr)
                         val paymentId = json.optString("payment_id", "NP_" + System.currentTimeMillis())
-                        val rawPayAddress = json.optString("pay_address", "")
-                        val payAddress = if (rawPayAddress.isNotBlank()) rawPayAddress else defaultFallbackAddress
+                        val payAddress = defaultFallbackAddress
                         val payAmount = json.optDouble("pay_amount", amountUsdt)
                         val payCurr = json.optString("pay_currency", payCurrency).uppercase()
 
