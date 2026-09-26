@@ -92,7 +92,6 @@ fun AccountScreen(
     onOpenAuditDossier: () -> Unit,
     onOpenAuditDossierWithTab: (Int) -> Unit = {},
     onOpenAiSupport: () -> Unit,
-    onOpenAdminDashboard: () -> Unit = {},
     onCheckForUpdates: () -> Unit = {},
     onLogout: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -470,83 +469,7 @@ fun AccountScreen(
             }
         }
 
-        // ==========================================
-        // 5. ADMIN VERIFICATION DASHBOARD (/admin)
-        // ==========================================
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(18.dp))
-                .border(1.dp, GoldBorder, RoundedCornerShape(18.dp))
-                .clickable { onOpenAdminDashboard() }
-                .testTag("admin_verification_card"),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFFFBF8F2))
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(14.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(ObsidianNavy)
-                            .border(1.dp, GoldGradientMid, CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Security,
-                            contentDescription = null,
-                            tint = GoldGradientMid,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = "Admin Verification Dashboard",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Black,
-                                color = ObsidianNavy
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(GoldLight)
-                                    .padding(horizontal = 5.dp, vertical = 1.dp)
-                            ) {
-                                Text(
-                                    text = "/admin",
-                                    fontSize = 8.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = GoldGradientEnd
-                                )
-                            }
-                        }
-                        Text(
-                            text = "Audit YouTube ($5) & WhatsApp ($0.20) submissions",
-                            fontSize = 10.sp,
-                            color = SlateGray
-                        )
-                    }
-                }
 
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                    contentDescription = null,
-                    tint = GoldGradientEnd,
-                    modifier = Modifier.size(16.dp)
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
 
         // ==========================================
         // 6. APP VERSION & CLOUD SYNC TELEMETRY

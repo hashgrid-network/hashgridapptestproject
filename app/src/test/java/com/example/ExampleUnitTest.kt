@@ -36,6 +36,7 @@ class ExampleUnitTest {
         val vm = HashGridViewModel()
         // Duplicate URL check
         val duplicateUrl = "https://youtube.com/watch?v=ky9q8z1a3w"
+        vm.submitYouTubeBounty(duplicateUrl, "Channel Name")
         val err = vm.submitYouTubeBounty(duplicateUrl, "Channel Name")
         assertNotNull(err)
         assertTrue(err!!.contains("already been submitted"))

@@ -31,7 +31,6 @@ import com.example.service.UpdateStatus
 import android.widget.Toast
 import com.example.ui.components.BottomNavBar
 import com.example.ui.components.TopBar
-import com.example.ui.modals.AdminVerificationModal
 import com.example.ui.modals.AiSupportChatModal
 import com.example.ui.modals.AppUpdateModal
 import com.example.ui.modals.AuditDossierModal
@@ -166,6 +165,7 @@ fun HashGridApp(
     val context = LocalContext.current
 
     val isLoggedIn by viewModel.isLoggedIn.collectAsStateWithLifecycle()
+    val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
     val sessionManager = remember { SessionManager.getInstance(context) }
     val initialWorkflowState = remember {
         val fbAuth = AuthService.firebaseAuth
@@ -209,6 +209,12 @@ fun HashGridApp(
     }
     var authWorkflowState by remember { mutableStateOf<AuthWorkflowState>(initialWorkflowState) }
 
+    LaunchedEffect(currentUser?.id) {
+        if (currentUser != null && currentUser?.id?.isNotBlank() == true) {
+            viewModel.initPersistence(context)
+        }
+    }
+
     val currentTab by viewModel.currentTab.collectAsStateWithLifecycle()
     val plansSubTab by viewModel.plansSubTab.collectAsStateWithLifecycle()
     val walletSubTab by viewModel.walletSubTab.collectAsStateWithLifecycle()
@@ -221,7 +227,6 @@ fun HashGridApp(
     val activityList by viewModel.activityList.collectAsStateWithLifecycle()
     val payoutsList by viewModel.payoutsList.collectAsStateWithLifecycle()
     val bountyTasks by viewModel.bountyTasks.collectAsStateWithLifecycle()
-    val adminBountyClaims by viewModel.adminBountyClaims.collectAsStateWithLifecycle()
     val chatMessages by viewModel.chatMessages.collectAsStateWithLifecycle()
     val isAiTyping by viewModel.isAiTyping.collectAsStateWithLifecycle()
     val twoFactorEnabled by viewModel.twoFactorEnabled.collectAsStateWithLifecycle()
@@ -255,7 +260,6 @@ fun HashGridApp(
     val showAiSupport by viewModel.showAiSupportModal.collectAsStateWithLifecycle()
     val showLanguage by viewModel.showLanguageModal.collectAsStateWithLifecycle()
     val showNotifications by viewModel.showNotificationSheet.collectAsStateWithLifecycle()
-    val showAdminVerification by viewModel.showAdminVerificationModal.collectAsStateWithLifecycle()
     val showKyc by viewModel.showKycModal.collectAsStateWithLifecycle()
     val kycStatus by viewModel.kycStatus.collectAsStateWithLifecycle()
     val unreadNotificationsCount by viewModel.unreadNotificationsCount.collectAsStateWithLifecycle()
@@ -552,7 +556,6 @@ fun HashGridApp(
                                     viewModel.showAuditDossierModal.value = true
                                 },
                                 onOpenAiSupport = { viewModel.showAiSupportModal.value = true },
-                                onOpenAdminDashboard = { viewModel.showAdminVerificationModal.value = true },
                                 onCheckForUpdates = { viewModel.checkForUpdates(context) },
                                 onLogout = {
                                     sessionManager.clearDeviceSession()
@@ -715,14 +718,6 @@ fun HashGridApp(
         )
     }
 
-    if (showAdminVerification) {
-        AdminVerificationModal(
-            claims = adminBountyClaims,
-            onDismiss = { viewModel.showAdminVerificationModal.value = false },
-            onApproveClaim = { claim -> viewModel.approveBountyClaim(claim) },
-            onRejectClaim = { claim, reason -> viewModel.rejectBountyClaim(claim, reason) }
-        )
-    }
 
     if (showCreatorMilestoneModal) {
         CreatorMilestoneModal(

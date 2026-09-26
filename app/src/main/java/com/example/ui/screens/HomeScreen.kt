@@ -390,7 +390,7 @@ fun HomeScreen(
                     Spacer(modifier = Modifier.height(6.dp))
 
                     Text(
-                        text = String.format(Locale.US, "%.4f", gridCoinBalance),
+                        text = String.format(Locale.US, "%.5f", gridCoinBalance),
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Black,
                         fontFamily = FontFamily.Monospace,
@@ -575,6 +575,34 @@ fun HomeScreen(
                             color = SlateGray,
                             fontFamily = FontFamily.Monospace
                         )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Live Speed Badge
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(Color(0xFFE8F5E9))
+                                .border(1.dp, MintGreen.copy(alpha = 0.6f * pulseAlpha), RoundedCornerShape(20.dp))
+                                .padding(horizontal = 12.dp, vertical = 5.dp)
+                                .testTag("live_grid_speed_badge")
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Bolt,
+                                    contentDescription = null,
+                                    tint = MintDark,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "⚡ Live Rate: +0.00028 GRID/sec (1.0 GRID/h)",
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MintDark
+                                )
+                            }
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(14.dp))

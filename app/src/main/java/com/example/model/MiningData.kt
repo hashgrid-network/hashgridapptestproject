@@ -161,22 +161,6 @@ data class CreatorMilestoneSubmission(
     val status: MilestoneStatus = MilestoneStatus.PENDING_EXECUTIVE_AUDIT
 )
 
-data class AdminBountyClaim(
-    val id: String,
-    val userId: String,
-    val userEmail: String,
-    val taskType: BountyType,
-    val taskTitle: String,
-    val rewardUsdt: Double,
-    val submissionProof: String,
-    val youtubeVideoUrl: String? = null,
-    val youtubeChannelName: String? = null,
-    val whatsappViews: String? = null,
-    val telegramHandle: String? = null,
-    val status: BountyStatus = BountyStatus.PENDING_ADMIN_REVIEW,
-    val timestamp: String = "",
-    val rejectionReason: String? = null
-)
 
 data class ChatMessage(
     val id: String,

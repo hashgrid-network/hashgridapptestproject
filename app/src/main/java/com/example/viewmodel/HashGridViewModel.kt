@@ -5,7 +5,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.model.ActiveContract
 import com.example.model.ActivityItem
-import com.example.model.AdminBountyClaim
 import com.example.model.BountyStatus
 import com.example.model.BountyTask
 import com.example.model.BountyType
@@ -30,6 +29,8 @@ import com.example.service.FirebaseUser
 import com.example.service.FirebaseWithdrawal
 import com.example.service.GeminiSupportService
 import com.example.service.UpdateStatus
+import com.example.service.LocalPersistenceManager
+import com.example.service.PersistentUserData
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -130,7 +131,6 @@ class HashGridViewModel : ViewModel() {
     val showLanguageModal = MutableStateFlow(false)
     val showNotificationSheet = MutableStateFlow(false)
     val showCreatorMilestoneModal = MutableStateFlow(false)
-    val showAdminVerificationModal = MutableStateFlow(false)
     val showKycModal = MutableStateFlow(false)
     val auditDossierInitialTab = MutableStateFlow(0)
 
@@ -263,37 +263,6 @@ class HashGridViewModel : ViewModel() {
     )
     val bountyTasks: StateFlow<List<BountyTask>> = _bountyTasks.asStateFlow()
 
-    // --- ADMIN VERIFICATION BOUNTY QUEUE ---
-    private val _adminBountyClaims = MutableStateFlow<List<AdminBountyClaim>>(
-        listOf(
-            AdminBountyClaim(
-                id = "claim_demo_01",
-                userId = "HG-779842",
-                userEmail = "miner.scandinavia@grid.is",
-                taskType = BountyType.YOUTUBE,
-                taskTitle = "YouTube Video Showcase Bounty",
-                rewardUsdt = 5.00,
-                submissionProof = "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-                youtubeVideoUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-                youtubeChannelName = "Nordic Crypto Review",
-                status = BountyStatus.PENDING_ADMIN_REVIEW,
-                timestamp = "Today, 10:15 AM"
-            ),
-            AdminBountyClaim(
-                id = "claim_demo_02",
-                userId = "HG-918231",
-                userEmail = "alex.crypto@nordic.no",
-                taskType = BountyType.WHATSAPP,
-                taskTitle = "WhatsApp Status Broadcasting",
-                rewardUsdt = 0.20,
-                submissionProof = "Status Views: 64 views (Posted: Today 08:30)",
-                whatsappViews = "64 views",
-                status = BountyStatus.PENDING_ADMIN_REVIEW,
-                timestamp = "Today, 08:45 AM"
-            )
-        )
-    )
-    val adminBountyClaims: StateFlow<List<AdminBountyClaim>> = _adminBountyClaims.asStateFlow()
 
     private val _creatorSubmissions = MutableStateFlow<List<CreatorMilestoneSubmission>>(emptyList())
     val creatorSubmissions: StateFlow<List<CreatorMilestoneSubmission>> = _creatorSubmissions.asStateFlow()
@@ -353,6 +322,74 @@ class HashGridViewModel : ViewModel() {
     val effectiveGridRate: StateFlow<Double> = _effectiveGridRate.asStateFlow()
 
     val showMiningSheetModal = MutableStateFlow(false)
+    private var appContext: Context? = null
+    fun initPersistence(context: Context) {
+        appContext = context.applicationContext
+        val uid = userId
+        if (uid.isNotBlank()) {
+            val data = LocalPersistenceManager.loadUserData(context.applicationContext, uid)
+            if (data.walletBalanceUsdt > 0.0) {
+                _walletBalanceUsdt.value = data.walletBalanceUsdt
+            }
+            if (data.gridCoinBalance > 0.0) {
+                _gridCoinBalance.value = data.gridCoinBalance
+            }
+            _isGridMiningActive.value = data.isGridMiningActive
+            _miningSessionEndTimestamp.value = data.miningSessionEndTimestamp
+            if (data.activeContracts.isNotEmpty()) {
+                val now = System.currentTimeMillis()
+                val reevaluatedContracts = data.activeContracts.map { contract ->
+                    val matchingPlan = marketplacePlans.find { it.minDepositUsdt == contract.depositUsdt }
+                        ?: marketplacePlans.firstOrNull()
+                    val newDailyYield = matchingPlan?.dailyYieldUsdtEst ?: contract.dailyYieldUsdt
+                    val newHashPower = matchingPlan?.hashPowerGh ?: contract.hashPowerGh
+                    val elapsedSec = ((now - contract.startTimestampMs) / 1000).coerceAtLeast(0)
+                    val calculatedAccrued = (elapsedSec / 86400.0) * newDailyYield
+                    val updatedAccrued = contract.accruedProfitUsdt.coerceAtLeast(calculatedAccrued)
+
+                    contract.copy(
+                        dailyYieldUsdt = newDailyYield,
+                        hashPowerGh = newHashPower,
+                        accruedProfitUsdt = updatedAccrued,
+                        totalDays = matchingPlan?.termDays ?: 30
+                    )
+                }
+                _activeContracts.value = reevaluatedContracts
+                _hashPower.value = reevaluatedContracts.sumOf { it.hashPowerGh } + _bonusHashrate.value
+            }
+            if (data.activityList.isNotEmpty()) {
+                _activityList.value = data.activityList
+            }
+            if (data.payoutsList.isNotEmpty()) {
+                _payoutsList.value = data.payoutsList
+            }
+            _canSpinToday.value = data.canSpinToday
+            _wheelCooldownEnd.value = data.wheelCooldownEnd
+        }
+    }
+
+
+
+    fun saveLocalState() {
+        val ctx = appContext ?: return
+        val uid = userId
+        if (uid.isNotBlank()) {
+            val data = PersistentUserData(
+                walletBalanceUsdt = _walletBalanceUsdt.value,
+                gridCoinBalance = _gridCoinBalance.value,
+                isGridMiningActive = _isGridMiningActive.value,
+                miningSessionEndTimestamp = _miningSessionEndTimestamp.value,
+                sessionStartTimeMillis = System.currentTimeMillis(),
+                activeContracts = _activeContracts.value,
+                activityList = _activityList.value,
+                payoutsList = _payoutsList.value,
+                canSpinToday = _canSpinToday.value,
+                wheelCooldownEnd = _wheelCooldownEnd.value,
+                lastSavedTimestamp = System.currentTimeMillis()
+            )
+            LocalPersistenceManager.saveUserData(ctx, uid, data)
+        }
+    }
 
     init {
         try {
@@ -366,13 +403,15 @@ class HashGridViewModel : ViewModel() {
             while (isActive) {
                 delay(1000L)
                 if (_isGridMiningActive.value) {
-                    val now = FirebaseSyncService.getAuthoritativeServerTime()
+                    val now = System.currentTimeMillis()
                     if (now < _miningSessionEndTimestamp.value) {
                         val rate = _effectiveGridRate.value
                         val secAccrual = rate / 3600.0
                         _gridCoinBalance.value += secAccrual
+                        saveLocalState()
                     } else {
                         _isGridMiningActive.value = false
+                        saveLocalState()
                         FirebaseSyncService.updateGridCoinBalance(
                             userId,
                             _gridCoinBalance.value,
@@ -875,22 +914,6 @@ class HashGridViewModel : ViewModel() {
             } else it
         }
 
-        // Add to Admin Review Queue
-        val newAdminClaim = AdminBountyClaim(
-            id = claimId,
-            userId = userId,
-            userEmail = userEmail,
-            taskType = BountyType.YOUTUBE,
-            taskTitle = "YouTube Video Showcase Bounty",
-            rewardUsdt = 5.00,
-            submissionProof = cleanUrl,
-            youtubeVideoUrl = cleanUrl,
-            youtubeChannelName = cleanChannel,
-            status = BountyStatus.PENDING_ADMIN_REVIEW,
-            timestamp = "Just now"
-        )
-        _adminBountyClaims.value = listOf(newAdminClaim) + _adminBountyClaims.value
-
         // Sync to Firebase
         FirebaseSyncService.submitTaskClaim(
             FirebaseTaskClaim(
@@ -928,20 +951,6 @@ class HashGridViewModel : ViewModel() {
             } else it
         }
 
-        val newAdminClaim = AdminBountyClaim(
-            id = claimId,
-            userId = userId,
-            userEmail = userEmail,
-            taskType = BountyType.WHATSAPP,
-            taskTitle = "WhatsApp Status Broadcasting",
-            rewardUsdt = 0.20,
-            submissionProof = "Status Views: $trimmedViews (Posted: $timePosted)",
-            whatsappViews = "$trimmedViews views",
-            status = BountyStatus.PENDING_ADMIN_REVIEW,
-            timestamp = "Just now"
-        )
-        _adminBountyClaims.value = listOf(newAdminClaim) + _adminBountyClaims.value
-
         FirebaseSyncService.submitTaskClaim(
             FirebaseTaskClaim(
                 claimId = claimId,
@@ -978,20 +987,6 @@ class HashGridViewModel : ViewModel() {
             } else it
         }
 
-        val newAdminClaim = AdminBountyClaim(
-            id = claimId,
-            userId = userId,
-            userEmail = userEmail,
-            taskType = BountyType.TELEGRAM,
-            taskTitle = "Telegram Syndicate Community",
-            rewardUsdt = 0.20,
-            submissionProof = handle,
-            telegramHandle = handle,
-            status = BountyStatus.PENDING_ADMIN_REVIEW,
-            timestamp = "Just now"
-        )
-        _adminBountyClaims.value = listOf(newAdminClaim) + _adminBountyClaims.value
-
         FirebaseSyncService.submitTaskClaim(
             FirebaseTaskClaim(
                 claimId = claimId,
@@ -1008,54 +1003,6 @@ class HashGridViewModel : ViewModel() {
         )
 
         return null
-    }
-
-    // --- ADMIN ACTIONS: APPROVE / REJECT BOUNTY ---
-
-    fun approveBountyClaim(claim: AdminBountyClaim) {
-        _adminBountyClaims.value = _adminBountyClaims.value.map {
-            if (it.id == claim.id) it.copy(status = BountyStatus.APPROVED_CREDITED) else it
-        }
-
-        _bountyTasks.value = _bountyTasks.value.map {
-            if (it.type == claim.taskType) it.copy(status = BountyStatus.APPROVED_CREDITED) else it
-        }
-
-        // Credit User Balance
-        _walletBalanceUsdt.value += claim.rewardUsdt
-
-        // Activity log
-        val newAct = ActivityItem(
-            id = "act_${System.currentTimeMillis()}",
-            title = "+${String.format(Locale.US, "%.2f", claim.rewardUsdt)} USDT",
-            subtitle = "${claim.taskTitle} Bonus Voucher Credited",
-            btcAmountStr = "+0.00000${(claim.rewardUsdt * 12).toInt()} BTC",
-            usdtAmount = claim.rewardUsdt,
-            timestampStr = "Just now",
-            isCredit = true
-        )
-        _activityList.value = listOf(newAct) + _activityList.value
-
-        // Sync with Firebase User
-        FirebaseSyncService.syncUser(
-            FirebaseUser(
-                uid = userId,
-                email = userEmail,
-                walletBalance = _walletBalanceUsdt.value,
-                miningRate = "${_hashPower.value.toInt()} GH/s",
-                createdAt = FirebaseSyncService.getCurrentTimestamp()
-            )
-        )
-    }
-
-    fun rejectBountyClaim(claim: AdminBountyClaim, reason: String) {
-        _adminBountyClaims.value = _adminBountyClaims.value.map {
-            if (it.id == claim.id) it.copy(status = BountyStatus.REJECTED, rejectionReason = reason) else it
-        }
-
-        _bountyTasks.value = _bountyTasks.value.map {
-            if (it.type == claim.taskType) it.copy(status = BountyStatus.REJECTED, rejectionReason = reason) else it
-        }
     }
 
     fun submitCreatorMilestone(channelUrl: String, videoUrl: String, contactTelegram: String): String? {
