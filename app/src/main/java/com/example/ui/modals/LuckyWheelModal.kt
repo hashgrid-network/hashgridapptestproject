@@ -21,7 +21,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ElectricBolt
 import androidx.compose.material.icons.filled.Stars
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -30,10 +32,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,12 +52,14 @@ import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import com.example.ui.theme.CardWhite
+import com.example.model.WheelConfig
+import com.example.model.WheelSlice
 import com.example.ui.theme.GoldBorder
 import com.example.ui.theme.GoldBrush
 import com.example.ui.theme.GoldGradientEnd
@@ -62,7 +69,10 @@ import com.example.ui.theme.MintDark
 import com.example.ui.theme.MintGreen
 import com.example.ui.theme.ObsidianNavy
 import com.example.ui.theme.SlateGray
-import com.example.ui.theme.SlateNavy
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import java.util.Locale
+import java.util.concurrent.TimeUnit
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -70,44 +80,51 @@ import kotlin.math.sin
 fun LuckyWheelModal(
     canSpin: Boolean,
     isSpinning: Boolean,
-    lastResult: String?,
+    cooldownEndTimestamp: Long = 0L,
+    lastResult: String? = null,
     onDismiss: () -> Unit,
-    onSpinTrigger: () -> Unit
+    onSpinStart: () -> WheelSlice,
+    onSpinComplete: (WheelSlice) -> Unit
 ) {
+    val coroutineScope = rememberCoroutineScope()
+    var localIsSpinning by remember { mutableStateOf(false) }
     var targetRotation by remember { mutableFloatStateOf(0f) }
-    var winAwardText by remember { mutableStateOf<String?>(lastResult) }
+    var winningSlice by remember { mutableStateOf<WheelSlice?>(null) }
+
+    // Live 24-hour countdown ticker
+    var remainingCooldownMs by remember(cooldownEndTimestamp) {
+        mutableLongStateOf(maxOf(0L, cooldownEndTimestamp - System.currentTimeMillis()))
+    }
+
+    LaunchedEffect(cooldownEndTimestamp, canSpin) {
+        while (!canSpin && remainingCooldownMs > 0) {
+            delay(1000L)
+            remainingCooldownMs = maxOf(0L, cooldownEndTimestamp - System.currentTimeMillis())
+        }
+    }
+
+    val hours = TimeUnit.MILLISECONDS.toHours(remainingCooldownMs)
+    val minutes = TimeUnit.MILLISECONDS.toMinutes(remainingCooldownMs) % 60
+    val seconds = TimeUnit.MILLISECONDS.toSeconds(remainingCooldownMs) % 60
+    val cooldownFormatted = String.format(Locale.US, "%02d:%02d:%02d", hours, minutes, seconds)
 
     val animatedRotation by animateFloatAsState(
         targetValue = targetRotation,
-        animationSpec = tween(durationMillis = 3500, easing = FastOutSlowInEasing),
+        animationSpec = tween(durationMillis = 4000, easing = FastOutSlowInEasing),
         label = "wheelRotation"
     )
 
-    val segments = listOf(
-        "0.5 USDT",
-        "100 Gh/s",
-        "1.0 USDT",
-        "250 Gh/s",
-        "0.5 USDT"
-    )
+    val slices = WheelConfig.SLICES
 
-    val segmentColors = listOf(
-        Color(0xFFD4AF37), // Gold
-        Color(0xFF0B0E14), // Obsidian
-        Color(0xFFE6CA65), // Light Gold
-        Color(0xFF1E293B), // Dark Slate
-        Color(0xFFB8860B)  // Deep Gold
-    )
-
-    Dialog(onDismissRequest = { if (!isSpinning) onDismiss() }) {
+    Dialog(onDismissRequest = { if (!localIsSpinning && !isSpinning) onDismiss() }) {
         Card(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(28.dp))
-                .border(1.dp, GoldBorder, RoundedCornerShape(28.dp))
+                .border(1.2.dp, GoldBorder, RoundedCornerShape(28.dp))
                 .testTag("lucky_wheel_dialog"),
-            colors = CardDefaults.cardColors(containerColor = CardWhite),
-            elevation = CardDefaults.cardElevation(defaultElevation = 16.dp)
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF0F1420)),
+            elevation = CardDefaults.cardElevation(defaultElevation = 20.dp)
         ) {
             Column(
                 modifier = Modifier
@@ -124,7 +141,7 @@ fun LuckyWheelModal(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
                             modifier = Modifier
-                                .size(34.dp)
+                                .size(36.dp)
                                 .clip(CircleShape)
                                 .background(GoldLight),
                             contentAlignment = Alignment.Center
@@ -133,7 +150,7 @@ fun LuckyWheelModal(
                                 imageVector = Icons.Default.Stars,
                                 contentDescription = null,
                                 tint = GoldGradientEnd,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(22.dp)
                             )
                         }
                         Spacer(modifier = Modifier.width(10.dp))
@@ -143,19 +160,19 @@ fun LuckyWheelModal(
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Black,
                                 letterSpacing = 1.sp,
-                                color = ObsidianNavy
+                                color = Color.White
                             )
                             Text(
-                                text = "1 Free Spin Every 24h",
+                                text = "Win up to 200 GRID Coins Every 24h",
                                 fontSize = 11.sp,
-                                color = SlateGray
+                                color = GoldGradientEnd
                             )
                         }
                     }
 
                     IconButton(
                         onClick = onDismiss,
-                        enabled = !isSpinning,
+                        enabled = !localIsSpinning && !isSpinning,
                         modifier = Modifier.size(32.dp)
                     ) {
                         Icon(
@@ -168,26 +185,46 @@ fun LuckyWheelModal(
 
                 Spacer(modifier = Modifier.height(18.dp))
 
-                // Wheel Container with Pointer
+                // Wheel Container with Needle Pointer
                 Box(
                     contentAlignment = Alignment.Center,
-                    modifier = Modifier.size(260.dp)
+                    modifier = Modifier.size(270.dp)
                 ) {
-                    // Spinning Wheel Canvas
+                    // Outer Golden Glowing Border Ring
+                    Box(
+                        modifier = Modifier
+                            .size(266.dp)
+                            .clip(CircleShape)
+                            .background(
+                                Brush.sweepGradient(
+                                    listOf(
+                                        Color(0xFFFFD700),
+                                        Color(0xFFB8860B),
+                                        Color(0xFFFFE082),
+                                        Color(0xFFFFD700)
+                                    )
+                                )
+                            )
+                    )
+
+                    // Spinning Canvas (256dp)
                     Canvas(
                         modifier = Modifier
-                            .size(240.dp)
+                            .size(256.dp)
                             .rotate(animatedRotation)
                     ) {
                         val canvasSize = size.minDimension
                         val radius = canvasSize / 2f
                         val center = Offset(size.width / 2f, size.height / 2f)
-                        val sweepAngle = 360f / segments.size
+                        val sweepAngle = 360f / slices.size // 45 degrees
 
-                        for (i in segments.indices) {
+                        for (i in slices.indices) {
+                            val slice = slices[i]
                             val startAngle = i * sweepAngle
+
+                            // Segment background arc
                             drawArc(
-                                color = segmentColors[i % segmentColors.size],
+                                color = slice.color,
                                 startAngle = startAngle,
                                 sweepAngle = sweepAngle,
                                 useCenter = true,
@@ -195,121 +232,143 @@ fun LuckyWheelModal(
                                 size = Size(radius * 2, radius * 2)
                             )
 
-                            // Draw dividing lines
+                            // Segment gold divider line
                             val rad = Math.toRadians(startAngle.toDouble())
                             val endX = center.x + (radius * cos(rad)).toFloat()
                             val endY = center.y + (radius * sin(rad)).toFloat()
                             drawLine(
-                                color = Color.White.copy(alpha = 0.4f),
+                                color = Color(0xFFFFD700).copy(alpha = 0.6f),
                                 start = center,
                                 end = Offset(endX, endY),
-                                strokeWidth = 2f
+                                strokeWidth = 2.5f
                             )
                         }
 
-                        // Outer rim
+                        // Outer rim outline
                         drawCircle(
-                            color = Color(0xFFD4AF37),
+                            color = Color(0xFFFFD700),
                             radius = radius,
                             center = center,
-                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 8f)
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 6f)
                         )
 
-                        // Draw Text labels on each segment
+                        // Draw Slice Labels radially
                         drawIntoCanvas { canvas ->
-                            val paint = Paint().apply {
-                                color = android.graphics.Color.WHITE
-                                textSize = 32f
+                            val textPaint = Paint().apply {
                                 textAlign = Paint.Align.CENTER
                                 isFakeBoldText = true
+                                isAntiAlias = true
                             }
 
-                            for (i in segments.indices) {
+                            for (i in slices.indices) {
+                                val slice = slices[i]
                                 val textAngle = (i * sweepAngle) + (sweepAngle / 2f)
                                 val textRad = Math.toRadians(textAngle.toDouble())
-                                val textDist = radius * 0.65f
+                                val textDist = radius * 0.66f
                                 val tx = center.x + (textDist * cos(textRad)).toFloat()
                                 val ty = center.y + (textDist * sin(textRad)).toFloat()
 
+                                textPaint.color = slice.textColor.toArgb()
+                                textPaint.textSize = if (slice.isJackpot) 26f else 24f
+
                                 canvas.nativeCanvas.save()
                                 canvas.nativeCanvas.rotate(textAngle + 90f, tx, ty)
-                                canvas.nativeCanvas.drawText(segments[i], tx, ty + 10f, paint)
+                                canvas.nativeCanvas.drawText(slice.shortLabel, tx, ty + 8f, textPaint)
                                 canvas.nativeCanvas.restore()
                             }
                         }
                     }
 
-                    // Top Pointer Needle
+                    // Top Pointer Needle (12 o'clock / 270°)
                     Box(
                         modifier = Modifier
                             .align(Alignment.TopCenter)
-                            .size(24.dp),
+                            .size(28.dp),
                         contentAlignment = Alignment.TopCenter
                     ) {
-                        Canvas(modifier = Modifier.size(20.dp, 24.dp)) {
+                        Canvas(modifier = Modifier.size(24.dp, 28.dp)) {
                             val path = androidx.compose.ui.graphics.Path().apply {
                                 moveTo(size.width / 2f, size.height)
                                 lineTo(0f, 0f)
                                 lineTo(size.width, 0f)
                                 close()
                             }
-                            drawPath(path, color = MintGreen)
+                            drawPath(path, color = Color(0xFFFFD700))
                         }
                     }
 
-                    // Center Golden Hub
+                    // Center Golden Hub with GRID Electric Bolt
                     Box(
                         modifier = Modifier
-                            .size(54.dp)
+                            .size(56.dp)
                             .clip(CircleShape)
-                            .background(ObsidianNavy)
-                            .border(3.dp, GoldGradientMid, CircleShape),
+                            .background(Color(0xFF0B0E14))
+                            .border(3.dp, Color(0xFFFFD700), CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = "HG",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Black,
-                            color = GoldGradientMid
+                        Icon(
+                            imageVector = Icons.Default.ElectricBolt,
+                            contentDescription = "GRID Hub",
+                            tint = Color(0xFFFFD700),
+                            modifier = Modifier.size(26.dp)
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(18.dp))
 
-                // Win Result Notice
-                if (winAwardText != null) {
+                // Cooldown countdown banner when user has already spun
+                if (!canSpin && !localIsSpinning) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MintGreen.copy(alpha = 0.12f))
-                            .border(1.dp, MintGreen.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-                            .padding(12.dp),
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(Color(0xFF161F30))
+                            .border(1.dp, Color(0xFF2C394F), RoundedCornerShape(14.dp))
+                            .padding(vertical = 10.dp, horizontal = 14.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = "🎉 Awarded: $winAwardText!",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MintDark,
-                            textAlign = TextAlign.Center
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Timer,
+                                contentDescription = "Cooldown",
+                                tint = GoldGradientEnd,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Next Free Spin in: $cooldownFormatted",
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                color = Color.White
+                            )
+                        }
                     }
                     Spacer(modifier = Modifier.height(14.dp))
                 }
 
                 // Spin Action Button
+                val buttonEnabled = canSpin && !localIsSpinning && !isSpinning
                 Button(
                     onClick = {
-                        if (canSpin && !isSpinning) {
-                            val extraRounds = 360f * 5f
-                            val randomSlice = (0 until segments.size).random() * (360f / segments.size)
-                            targetRotation += extraRounds + randomSlice
-                            onSpinTrigger()
+                        if (buttonEnabled) {
+                            localIsSpinning = true
+                            val selected = onSpinStart()
+                            winningSlice = selected
+                            targetRotation = WheelConfig.calculateTargetRotation(targetRotation, selected.index)
+
+                            coroutineScope.launch {
+                                delay(4100L) // Wait for smooth 4000ms deceleration
+                                localIsSpinning = false
+                                onSpinComplete(selected)
+                            }
                         }
                     },
-                    enabled = canSpin && !isSpinning,
+                    enabled = buttonEnabled,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(52.dp)
@@ -322,16 +381,20 @@ fun LuckyWheelModal(
                             .fillMaxWidth()
                             .height(52.dp)
                             .background(
-                                if (canSpin && !isSpinning) GoldBrush else Brush.linearGradient(listOf(SlateGray, SlateGray))
+                                if (buttonEnabled) GoldBrush else Brush.linearGradient(listOf(SlateGray.copy(alpha = 0.4f), SlateGray.copy(alpha = 0.4f)))
                             ),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = if (isSpinning) "SPINNING ARCTIC NODE..." else if (!canSpin) "NEXT SPIN IN 24H" else "SPIN FREE WHEEL",
-                            fontSize = 14.sp,
+                            text = when {
+                                localIsSpinning || isSpinning -> "DECELERATING TO SLICE..."
+                                !canSpin -> "COOLDOWN ACTIVE ($cooldownFormatted)"
+                                else -> "SPIN FREE WHEEL (24H)"
+                            },
+                            fontSize = 13.5.sp,
                             fontWeight = FontWeight.Black,
                             letterSpacing = 1.sp,
-                            color = if (canSpin && !isSpinning) ObsidianNavy else Color.White
+                            color = if (buttonEnabled) ObsidianNavy else SlateGray
                         )
                     }
                 }

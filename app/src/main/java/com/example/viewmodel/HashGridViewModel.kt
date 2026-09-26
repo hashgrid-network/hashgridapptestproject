@@ -107,11 +107,17 @@ class HashGridViewModel : ViewModel() {
     private val _canSpinToday = MutableStateFlow(true)
     val canSpinToday: StateFlow<Boolean> = _canSpinToday.asStateFlow()
 
+    private val _wheelCooldownEnd = MutableStateFlow(0L)
+    val wheelCooldownEnd: StateFlow<Long> = _wheelCooldownEnd.asStateFlow()
+
     private val _isSpinning = MutableStateFlow(false)
     val isSpinning: StateFlow<Boolean> = _isSpinning.asStateFlow()
 
     private val _spinResultText = MutableStateFlow<String?>(null)
     val spinResultText: StateFlow<String?> = _spinResultText.asStateFlow()
+
+    val wonRewardSlice = MutableStateFlow<com.example.model.WheelSlice?>(null)
+    val showRewardDialog = MutableStateFlow(false)
 
     // --- UI Modals State ---
     val showLuckyWheelModal = MutableStateFlow(false)
@@ -431,6 +437,22 @@ class HashGridViewModel : ViewModel() {
                                     if (remoteBase > 0.0) {
                                         _baseGridRate.value = remoteBase
                                     }
+                                },
+                                onWheelCooldownUpdated = { lastSpinTime ->
+                                    if (lastSpinTime > 0L) {
+                                        val cdEnd = lastSpinTime + 86_400_000L
+                                        val now = System.currentTimeMillis()
+                                        if (now < cdEnd) {
+                                            _canSpinToday.value = false
+                                            _wheelCooldownEnd.value = cdEnd
+                                        } else {
+                                            _canSpinToday.value = true
+                                            _wheelCooldownEnd.value = 0L
+                                        }
+                                    } else {
+                                        _canSpinToday.value = true
+                                        _wheelCooldownEnd.value = 0L
+                                    }
                                 }
                             )
                         } else {
@@ -674,31 +696,47 @@ class HashGridViewModel : ViewModel() {
     }
 
     // --- Lucky Wheel Spin ---
+    fun selectNextWheelSlice(): com.example.model.WheelSlice {
+        return com.example.model.WheelConfig.selectWeightedWinningSlice()
+    }
+
+    fun onWheelSpinCompleted(slice: com.example.model.WheelSlice) {
+        _isSpinning.value = false
+        _canSpinToday.value = false
+        val now = System.currentTimeMillis()
+        _wheelCooldownEnd.value = now + 86_400_000L
+        _spinResultText.value = slice.label
+
+        if (slice.rewardType == com.example.model.WheelRewardType.GRID_COINS) {
+            _gridCoinBalance.value += slice.gridAmount
+        } else if (slice.rewardType == com.example.model.WheelRewardType.HASHRATE_BOOST) {
+            _bonusHashrate.value += slice.hashrateGhs
+            _hashPower.value += slice.hashrateGhs
+        }
+
+        wonRewardSlice.value = slice
+        showRewardDialog.value = true
+
+        val newAct = ActivityItem(
+            id = "spin_${System.currentTimeMillis()}",
+            title = slice.label,
+            subtitle = "Daily Lucky Spin Prize",
+            btcAmountStr = "",
+            usdtAmount = 0.0,
+            timestampStr = "Just now",
+            isCredit = true
+        )
+        _activityList.value = listOf(newAct) + _activityList.value
+
+        // Sync Firestore transaction atomically
+        FirebaseSyncService.claimLuckyWheelReward(userId, slice)
+    }
+
     fun spinLuckyWheel(onResult: (Double, String) -> Unit) {
         if (!_canSpinToday.value || _isSpinning.value) return
-        _isSpinning.value = true
-        viewModelScope.launch {
-            kotlinx.coroutines.delay(2200L)
-            val rewards = listOf(0.10, 0.25, 0.50, 1.00, 2.00, 5.00)
-            val chosen = rewards.random()
-            _walletBalanceUsdt.value += chosen
-            _canSpinToday.value = false
-            _isSpinning.value = false
-            val text = "+$chosen USDT Credited to Segregated Wallet"
-            _spinResultText.value = text
-
-            val newAct = ActivityItem(
-                id = "act_${System.currentTimeMillis()}",
-                title = "+$chosen USDT",
-                subtitle = "Daily Lucky Wheel Prize",
-                btcAmountStr = "+0.00000${(chosen * 12).toInt()} BTC",
-                usdtAmount = chosen,
-                timestampStr = "Just now",
-                isCredit = true
-            )
-            _activityList.value = listOf(newAct) + _activityList.value
-            onResult(chosen, text)
-        }
+        val slice = selectNextWheelSlice()
+        onWheelSpinCompleted(slice)
+        onResult(slice.gridAmount, slice.label)
     }
 
     // --- Deposit & Withdraw ---

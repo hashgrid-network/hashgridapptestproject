@@ -41,6 +41,7 @@ import com.example.ui.modals.DepositModal
 import com.example.ui.modals.KycSubmissionModal
 import com.example.ui.modals.LanguageSelectorModal
 import com.example.ui.modals.LuckyWheelModal
+import com.example.ui.modals.RewardDialog
 import com.example.ui.modals.NotificationSheet
 import com.example.ui.modals.SyndicateTermSheetModal
 import com.example.ui.modals.WithdrawModal
@@ -230,8 +231,11 @@ fun HashGridApp(
 
     // Gamification state
     val canSpinToday by viewModel.canSpinToday.collectAsStateWithLifecycle()
+    val wheelCooldownEnd by viewModel.wheelCooldownEnd.collectAsStateWithLifecycle()
     val isSpinning by viewModel.isSpinning.collectAsStateWithLifecycle()
     val lastSpinResult by viewModel.spinResultText.collectAsStateWithLifecycle()
+    val wonRewardSlice by viewModel.wonRewardSlice.collectAsStateWithLifecycle()
+    val showRewardDialog by viewModel.showRewardDialog.collectAsStateWithLifecycle()
 
     // Live Tickers
     val liveTickers by viewModel.liveTickers.collectAsStateWithLifecycle()
@@ -587,11 +591,21 @@ fun HashGridApp(
         LuckyWheelModal(
             canSpin = canSpinToday,
             isSpinning = isSpinning,
+            cooldownEndTimestamp = wheelCooldownEnd,
             lastResult = lastSpinResult,
             onDismiss = { viewModel.showLuckyWheelModal.value = false },
-            onSpinTrigger = {
-                viewModel.spinLuckyWheel { _, _ -> }
+            onSpinStart = { viewModel.selectNextWheelSlice() },
+            onSpinComplete = { slice ->
+                viewModel.onWheelSpinCompleted(slice)
             }
+        )
+    }
+
+    if (showRewardDialog && wonRewardSlice != null) {
+        RewardDialog(
+            wonSlice = wonRewardSlice!!,
+            onDismiss = { viewModel.showRewardDialog.value = false },
+            onCollect = { viewModel.showRewardDialog.value = false }
         )
     }
 

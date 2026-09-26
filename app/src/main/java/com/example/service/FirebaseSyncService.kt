@@ -680,6 +680,73 @@ object FirebaseSyncService {
     }
 
     /**
+     * Atomically increments won reward and sets 24-hour wheel cooldown timer in Firestore
+     */
+    fun claimLuckyWheelReward(
+        userId: String,
+        slice: com.example.model.WheelSlice,
+        onComplete: ((Boolean) -> Unit)? = null
+    ) {
+        scope.launch {
+            try {
+                val db = firestore
+                val updates = hashMapOf<String, Any>(
+                    "last_wheel_spin_time" to FieldValue.serverTimestamp()
+                )
+                if (slice.rewardType == com.example.model.WheelRewardType.GRID_COINS) {
+                    updates["grid_coin_balance"] = FieldValue.increment(slice.gridAmount)
+                } else if (slice.rewardType == com.example.model.WheelRewardType.HASHRATE_BOOST) {
+                    updates["bonus_hashrate"] = FieldValue.increment(slice.hashrateGhs)
+                    updates["hash_rate"] = FieldValue.increment(slice.hashrateGhs)
+                }
+
+                db?.collection("users")?.document(userId)?.set(updates, SetOptions.merge())?.await()
+
+                // Save winning record in spin_history
+                val spinRecord = hashMapOf<String, Any>(
+                    "timestamp" to FieldValue.serverTimestamp(),
+                    "reward_label" to slice.label,
+                    "reward_type" to slice.rewardType.name,
+                    "grid_amount" to slice.gridAmount,
+                    "hashrate_ghs" to slice.hashrateGhs
+                )
+                db?.collection("users")?.document(userId)?.collection("spin_history")?.add(spinRecord)
+
+                // Also record in transactions
+                val txRecord = hashMapOf<String, Any>(
+                    "id" to "spin_${System.currentTimeMillis()}",
+                    "title" to slice.label,
+                    "subtitle" to "24H Lucky Spin Reward",
+                    "btcAmountStr" to "",
+                    "usdtAmount" to 0.0,
+                    "isCredit" to true,
+                    "timestamp" to FieldValue.serverTimestamp(),
+                    "dateStr" to "Just now",
+                    "type" to "REWARD",
+                    "status" to "COMPLETED"
+                )
+                db?.collection("users")?.document(userId)?.collection("transactions")?.add(txRecord)
+
+                // Sync RTDB
+                try {
+                    val safeKey = sanitizeKey(userId)
+                    val patchJson = JSONObject().apply {
+                        put("last_wheel_spin_time", System.currentTimeMillis())
+                    }
+                    val url = "$firebaseDatabaseUrl/users/$safeKey.json"
+                    val body = patchJson.toString().toRequestBody(jsonMediaType)
+                    val request = Request.Builder().url(url).patch(body).build()
+                    httpClient.newCall(request).execute().close()
+                } catch (_: Exception) {}
+
+                onComplete?.invoke(true)
+            } catch (_: Exception) {
+                onComplete?.invoke(false)
+            }
+        }
+    }
+
+    /**
      * Listen to Firestore user document & subcollections
      */
     fun listenFirestoreUser(
@@ -688,7 +755,8 @@ object FirebaseSyncService {
         onTransactionsUpdated: (List<ActivityItem>, List<PayoutItem>) -> Unit,
         onMinersUpdated: (List<ActiveContract>) -> Unit,
         onNotificationsCountUpdated: (Int) -> Unit,
-        onGridMiningUpdated: ((Double, Boolean, Long, Long, Double, Double) -> Unit)? = null
+        onGridMiningUpdated: ((Double, Boolean, Long, Long, Double, Double) -> Unit)? = null,
+        onWheelCooldownUpdated: ((Long) -> Unit)? = null
     ) {
         if (userId.isBlank()) return
 
@@ -714,6 +782,10 @@ object FirebaseSyncService {
                         val appliedBase = snapshot.getDouble("applied_base_rate") ?: 1.0
                         val teamBonus = snapshot.getDouble("active_team_bonus") ?: 0.0
                         onGridMiningUpdated?.invoke(gridBal, gridActive, gridStart, gridEnd, appliedBase, teamBonus)
+
+                        val lastSpinTimestamp = snapshot.getTimestamp("last_wheel_spin_time")?.toDate()?.time
+                            ?: snapshot.getLong("last_wheel_spin_time") ?: 0L
+                        onWheelCooldownUpdated?.invoke(lastSpinTimestamp)
                     }
                 }
 
