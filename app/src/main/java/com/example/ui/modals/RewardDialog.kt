@@ -197,6 +197,7 @@ fun RewardDialog(
                             imageVector = when {
                                 isJackpot -> Icons.Default.Stars
                                 wonSlice.rewardType == WheelRewardType.GRID_COINS -> Icons.Default.ElectricBolt
+                                wonSlice.rewardType == WheelRewardType.USDT_BONUS -> Icons.Default.Stars
                                 else -> Icons.Default.Speed
                             },
                             contentDescription = "Reward Icon",
@@ -234,7 +235,7 @@ fun RewardDialog(
                             lineHeight = 18.sp
                         )
                     } else if (wonSlice.rewardType == WheelRewardType.GRID_COINS) {
-                        // 10, 50, or 5 GRID reward
+                        // 10, 25, or 5 GRID reward
                         Text(
                             text = "⚡ CONGRATULATIONS!",
                             fontSize = 18.sp,
@@ -245,7 +246,7 @@ fun RewardDialog(
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = "You won ${wonSlice.gridAmount.toInt()} GRID Coins!",
+                            text = "You won ${wonSlice.gridAmount.toInt()} GRID Tokens!",
                             fontSize = 21.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = Color.White,
@@ -254,6 +255,32 @@ fun RewardDialog(
                         Spacer(modifier = Modifier.height(10.dp))
                         Text(
                             text = "Native Genesis tokens credited instantly to your wallet.",
+                            fontSize = 12.5.sp,
+                            color = SlateGray,
+                            textAlign = TextAlign.Center,
+                            lineHeight = 18.sp
+                        )
+                    } else if (wonSlice.rewardType == WheelRewardType.USDT_BONUS) {
+                        // USDT Bonus
+                        Text(
+                            text = "💰 USDT BONUS UNLOCKED!",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 1.sp,
+                            color = MintGreen,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "You won +$${String.format(java.util.Locale.US, "%.2f", wonSlice.usdtAmount)} USDT!",
+                            fontSize = 21.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color.White,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = "USDT bonus credited directly to your withdrawable wallet balance.",
                             fontSize = 12.5.sp,
                             color = SlateGray,
                             textAlign = TextAlign.Center,

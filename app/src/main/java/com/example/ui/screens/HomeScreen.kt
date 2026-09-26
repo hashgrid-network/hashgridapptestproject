@@ -74,6 +74,8 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -85,6 +87,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.cos
+import kotlin.math.sin
 import androidx.compose.ui.window.Dialog
 import com.example.model.ActiveContract
 import com.example.model.LiveTickerItem
@@ -96,6 +100,7 @@ import com.example.ui.theme.GoldBorder
 import com.example.ui.theme.GoldBorderSubtle
 import com.example.ui.theme.GoldBrush
 import com.example.ui.theme.GoldGradientEnd
+import com.example.ui.theme.GoldGradientMid
 import com.example.ui.theme.GoldLight
 import com.example.ui.theme.MintDark
 import com.example.ui.theme.MintGreen
@@ -123,6 +128,8 @@ fun HomeScreen(
     gridCoinBalance: Double = 24.85,
     isGridMiningActive: Boolean = true,
     effectiveGridRate: Double = 1.30,
+    canSpinWheel: Boolean = true,
+    wheelCooldownEndTimestamp: Long = 0L,
     onOpenMiningSheet: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -160,6 +167,14 @@ fun HomeScreen(
     } else {
         String.format(Locale.US, "%02d:%02d", remainingMins, remainingSecs)
     }
+
+    // Lucky Wheel Cooldown Calculation
+    val isWheelOnCooldown = !canSpinWheel && wheelCooldownEndTimestamp > currentTimeMs
+    val wheelRemainingMs = if (isWheelOnCooldown) maxOf(0L, wheelCooldownEndTimestamp - currentTimeMs) else 0L
+    val wheelHours = TimeUnit.MILLISECONDS.toHours(wheelRemainingMs)
+    val wheelMins = TimeUnit.MILLISECONDS.toMinutes(wheelRemainingMs) % 60
+    val wheelSecs = TimeUnit.MILLISECONDS.toSeconds(wheelRemainingMs) % 60
+    val wheelCountdownText = String.format(Locale.US, "%02d:%02d:%02d", wheelHours, wheelMins, wheelSecs)
 
     var activeStepIndex by remember { mutableIntStateOf(0) }
 
@@ -425,7 +440,15 @@ fun HomeScreen(
         Spacer(modifier = Modifier.height(12.dp))
 
         // ========================================================
-        // 2. PRIMARY MINING POWER HERO CARD (INITIAL VIEWPORT)
+        // 1C. HIGH-VISIBILITY GLOWING 🎡 LUCKY WHEEL / DAILY SPIN CARD
+        // ========================================================
+        LuckyWheelDashboardCard(
+            canSpin = canSpinWheel,
+            cooldownText = wheelCountdownText,
+            onSpinClick = onClaimDailySpin
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
         // ========================================================
         Card(
             modifier = Modifier
@@ -505,84 +528,28 @@ fun HomeScreen(
                     Spacer(modifier = Modifier.height(14.dp))
 
                     // ========================================================
-                    // 1. PROMINENT 24H "MINE GRID" TAP BUTTON (TOP/CENTER)
+                    // ========================================================
+                    // 1. ULTRA-PREMIUM 3D QUANTUM MINING REACTOR (210dp CENTERPIECE)
                     // ========================================================
                     Column(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(116.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    Brush.radialGradient(
-                                        colors = listOf(
-                                            GoldGradientEnd.copy(alpha = 0.28f * pulseAlpha),
-                                            Color.Transparent
-                                        )
-                                    )
-                                )
-                                .padding(6.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Button(
-                                onClick = {
-                                    onExtendMining()
-                                    onOpenMiningSheet()
-                                    Toast.makeText(context, "⛏️ 24h Node Mining Active (+${String.format(Locale.US, "%.2f", effectiveGridRate)} GRID/hr)!", Toast.LENGTH_SHORT).show()
-                                },
-                                modifier = Modifier
-                                    .size(96.dp)
-                                    .clip(CircleShape)
-                                    .border(2.5.dp, GoldBrush, CircleShape)
-                                    .testTag("mine_grid_tap_button"),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
-                                contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(
-                                            Brush.linearGradient(
-                                                listOf(ObsidianNavy, Color(0xFF1B2333))
-                                            )
-                                        ),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.ElectricBolt,
-                                            contentDescription = "Mine GRID",
-                                            tint = GoldGradientEnd,
-                                            modifier = Modifier.size(28.dp)
-                                        )
-                                        Spacer(modifier = Modifier.height(2.dp))
-                                        Text(
-                                            text = "MINE GRID",
-                                            fontSize = 11.5.sp,
-                                            fontWeight = FontWeight.Black,
-                                            letterSpacing = 0.8.sp,
-                                            color = Color.White
-                                        )
-                                        Text(
-                                            text = "24h Session",
-                                            fontSize = 9.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MintGreen
-                                        )
-                                    }
-                                }
+                        QuantumMiningReactor(
+                            isMiningActive = isGridMiningActive,
+                            hashPowerGhs = hashPower,
+                            effectiveGridRate = effectiveGridRate,
+                            countdownText = countdownText,
+                            onActivate = {
+                                onExtendMining()
+                                onOpenMiningSheet()
                             }
-                        }
+                        )
 
-                        Spacer(modifier = Modifier.height(6.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
 
                         Text(
-                            text = "Tap to extend 24h session • Next tap in: $countdownText",
+                            text = "Tap reactor core to cycle 24h quantum node • Next tap in: $countdownText",
                             fontSize = 10.5.sp,
                             fontWeight = FontWeight.Medium,
                             color = SlateGray,
@@ -609,7 +576,7 @@ fun HomeScreen(
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    text = "⚡ Live Rate: +0.00028 GRID/sec (1.0 GRID/h)",
+                                    text = "⚡ Live Telemetry: +${String.format(Locale.US, "%.5f", effectiveGridRate / 3600.0)} GRID/sec (${String.format(Locale.US, "%.2f", effectiveGridRate)} GRID/h)",
                                     fontSize = 10.5.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = MintDark
@@ -1917,5 +1884,599 @@ fun GeothermalPowerSwitchButton(
         )
     }
 }
+
+@Composable
+fun LuckyWheelDashboardCard(
+    canSpin: Boolean,
+    cooldownText: String,
+    onSpinClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "wheel_glow")
+    val borderAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.5f,
+        targetValue = 1.0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "borderGlow"
+    )
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(22.dp))
+            .border(
+                width = if (canSpin) 1.5.dp else 1.dp,
+                brush = if (canSpin) Brush.sweepGradient(
+                    listOf(
+                        Color(0xFFFFD700).copy(alpha = borderAlpha),
+                        Color(0xFFFF9800).copy(alpha = borderAlpha),
+                        Color(0xFF00E676).copy(alpha = borderAlpha),
+                        Color(0xFFFFD700).copy(alpha = borderAlpha)
+                    )
+                ) else Brush.linearGradient(listOf(Color(0xFF2C394F), Color(0xFF1E2838))),
+                shape = RoundedCornerShape(22.dp)
+            )
+            .clickable { onSpinClick() }
+            .testTag("lucky_wheel_dashboard_card"),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF0F1524)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.horizontalGradient(
+                        listOf(
+                            Color(0xFF0D121F),
+                            Color(0xFF151C2C),
+                            Color(0xFF1A1528)
+                        )
+                    )
+                )
+                .padding(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                // Left Icon with animated golden halo
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(52.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (canSpin) Brush.sweepGradient(
+                                    listOf(Color(0xFFFFD700), Color(0xFFFF9800), Color(0xFFFFE082), Color(0xFFFFD700))
+                                ) else Brush.linearGradient(listOf(Color(0xFF1E2838), Color(0xFF2C394F)))
+                            )
+                            .padding(2.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(CircleShape)
+                                .background(Color(0xFF0B0E14)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "🎡",
+                                fontSize = 24.sp
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "LUCKY WHEEL",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 0.8.sp,
+                                color = Color.White
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            if (canSpin) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(Color(0xFF00E676).copy(alpha = 0.2f))
+                                        .border(0.8.dp, Color(0xFF00E676), RoundedCornerShape(4.dp))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = "FREE SPIN READY",
+                                        fontSize = 8.5.sp,
+                                        fontWeight = FontWeight.Black,
+                                        color = Color(0xFF00E676)
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(3.dp))
+
+                        Text(
+                            text = if (canSpin) "Win up to +200 GRID, +2.0 GH/s, or USDT" else "Daily spin on cooldown • Returns in $cooldownText",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = if (canSpin) GoldGradientEnd else SlateGray,
+                            lineHeight = 14.sp
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(10.dp))
+
+                // Action Pill Button
+                Button(
+                    onClick = onSpinClick,
+                    modifier = Modifier
+                        .height(38.dp)
+                        .clip(RoundedCornerShape(19.dp))
+                        .testTag("lucky_wheel_spin_action_btn"),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (canSpin) Color.Transparent else Color(0xFF1E2838)
+                    ),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 0.dp, vertical = 0.dp)
+                ) {
+                    if (canSpin) {
+                        Box(
+                            modifier = Modifier
+                                .height(38.dp)
+                                .background(GoldBrush)
+                                .padding(horizontal = 14.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "SPIN",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Black,
+                                    letterSpacing = 1.sp,
+                                    color = ObsidianNavy
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(
+                                    imageVector = Icons.Default.Stars,
+                                    contentDescription = null,
+                                    tint = ObsidianNavy,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
+                        }
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .height(38.dp)
+                                .padding(horizontal = 10.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Timer,
+                                    contentDescription = null,
+                                    tint = GoldGradientEnd,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Spacer(modifier = Modifier.width(5.dp))
+                                Text(
+                                    text = cooldownText,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = Color.White
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun QuantumMiningReactor(
+    isMiningActive: Boolean,
+    hashPowerGhs: Double,
+    effectiveGridRate: Double,
+    countdownText: String,
+    onActivate: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
+    var isPressed by remember { mutableStateOf(false) }
+    var triggerBurst by remember { mutableStateOf(false) }
+
+    val pressScale by animateFloatAsState(
+        targetValue = if (isPressed) 0.90f else 1.0f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
+        label = "PressSpring"
+    )
+
+    val burstAnim by animateFloatAsState(
+        targetValue = if (triggerBurst) 1.0f else 0.0f,
+        animationSpec = tween(750, easing = FastOutSlowInEasing),
+        finishedListener = { triggerBurst = false },
+        label = "BurstAnim"
+    )
+
+    val infiniteTransition = rememberInfiniteTransition(label = "QuantumReactorLoop")
+
+    // Clockwise outer cyber telemetry rotation (slow & majestic)
+    val outerRotation by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(16000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "OuterRingRotate"
+    )
+
+    // Counter-clockwise inner energy sweep ring
+    val innerRotation by infiniteTransition.animateFloat(
+        initialValue = 360f,
+        targetValue = 0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(9000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "InnerRingRotate"
+    )
+
+    // Pulsing radar expanding shockwave
+    val shockwaveScale by infiniteTransition.animateFloat(
+        initialValue = 0.82f,
+        targetValue = 1.38f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "ShockwaveScale"
+    )
+
+    val shockwaveAlpha by infiniteTransition.animateFloat(
+        initialValue = if (isMiningActive) 0.65f else 0.35f,
+        targetValue = 0.0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "ShockwaveAlpha"
+    )
+
+    // Breathing glow aura
+    val breathingGlow by infiniteTransition.animateFloat(
+        initialValue = 0.55f,
+        targetValue = 1.0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1400, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "BreathingGlow"
+    )
+
+    // High-voltage electric flicker
+    val electricFlicker by infiniteTransition.animateFloat(
+        initialValue = 0.80f,
+        targetValue = 1.0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(350, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "ElectricFlicker"
+    )
+
+    Box(
+        modifier = modifier
+            .size(210.dp)
+            .scale(pressScale),
+        contentAlignment = Alignment.Center
+    ) {
+        // 1. BACKDROP EXPANDING SHOCKWAVE RADAR
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val center = Offset(size.width / 2f, size.height / 2f)
+            val baseRadius = (size.minDimension / 2f) * 0.92f
+
+            if (isMiningActive || shockwaveAlpha > 0.05f) {
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            (if (isMiningActive) Color(0xFF00E676) else Color(0xFFFFD700)).copy(alpha = shockwaveAlpha * 0.45f),
+                            (if (isMiningActive) Color(0xFF00E5FF) else GoldGradientEnd).copy(alpha = shockwaveAlpha * 0.15f),
+                            Color.Transparent
+                        ),
+                        center = center,
+                        radius = baseRadius * shockwaveScale
+                    ),
+                    radius = baseRadius * shockwaveScale,
+                    center = center
+                )
+            }
+
+            // Burst celebration particles
+            if (burstAnim > 0f) {
+                val burstRadius = baseRadius * (0.8f + burstAnim * 0.7f)
+                val particleAlpha = (1f - burstAnim).coerceIn(0f, 1f)
+                for (i in 0 until 16) {
+                    val angle = (i * (360f / 16f)) * (Math.PI / 180f)
+                    val px = center.x + (burstRadius * cos(angle)).toFloat()
+                    val py = center.y + (burstRadius * sin(angle)).toFloat()
+                    drawCircle(
+                        color = (if (i % 2 == 0) Color(0xFFFFD700) else Color(0xFF00E676)).copy(alpha = particleAlpha),
+                        radius = 4.dp.toPx() * (1f - burstAnim * 0.5f),
+                        center = Offset(px, py)
+                    )
+                }
+            }
+        }
+
+        // 2. OUTER CYBERNETIC TELEMETRY RING (Clockwise Rotation)
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(4.dp)
+        ) {
+            val center = Offset(size.width / 2f, size.height / 2f)
+            val radius = size.minDimension / 2f - 8.dp.toPx()
+
+            rotate(outerRotation, pivot = center) {
+                // Segmented Outer Border
+                drawCircle(
+                    color = (if (isMiningActive) Color(0xFF00E676) else GoldGradientEnd).copy(alpha = 0.35f),
+                    radius = radius,
+                    style = Stroke(
+                        width = 1.5.dp.toPx(),
+                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 8f), 0f)
+                    )
+                )
+
+                // 24 Segmented Telemetry Tick Marks
+                for (i in 0 until 24) {
+                    val angle = (i * 15f) * (Math.PI / 180f)
+                    val isMajor = i % 6 == 0
+                    val tickLen = if (isMajor) 7.dp.toPx() else 4.dp.toPx()
+                    val startR = radius - tickLen
+                    val endR = radius
+
+                    val x1 = center.x + (startR * cos(angle)).toFloat()
+                    val y1 = center.y + (startR * sin(angle)).toFloat()
+                    val x2 = center.x + (endR * cos(angle)).toFloat()
+                    val y2 = center.y + (endR * sin(angle)).toFloat()
+
+                    drawLine(
+                        color = if (isMajor) (if (isMiningActive) Color(0xFF00E676) else Color(0xFFFFD700)) else Color(0xFF64748B).copy(alpha = 0.5f),
+                        start = Offset(x1, y1),
+                        end = Offset(x2, y2),
+                        strokeWidth = if (isMajor) 2.dp.toPx() else 1.2.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+                }
+
+                // Orbiting Glowing Telemetry Nodes
+                for (i in 0 until 4) {
+                    val nodeAngle = (i * 90f) * (Math.PI / 180f)
+                    val nx = center.x + (radius * cos(nodeAngle)).toFloat()
+                    val ny = center.y + (radius * sin(nodeAngle)).toFloat()
+                    drawCircle(
+                        color = if (isMiningActive) Color(0xFF00E676) else Color(0xFFFFD700),
+                        radius = 3.dp.toPx(),
+                        center = Offset(nx, ny)
+                    )
+                }
+            }
+        }
+
+        // 3. INNER ACCENT ENERGY SWEEP RING (Counter-Clockwise Rotation)
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(14.dp)
+        ) {
+            val center = Offset(size.width / 2f, size.height / 2f)
+            val radius = size.minDimension / 2f - 4.dp.toPx()
+
+            rotate(innerRotation, pivot = center) {
+                drawCircle(
+                    brush = Brush.sweepGradient(
+                        colors = listOf(
+                            (if (isMiningActive) Color(0xFF00E676) else Color(0xFFFFD700)).copy(alpha = 0.85f * breathingGlow),
+                            (if (isMiningActive) Color(0xFF00E5FF) else GoldGradientMid).copy(alpha = 0.4f),
+                            Color.Transparent,
+                            (if (isMiningActive) Color(0xFF00E676) else Color(0xFFFFD700)).copy(alpha = 0.85f * breathingGlow)
+                        ),
+                        center = center
+                    ),
+                    radius = radius,
+                    style = Stroke(
+                        width = 2.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+                )
+            }
+        }
+
+        // 4. MAIN INTERACTIVE 3D REACTOR CORE BUTTON (Diameter ~160dp)
+        Box(
+            modifier = Modifier
+                .size(160.dp)
+                .clip(CircleShape)
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(
+                            (if (isMiningActive) Color(0xFF00E676) else Color(0xFFFFD700)).copy(alpha = 0.25f * breathingGlow),
+                            Color.Transparent
+                        )
+                    )
+                )
+                .padding(4.dp)
+                .clickable(
+                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                    indication = null,
+                    onClick = {
+                        isPressed = true
+                        triggerBurst = true
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onActivate()
+                        Toast.makeText(
+                            context,
+                            "⚡ Quantum Mining Core Linked • 24h Session Active (+${String.format(Locale.US, "%.2f", effectiveGridRate)} GRID/h)",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                )
+                .testTag("quantum_mining_reactor_button"),
+            contentAlignment = Alignment.Center
+        ) {
+            // Layered Brushed Titanium / Gold Bezel
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(CircleShape)
+                    .border(
+                        width = 2.5.dp,
+                        brush = Brush.sweepGradient(
+                            listOf(
+                                Color(0xFFFFD700),
+                                Color(0xFFB8860B),
+                                Color(0xFFFFF4B8),
+                                if (isMiningActive) Color(0xFF00E676) else Color(0xFFFFD700),
+                                Color(0xFFFFD700)
+                            )
+                        ),
+                        shape = CircleShape
+                    )
+                    .border(
+                        width = 1.dp,
+                        color = Color(0xFF0F172A).copy(alpha = 0.8f),
+                        shape = CircleShape
+                    )
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(
+                                Color(0xFF1E293B),
+                                Color(0xFF0F172A),
+                                Color(0xFF020617)
+                            )
+                        )
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                // Interior Quantum Core Content Layout
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                    modifier = Modifier.padding(horizontal = 8.dp)
+                ) {
+                    // Top Telemetry Badge: "CORE ONLINE" / "STANDBY"
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(
+                                if (isMiningActive) Color(0xFF00E676).copy(alpha = 0.18f)
+                                else Color(0xFFFFD700).copy(alpha = 0.15f)
+                            )
+                            .border(
+                                width = 0.6.dp,
+                                color = if (isMiningActive) Color(0xFF00E676).copy(alpha = 0.6f) else Color(0xFFFFD700).copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(10.dp)
+                            )
+                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(5.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (isMiningActive) Color(0xFF00E676).copy(alpha = breathingGlow)
+                                    else Color(0xFFFFD700)
+                                )
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = if (isMiningActive) "CORE ONLINE" else "STANDBY",
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 0.8.sp,
+                            color = if (isMiningActive) Color(0xFF00E676) else Color(0xFFFFD700)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // 3D Glowing Electric Bolt Icon with subtle flicker
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .background(
+                                Brush.radialGradient(
+                                    listOf(
+                                        (if (isMiningActive) Color(0xFF00E676) else Color(0xFFFFD700)).copy(alpha = 0.35f * electricFlicker),
+                                        Color.Transparent
+                                    )
+                                )
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ElectricBolt,
+                            contentDescription = "Quantum Mining Reactor Core",
+                            tint = if (isMiningActive) Color(0xFF00E676) else Color(0xFFFFD700),
+                            modifier = Modifier
+                                .size(26.dp)
+                                .scale(electricFlicker)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(2.dp))
+
+                    // Center Headline: "HASHGRID" or "ACTIVATE RIG"
+                    Text(
+                        text = if (isMiningActive) "HASHGRID" else "ACTIVATE RIG",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = 1.sp,
+                        color = Color.White
+                    )
+
+                    Spacer(modifier = Modifier.height(2.dp))
+
+                    // Bottom Dynamic Telemetry Live Hash Rate / Cycle
+                    Text(
+                        text = if (isMiningActive) "${String.format(Locale.US, "%.2f", hashPowerGhs)} GH/s ACTIVE" else "START 24H CYCLE",
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace,
+                        color = if (isMiningActive) Color(0xFF38BDF8) else GoldGradientMid
+                    )
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(isPressed) {
+        if (isPressed) {
+            delay(120)
+            isPressed = false
+        }
+    }
+}
+
+
 
 

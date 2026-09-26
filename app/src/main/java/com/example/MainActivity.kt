@@ -495,6 +495,8 @@ fun HashGridApp(
                                 gridCoinBalance = gridCoinBalance,
                                 isGridMiningActive = isGridMiningActive,
                                 effectiveGridRate = effectiveGridRate,
+                                canSpinWheel = canSpinToday,
+                                wheelCooldownEndTimestamp = wheelCooldownEnd,
                                 onClaimDailySpin = { viewModel.showLuckyWheelModal.value = true },
                                 onExtendMining = { viewModel.extendMiningSession() },
                                 onOpenAuditDossier = {

@@ -793,6 +793,8 @@ class HashGridViewModel : ViewModel() {
         } else if (slice.rewardType == com.example.model.WheelRewardType.HASHRATE_BOOST) {
             _bonusHashrate.value += slice.hashrateGhs
             _hashPower.value += slice.hashrateGhs
+        } else if (slice.rewardType == com.example.model.WheelRewardType.USDT_BONUS) {
+            _walletBalanceUsdt.value += slice.usdtAmount
         }
 
         wonRewardSlice.value = slice

@@ -832,6 +832,10 @@ object FirebaseSyncService {
                 } else if (slice.rewardType == com.example.model.WheelRewardType.HASHRATE_BOOST) {
                     updates["bonus_hashrate"] = FieldValue.increment(slice.hashrateGhs)
                     updates["hash_rate"] = FieldValue.increment(slice.hashrateGhs)
+                } else if (slice.rewardType == com.example.model.WheelRewardType.USDT_BONUS) {
+                    updates["usdtBalance"] = FieldValue.increment(slice.usdtAmount)
+                    updates["usdt_balance"] = FieldValue.increment(slice.usdtAmount)
+                    updates["availableBalance"] = FieldValue.increment(slice.usdtAmount)
                 }
 
                 db?.collection("users")?.document(userId)?.set(updates, SetOptions.merge())?.await()
@@ -842,7 +846,8 @@ object FirebaseSyncService {
                     "reward_label" to slice.label,
                     "reward_type" to slice.rewardType.name,
                     "grid_amount" to slice.gridAmount,
-                    "hashrate_ghs" to slice.hashrateGhs
+                    "hashrate_ghs" to slice.hashrateGhs,
+                    "usdt_amount" to slice.usdtAmount
                 )
                 db?.collection("users")?.document(userId)?.collection("spin_history")?.add(spinRecord)
 
@@ -852,7 +857,7 @@ object FirebaseSyncService {
                     "title" to slice.label,
                     "subtitle" to "24H Lucky Spin Reward",
                     "btcAmountStr" to "",
-                    "usdtAmount" to 0.0,
+                    "usdtAmount" to slice.usdtAmount,
                     "isCredit" to true,
                     "timestamp" to FieldValue.serverTimestamp(),
                     "dateStr" to "Just now",
