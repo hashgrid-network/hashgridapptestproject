@@ -31,6 +31,10 @@ import com.example.service.UpdateStatus
 import android.widget.Toast
 import com.example.ui.components.BottomNavBar
 import com.example.ui.components.TopBar
+import com.example.ui.modals.AccountSettingsModal
+import com.example.ui.modals.AdminControlPanelModal
+import com.example.ui.modals.RecentBroadcastsSheet
+import com.example.util.TickerEngine
 import com.example.ui.modals.AiSupportChatModal
 import com.example.ui.modals.AppUpdateModal
 import com.example.ui.modals.AuditDossierModal
@@ -264,10 +268,16 @@ fun HashGridApp(
     val kycStatus by viewModel.kycStatus.collectAsStateWithLifecycle()
     val unreadNotificationsCount by viewModel.unreadNotificationsCount.collectAsStateWithLifecycle()
     val miningSessionEndTimestamp by viewModel.miningSessionEndTimestamp.collectAsStateWithLifecycle()
+    val gridCoinBalance by viewModel.gridCoinBalance.collectAsStateWithLifecycle()
+    val isGridMiningActive by viewModel.isGridMiningActive.collectAsStateWithLifecycle()
+    val effectiveGridRate by viewModel.effectiveGridRate.collectAsStateWithLifecycle()
+    val showAdminPanelModal by viewModel.showAdminPanelModal.collectAsStateWithLifecycle()
 
     // Active Bounty Task selected for review modal
     var selectedBountyTask by remember { mutableStateOf<BountyTask?>(null) }
     var showCreatorMilestoneModal by remember { mutableStateOf(false) }
+    var showAccountSettingsModal by remember { mutableStateOf(false) }
+    var showRecentBroadcastsModal by remember { mutableStateOf(false) }
     var auditDossierTab by remember { androidx.compose.runtime.mutableIntStateOf(0) }
 
     AnimatedContent(
@@ -451,7 +461,8 @@ fun HashGridApp(
                 topBar = {
                     TopBar(
                         unreadNotificationCount = unreadNotificationsCount,
-                        onNotificationClick = { viewModel.showNotificationSheet.value = true },
+                        onProfileClick = { showAccountSettingsModal = true },
+                        onNotificationClick = { showRecentBroadcastsModal = true },
                         modifier = Modifier.statusBarsPadding()
                     )
                 },
@@ -481,6 +492,9 @@ fun HashGridApp(
                                 miningSessionEndTimestampMs = miningSessionEndTimestamp,
                                 liveTickers = liveTickers,
                                 activeContracts = activeContracts,
+                                gridCoinBalance = gridCoinBalance,
+                                isGridMiningActive = isGridMiningActive,
+                                effectiveGridRate = effectiveGridRate,
                                 onClaimDailySpin = { viewModel.showLuckyWheelModal.value = true },
                                 onExtendMining = { viewModel.extendMiningSession() },
                                 onOpenAuditDossier = {
@@ -727,6 +741,42 @@ fun HashGridApp(
             onSubmit = { channelUrl, videoUrl, contactTelegram ->
                 viewModel.submitCreatorMilestone(channelUrl, videoUrl, contactTelegram)
             }
+        )
+    }
+
+    if (showAccountSettingsModal) {
+        AccountSettingsModal(
+            userEmail = viewModel.userEmail,
+            onLogout = {
+                viewModel.logout()
+            },
+            onOpenAdminPanel = {
+                viewModel.showAdminPanelModal.value = true
+            },
+            onDismiss = { showAccountSettingsModal = false }
+        )
+    }
+
+    if (showAdminPanelModal) {
+        AdminControlPanelModal(
+            adminEmail = viewModel.userEmail,
+            currentUsdtBalance = walletBalance,
+            currentGridBalance = gridCoinBalance,
+            marketplacePlans = viewModel.marketplacePlans,
+            pendingPayouts = payoutsList,
+            onInjectUsdt = { amt -> viewModel.injectUsdt(amt) },
+            onInjectGrid = { amt -> viewModel.injectGrid(amt) },
+            onFreeDeployRig = { plan -> viewModel.freeDeployRig(plan) },
+            onApproveWithdrawal = { payoutId -> viewModel.approveWithdrawal(payoutId) },
+            onRejectWithdrawal = { payoutId -> viewModel.rejectWithdrawal(payoutId) },
+            onDismiss = { viewModel.showAdminPanelModal.value = false }
+        )
+    }
+
+    if (showRecentBroadcastsModal) {
+        RecentBroadcastsSheet(
+            broadcasts = TickerEngine.getRecentBroadcasts(),
+            onDismiss = { showRecentBroadcastsModal = false }
         )
     }
 }

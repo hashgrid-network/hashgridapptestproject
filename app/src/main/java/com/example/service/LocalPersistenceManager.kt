@@ -30,8 +30,8 @@ object LocalPersistenceManager {
         val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
         val editor = prefs.edit()
 
-        editor.putFloat("${userId}_usdt_balance", data.walletBalanceUsdt.toFloat())
-        editor.putFloat("${userId}_grid_balance", data.gridCoinBalance.toFloat())
+        editor.putString("${userId}_usdt_balance", data.walletBalanceUsdt.toString())
+        editor.putString("${userId}_grid_balance", data.gridCoinBalance.toString())
         editor.putBoolean("${userId}_is_grid_active", data.isGridMiningActive)
         editor.putLong("${userId}_grid_end_time", data.miningSessionEndTimestamp)
         editor.putLong("${userId}_session_start", data.sessionStartTimeMillis)
@@ -97,8 +97,10 @@ object LocalPersistenceManager {
         if (userId.isBlank()) return PersistentUserData()
         val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
 
-        val usdtBalance = prefs.getFloat("${userId}_usdt_balance", 0.0f).toDouble()
-        val gridBalance = prefs.getFloat("${userId}_grid_balance", 0.0f).toDouble()
+        val usdtBalance = prefs.getString("${userId}_usdt_balance", null)?.toDoubleOrNull()
+            ?: prefs.getFloat("${userId}_usdt_balance", 0.0f).toDouble()
+        val gridBalance = prefs.getString("${userId}_grid_balance", null)?.toDoubleOrNull()
+            ?: prefs.getFloat("${userId}_grid_balance", 0.0f).toDouble()
         val isGridActive = prefs.getBoolean("${userId}_is_grid_active", false)
         val gridEndTime = prefs.getLong("${userId}_grid_end_time", 0L)
         val sessionStart = prefs.getLong("${userId}_session_start", System.currentTimeMillis())

@@ -132,6 +132,7 @@ class HashGridViewModel : ViewModel() {
     val showNotificationSheet = MutableStateFlow(false)
     val showCreatorMilestoneModal = MutableStateFlow(false)
     val showKycModal = MutableStateFlow(false)
+    val showAdminPanelModal = MutableStateFlow(false)
     val auditDossierInitialTab = MutableStateFlow(0)
 
     // Anti-fraud Registry for YouTube submissions
@@ -331,11 +332,28 @@ class HashGridViewModel : ViewModel() {
             if (data.walletBalanceUsdt > 0.0) {
                 _walletBalanceUsdt.value = data.walletBalanceUsdt
             }
-            if (data.gridCoinBalance > 0.0) {
-                _gridCoinBalance.value = data.gridCoinBalance
-            }
+            val now = System.currentTimeMillis()
             _isGridMiningActive.value = data.isGridMiningActive
-            _miningSessionEndTimestamp.value = data.miningSessionEndTimestamp
+            if (data.miningSessionEndTimestamp > 0) {
+                _miningSessionEndTimestamp.value = data.miningSessionEndTimestamp
+            }
+
+            // Compute elapsed GRID token accrual on App Open / Resume
+            var currentGrid = if (data.gridCoinBalance > 0.0) data.gridCoinBalance else 24.8500
+            if (data.isGridMiningActive && data.lastSavedTimestamp > 0 && data.lastSavedTimestamp < now) {
+                val activeEnd = _miningSessionEndTimestamp.value
+                val effectiveEnd = now.coerceAtMost(activeEnd)
+                if (effectiveEnd > data.lastSavedTimestamp) {
+                    val elapsedSec = (effectiveEnd - data.lastSavedTimestamp) / 1000.0
+                    val rate = _effectiveGridRate.value
+                    val secAccrual = rate / 3600.0
+                    currentGrid += (elapsedSec * secAccrual)
+                }
+                if (now >= activeEnd) {
+                    _isGridMiningActive.value = false
+                }
+            }
+            _gridCoinBalance.value = currentGrid
             if (data.activeContracts.isNotEmpty()) {
                 val now = System.currentTimeMillis()
                 val reevaluatedContracts = data.activeContracts.map { contract ->
@@ -830,6 +848,10 @@ class HashGridViewModel : ViewModel() {
     }
 
     fun requestWithdrawal(amountUsdt: Double, address: String, network: String): String? {
+        val hasPending = _payoutsList.value.any { it.status == PayoutStatus.PENDING_24H_AUDIT }
+        if (hasPending) {
+            return "A withdrawal request is already pending approval. Please wait for admin dispatch (typically within 1-12 hours)."
+        }
         val inProgressContract = _activeContracts.value.firstOrNull { it.work_status == "IN_PROGRESS" && it.depositUsdt > 0 }
         if (inProgressContract != null && inProgressContract.current_yield_mined < inProgressContract.target_yield_30_percent) {
             val cur = String.format(Locale.US, "%.2f", inProgressContract.current_yield_mined)
@@ -861,6 +883,7 @@ class HashGridViewModel : ViewModel() {
             status = PayoutStatus.PENDING_24H_AUDIT
         )
         _payoutsList.value = listOf(newPayout) + _payoutsList.value
+        saveLocalState()
 
         FirebaseSyncService.submitWithdrawal(
             userId = userId,
@@ -871,6 +894,121 @@ class HashGridViewModel : ViewModel() {
         ) {}
 
         return null
+    }
+
+    // --- Admin God Mode Functions ---
+    fun injectUsdt(amount: Double) {
+        if (amount <= 0) return
+        _walletBalanceUsdt.value += amount
+        val newAct = ActivityItem(
+            id = "act_${System.currentTimeMillis()}",
+            title = "+$${String.format(Locale.US, "%.2f", amount)} USDT",
+            subtitle = "God Mode Admin Instant Injection",
+            btcAmountStr = "Injected",
+            usdtAmount = amount,
+            timestampStr = "Just now",
+            isCredit = true
+        )
+        _activityList.value = listOf(newAct) + _activityList.value
+        saveLocalState()
+    }
+
+    fun injectGrid(amount: Double) {
+        if (amount <= 0) return
+        _gridCoinBalance.value += amount
+        val newAct = ActivityItem(
+            id = "act_${System.currentTimeMillis()}",
+            title = "+$${String.format(Locale.US, "%.2f", amount)} GRID",
+            subtitle = "God Mode Admin GRID Injection",
+            btcAmountStr = "Injected",
+            usdtAmount = 0.0,
+            timestampStr = "Just now",
+            isCredit = true
+        )
+        _activityList.value = listOf(newAct) + _activityList.value
+        saveLocalState()
+    }
+
+    fun freeDeployRig(plan: MiningPlan) {
+        _hashPower.value += plan.hashPowerGh
+
+        val minerId = "admin_miner_${UUID.randomUUID().toString().take(6)}"
+        val targetYield30 = plan.minDepositUsdt * 0.30
+        val newContract = ActiveContract(
+            id = minerId,
+            planName = plan.name,
+            cryptoSymbol = plan.cryptoSymbol,
+            depositUsdt = plan.minDepositUsdt,
+            hashPowerGh = plan.hashPowerGh,
+            elapsedDays = 0,
+            totalDays = plan.termDays,
+            accruedProfitUsdt = 0.0,
+            dailyYieldUsdt = plan.dailyYieldUsdtEst,
+            isRestakeEnabled = false,
+            startDateStr = "Today",
+            maturityDateStr = "In ${plan.termDays} Days",
+            plan_cost = plan.minDepositUsdt,
+            target_yield_30_percent = targetYield30,
+            current_yield_mined = 0.0,
+            task_progress_pct = 0.0,
+            work_status = "IN_PROGRESS",
+            unlocked_for_withdrawal = false
+        )
+        _activeContracts.value = listOf(newContract) + _activeContracts.value
+
+        val newAct = ActivityItem(
+            id = "act_${System.currentTimeMillis()}",
+            title = "Admin Free Rig Deployed",
+            subtitle = "Activated ${plan.name} (${plan.hashPowerGh.toInt()} GH/s)",
+            btcAmountStr = "0 USDT Deducted",
+            usdtAmount = 0.0,
+            timestampStr = "Just now",
+            isCredit = true
+        )
+        _activityList.value = listOf(newAct) + _activityList.value
+        saveLocalState()
+    }
+
+    fun approveWithdrawal(payoutId: String) {
+        val payout = _payoutsList.value.find { it.id == payoutId } ?: return
+        _payoutsList.value = _payoutsList.value.map {
+            if (it.id == payoutId) it.copy(status = PayoutStatus.COMPLETED) else it
+        }
+        _lockedAuditBalanceUsdt.value = (_lockedAuditBalanceUsdt.value - payout.amountUsdt).coerceAtLeast(0.0)
+
+        val txid = "0x" + UUID.randomUUID().toString().replace("-", "").take(16)
+        val newAct = ActivityItem(
+            id = "act_${System.currentTimeMillis()}",
+            title = "-$${String.format(Locale.US, "%.2f", payout.amountUsdt)} USDT",
+            subtitle = "Withdrawal Dispatched (TX: $txid)",
+            btcAmountStr = "Approved by Admin",
+            usdtAmount = payout.amountUsdt,
+            timestampStr = "Just now",
+            isCredit = false
+        )
+        _activityList.value = listOf(newAct) + _activityList.value
+        saveLocalState()
+    }
+
+    fun rejectWithdrawal(payoutId: String) {
+        val payout = _payoutsList.value.find { it.id == payoutId } ?: return
+        _payoutsList.value = _payoutsList.value.map {
+            if (it.id == payoutId) it.copy(status = PayoutStatus.REJECTED) else it
+        }
+        _lockedAuditBalanceUsdt.value = (_lockedAuditBalanceUsdt.value - payout.amountUsdt).coerceAtLeast(0.0)
+        _walletBalanceUsdt.value += payout.amountUsdt
+
+        val newAct = ActivityItem(
+            id = "act_${System.currentTimeMillis()}",
+            title = "+$${String.format(Locale.US, "%.2f", payout.amountUsdt)} USDT",
+            subtitle = "Withdrawal Rejected & Refunded to Wallet",
+            btcAmountStr = "Refunded",
+            usdtAmount = payout.amountUsdt,
+            timestampStr = "Just now",
+            isCredit = true
+        )
+        _activityList.value = listOf(newAct) + _activityList.value
+        saveLocalState()
     }
 
     // --- BOUNTY SUBMISSIONS & ANTI-FRAUD LOGIC ---
