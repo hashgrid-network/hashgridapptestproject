@@ -682,6 +682,81 @@ object FirebaseSyncService {
     }
 
     /**
+     * Updates USDT wallet balance in Firestore and RTDB
+     */
+    fun updateWalletBalance(
+        userId: String,
+        newBalance: Double,
+        onComplete: ((Boolean) -> Unit)? = null
+    ) {
+        scope.launch {
+            try {
+                val updateMap = hashMapOf<String, Any>(
+                    "usdt_balance" to newBalance,
+                    "last_updated_server" to FieldValue.serverTimestamp()
+                )
+                firestore?.collection("users")?.document(userId)?.set(updateMap, SetOptions.merge())?.await()
+
+                val safeKey = sanitizeKey(userId)
+                val patchJson = JSONObject().apply {
+                    put("usdt_balance", newBalance)
+                }
+                val url = "$firebaseDatabaseUrl/users/$safeKey.json"
+                val body = patchJson.toString().toRequestBody(jsonMediaType)
+                val request = Request.Builder().url(url).patch(body).build()
+                httpClient.newCall(request).execute().close()
+
+                onComplete?.invoke(true)
+            } catch (_: Exception) {
+                onComplete?.invoke(false)
+            }
+        }
+    }
+
+    /**
+     * Syncs local ActiveContract to Firestore if remote state is empty
+     */
+    fun syncContractToRemote(
+        userId: String,
+        contract: ActiveContract,
+        onComplete: ((Boolean) -> Unit)? = null
+    ) {
+        scope.launch {
+            try {
+                val contractDoc = hashMapOf<String, Any>(
+                    "contract_id" to contract.id,
+                    "id" to contract.id,
+                    "plan_name" to contract.planName,
+                    "cost_usdt" to contract.depositUsdt,
+                    "depositUsdt" to contract.depositUsdt,
+                    "plan_cost" to contract.depositUsdt,
+                    "target_yield_30_percent" to contract.target_yield_30_percent,
+                    "current_yield_mined" to contract.current_yield_mined,
+                    "task_progress_pct" to contract.task_progress_pct,
+                    "work_status" to contract.work_status,
+                    "unlocked_for_withdrawal" to contract.unlocked_for_withdrawal,
+                    "hashPowerGh" to contract.hashPowerGh,
+                    "is_active" to contract.isActive,
+                    "elapsedDays" to contract.elapsedDays,
+                    "totalDays" to contract.totalDays,
+                    "dailyYieldUsdt" to contract.dailyYieldUsdt,
+                    "isRestakeEnabled" to contract.isRestakeEnabled,
+                    "cryptoSymbol" to contract.cryptoSymbol,
+                    "startDateStr" to contract.startDateStr,
+                    "maturityDateStr" to contract.maturityDateStr,
+                    "startTimestampMs" to contract.startTimestampMs,
+                    "endTimestampMs" to contract.endTimestampMs
+                )
+                firestore?.collection("users")?.document(userId)?.collection("grid_contracts")?.document(contract.id)?.set(contractDoc, SetOptions.merge())
+                firestore?.collection("users")?.document(userId)?.collection("miners")?.document(contract.id)?.set(contractDoc, SetOptions.merge())
+                onComplete?.invoke(true)
+            } catch (_: Exception) {
+                onComplete?.invoke(false)
+            }
+        }
+    }
+
+    /**
      * Atomically increments won reward and sets 24-hour wheel cooldown timer in Firestore
      */
     fun claimLuckyWheelReward(

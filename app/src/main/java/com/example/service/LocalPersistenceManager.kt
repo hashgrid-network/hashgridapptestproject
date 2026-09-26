@@ -1,10 +1,15 @@
 package com.example.service
 
 import android.content.Context
+import com.example.db.HashGridRoomDatabase
+import com.example.db.UserPersistenceEntity
 import com.example.model.ActiveContract
 import com.example.model.ActivityItem
 import com.example.model.PayoutItem
 import com.example.model.PayoutStatus
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -24,10 +29,14 @@ data class PersistentUserData(
 
 object LocalPersistenceManager {
     private const val PREF_NAME = "hashgrid_persistent_user_data"
+    private val scope = CoroutineScope(Dispatchers.IO)
 
     fun saveUserData(context: Context, userId: String, data: PersistentUserData) {
         if (userId.isBlank()) return
-        val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        val appContext = context.applicationContext
+
+        // 1. Synchronously save to SharedPreferences backup cache
+        val prefs = appContext.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
         val editor = prefs.edit()
 
         editor.putString("${userId}_usdt_balance", data.walletBalanceUsdt.toString())
@@ -91,11 +100,36 @@ object LocalPersistenceManager {
         editor.putString("${userId}_payouts_list", payoutArray.toString())
 
         editor.apply()
+
+        // 2. Asynchronously save to Room Database without blocking UI
+        scope.launch {
+            try {
+                val db = HashGridRoomDatabase.getDatabase(appContext)
+                val entity = UserPersistenceEntity(
+                    userId = userId,
+                    walletBalanceUsdt = data.walletBalanceUsdt,
+                    gridCoinBalance = data.gridCoinBalance,
+                    isGridMiningActive = data.isGridMiningActive,
+                    miningSessionEndTimestamp = data.miningSessionEndTimestamp,
+                    sessionStartTimeMillis = data.sessionStartTimeMillis,
+                    activeContractsJson = contractsArray.toString(),
+                    activityListJson = activityArray.toString(),
+                    payoutsListJson = payoutArray.toString(),
+                    canSpinToday = data.canSpinToday,
+                    wheelCooldownEnd = data.wheelCooldownEnd,
+                    lastSavedTimestamp = data.lastSavedTimestamp
+                )
+                db.userPersistenceDao().saveUserData(entity)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
     }
 
     fun loadUserData(context: Context, userId: String): PersistentUserData {
         if (userId.isBlank()) return PersistentUserData()
-        val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        val appContext = context.applicationContext
+        val prefs = appContext.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
 
         val usdtBalance = prefs.getString("${userId}_usdt_balance", null)?.toDoubleOrNull()
             ?: prefs.getFloat("${userId}_usdt_balance", 0.0f).toDouble()
@@ -108,84 +142,55 @@ object LocalPersistenceManager {
         val wheelCooldown = prefs.getLong("${userId}_wheel_cooldown", 0L)
         val lastSaved = prefs.getLong("${userId}_last_saved", System.currentTimeMillis())
 
-        val contracts = mutableListOf<ActiveContract>()
-        val contractsStr = prefs.getString("${userId}_active_contracts", null)
-        if (!contractsStr.isNullOrBlank()) {
-            try {
-                val array = JSONArray(contractsStr)
-                for (i in 0 until array.length()) {
-                    val obj = array.getJSONObject(i)
-                    contracts.add(
-                        ActiveContract(
-                            id = obj.optString("id", "contract_$i"),
-                            planName = obj.optString("planName", "Mining Rig"),
-                            cryptoSymbol = obj.optString("cryptoSymbol", "USDT"),
-                            depositUsdt = obj.optDouble("depositUsdt", 0.0),
-                            hashPowerGh = obj.optDouble("hashPowerGh", 0.0),
-                            elapsedDays = obj.optInt("elapsedDays", 0),
-                            totalDays = obj.optInt("totalDays", 30),
-                            accruedProfitUsdt = obj.optDouble("accruedProfitUsdt", 0.0),
-                            dailyYieldUsdt = obj.optDouble("dailyYieldUsdt", 0.0),
-                            isRestakeEnabled = obj.optBoolean("isRestakeEnabled", false),
-                            startDateStr = obj.optString("startDateStr", "Today"),
-                            maturityDateStr = obj.optString("maturityDateStr", "30 Days"),
-                            startTimestampMs = obj.optLong("startTimestampMs", System.currentTimeMillis()),
-                            endTimestampMs = obj.optLong("endTimestampMs", System.currentTimeMillis() + 30L * 24 * 3600 * 1000)
-                        )
-                    )
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
+        val contracts = parseContracts(prefs.getString("${userId}_active_contracts", null))
+        val activities = parseActivities(prefs.getString("${userId}_activity_list", null))
+        val payouts = parsePayouts(prefs.getString("${userId}_payouts_list", null))
+
+        // If SharedPreferences contains data, return it directly
+        if (usdtBalance > 0.0 || gridBalance > 0.0 || contracts.isNotEmpty() || activities.isNotEmpty() || payouts.isNotEmpty()) {
+            return PersistentUserData(
+                walletBalanceUsdt = usdtBalance,
+                gridCoinBalance = gridBalance,
+                isGridMiningActive = isGridActive,
+                miningSessionEndTimestamp = gridEndTime,
+                sessionStartTimeMillis = sessionStart,
+                activeContracts = contracts,
+                activityList = activities,
+                payoutsList = payouts,
+                canSpinToday = canSpin,
+                wheelCooldownEnd = wheelCooldown,
+                lastSavedTimestamp = lastSaved
+            )
         }
 
-        val activities = mutableListOf<ActivityItem>()
-        val activityStr = prefs.getString("${userId}_activity_list", null)
-        if (!activityStr.isNullOrBlank()) {
-            try {
-                val array = JSONArray(activityStr)
-                for (i in 0 until array.length()) {
-                    val obj = array.getJSONObject(i)
-                    activities.add(
-                        ActivityItem(
-                            id = obj.optString("id", "act_$i"),
-                            title = obj.optString("title", "Activity"),
-                            subtitle = obj.optString("subtitle", ""),
-                            btcAmountStr = obj.optString("btcAmountStr", ""),
-                            usdtAmount = obj.optDouble("usdtAmount", 0.0),
-                            timestampStr = obj.optString("timestampStr", "Today"),
-                            isCredit = obj.optBoolean("isCredit", true)
-                        )
-                    )
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
+        // Failsafe Backup Recovery: Query Room Database if SharedPreferences cache was cleared on app update
+        try {
+            val db = HashGridRoomDatabase.getDatabase(appContext)
+            val roomEntity = db.userPersistenceDao().getUserDataSync(userId)
+            if (roomEntity != null) {
+                val roomContracts = parseContracts(roomEntity.activeContractsJson)
+                val roomActivities = parseActivities(roomEntity.activityListJson)
+                val roomPayouts = parsePayouts(roomEntity.payoutsListJson)
 
-        val payouts = mutableListOf<PayoutItem>()
-        val payoutsStr = prefs.getString("${userId}_payouts_list", null)
-        if (!payoutsStr.isNullOrBlank()) {
-            try {
-                val array = JSONArray(payoutsStr)
-                for (i in 0 until array.length()) {
-                    val obj = array.getJSONObject(i)
-                    val statusStr = obj.optString("status", "PENDING_24H_AUDIT")
-                    val statusEnum = try { PayoutStatus.valueOf(statusStr) } catch (_: Exception) { PayoutStatus.PENDING_24H_AUDIT }
-                    payouts.add(
-                        PayoutItem(
-                            id = obj.optString("id", "pay_$i"),
-                            dateStr = obj.optString("dateStr", "Today"),
-                            amountUsdt = obj.optDouble("amountUsdt", 0.0),
-                            targetAddress = obj.optString("targetAddress", ""),
-                            network = obj.optString("network", "TRC20"),
-                            status = statusEnum
-                        )
-                    )
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
+                val restored = PersistentUserData(
+                    walletBalanceUsdt = roomEntity.walletBalanceUsdt,
+                    gridCoinBalance = roomEntity.gridCoinBalance,
+                    isGridMiningActive = roomEntity.isGridMiningActive,
+                    miningSessionEndTimestamp = roomEntity.miningSessionEndTimestamp,
+                    sessionStartTimeMillis = roomEntity.sessionStartTimeMillis,
+                    activeContracts = roomContracts,
+                    activityList = roomActivities,
+                    payoutsList = roomPayouts,
+                    canSpinToday = roomEntity.canSpinToday,
+                    wheelCooldownEnd = roomEntity.wheelCooldownEnd,
+                    lastSavedTimestamp = roomEntity.lastSavedTimestamp
+                )
+                // Re-populate SharedPreferences cache from Room Database
+                saveUserData(appContext, userId, restored)
+                return restored
             }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
 
         return PersistentUserData(
@@ -201,5 +206,88 @@ object LocalPersistenceManager {
             wheelCooldownEnd = wheelCooldown,
             lastSavedTimestamp = lastSaved
         )
+    }
+
+    private fun parseContracts(jsonStr: String?): List<ActiveContract> {
+        val list = mutableListOf<ActiveContract>()
+        if (jsonStr.isNullOrBlank()) return list
+        try {
+            val array = JSONArray(jsonStr)
+            for (i in 0 until array.length()) {
+                val obj = array.getJSONObject(i)
+                list.add(
+                    ActiveContract(
+                        id = obj.optString("id", "contract_$i"),
+                        planName = obj.optString("planName", "Mining Rig"),
+                        cryptoSymbol = obj.optString("cryptoSymbol", "USDT"),
+                        depositUsdt = obj.optDouble("depositUsdt", 0.0),
+                        hashPowerGh = obj.optDouble("hashPowerGh", 0.0),
+                        elapsedDays = obj.optInt("elapsedDays", 0),
+                        totalDays = obj.optInt("totalDays", 30),
+                        accruedProfitUsdt = obj.optDouble("accruedProfitUsdt", 0.0),
+                        dailyYieldUsdt = obj.optDouble("dailyYieldUsdt", 0.0),
+                        isRestakeEnabled = obj.optBoolean("isRestakeEnabled", false),
+                        startDateStr = obj.optString("startDateStr", "Today"),
+                        maturityDateStr = obj.optString("maturityDateStr", "30 Days"),
+                        startTimestampMs = obj.optLong("startTimestampMs", System.currentTimeMillis()),
+                        endTimestampMs = obj.optLong("endTimestampMs", System.currentTimeMillis() + 30L * 24 * 3600 * 1000)
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return list
+    }
+
+    private fun parseActivities(jsonStr: String?): List<ActivityItem> {
+        val list = mutableListOf<ActivityItem>()
+        if (jsonStr.isNullOrBlank()) return list
+        try {
+            val array = JSONArray(jsonStr)
+            for (i in 0 until array.length()) {
+                val obj = array.getJSONObject(i)
+                list.add(
+                    ActivityItem(
+                        id = obj.optString("id", "act_$i"),
+                        title = obj.optString("title", "Activity"),
+                        subtitle = obj.optString("subtitle", ""),
+                        btcAmountStr = obj.optString("btcAmountStr", ""),
+                        usdtAmount = obj.optDouble("usdtAmount", 0.0),
+                        timestampStr = obj.optString("timestampStr", "Today"),
+                        isCredit = obj.optBoolean("isCredit", true)
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return list
+    }
+
+    private fun parsePayouts(jsonStr: String?): List<PayoutItem> {
+        val list = mutableListOf<PayoutItem>()
+        if (jsonStr.isNullOrBlank()) return list
+        try {
+            val array = JSONArray(jsonStr)
+            for (i in 0 until array.length()) {
+                val obj = array.getJSONObject(i)
+                val statusStr = obj.optString("status", "PENDING_24H_AUDIT")
+                val statusEnum = try { PayoutStatus.valueOf(statusStr) } catch (_: Exception) { PayoutStatus.PENDING_24H_AUDIT }
+                list.add(
+                    PayoutItem(
+                        id = obj.optString("id", "pay_$i"),
+                        dateStr = obj.optString("dateStr", "Today"),
+                        amountUsdt = obj.optDouble("amountUsdt", 0.0),
+                        targetAddress = obj.optString("targetAddress", ""),
+                        network = obj.optString("network", "TRC20"),
+                        status = statusEnum
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return list
     }
 }

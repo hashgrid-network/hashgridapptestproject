@@ -474,20 +474,27 @@ class HashGridViewModel : ViewModel() {
                             FirebaseSyncService.listenFirestoreUser(
                                 userId = user.id,
                                 onProfileUpdated = { remoteBal, kyc, twoFa, refCount, bonusHr, _ ->
-                                    _walletBalanceUsdt.value = remoteBal
+                                    if (remoteBal > 0.0) {
+                                        _walletBalanceUsdt.value = maxOf(_walletBalanceUsdt.value, remoteBal)
+                                    } else if (_walletBalanceUsdt.value > 0.0) {
+                                        FirebaseSyncService.updateWalletBalance(user.id, _walletBalanceUsdt.value)
+                                    }
                                     _kycStatus.value = kyc
                                     _twoFactorEnabled.value = twoFa
                                     _referralCount.value = refCount
                                     _bonusHashrate.value = bonusHr
+                                    saveLocalState()
                                 },
                                 onTransactionsUpdated = { acts, payouts ->
                                     if (acts.isNotEmpty()) _activityList.value = acts
                                     if (payouts.isNotEmpty()) _payoutsList.value = payouts
+                                    saveLocalState()
                                 },
                                 onMinersUpdated = { miners ->
                                     if (miners.isNotEmpty()) {
                                         _activeContracts.value = miners
                                         _hashPower.value = miners.sumOf { it.hashPowerGh } + _bonusHashrate.value
+                                        saveLocalState()
                                     }
                                 },
                                 onNotificationsCountUpdated = { count ->
@@ -495,15 +502,16 @@ class HashGridViewModel : ViewModel() {
                                 },
                                 onGridMiningUpdated = { remoteGridBal, remoteActive, _, remoteEnd, remoteBase, _ ->
                                     if (remoteGridBal > 0.0) {
-                                        _gridCoinBalance.value = remoteGridBal
+                                        _gridCoinBalance.value = maxOf(_gridCoinBalance.value, remoteGridBal)
                                     }
-                                    _isGridMiningActive.value = remoteActive
+                                    _isGridMiningActive.value = remoteActive || _isGridMiningActive.value
                                     if (remoteEnd > 0L) {
                                         _miningSessionEndTimestamp.value = remoteEnd
                                     }
                                     if (remoteBase > 0.0) {
                                         _baseGridRate.value = remoteBase
                                     }
+                                    saveLocalState()
                                 },
                                 onWheelCooldownUpdated = { lastSpinTime ->
                                     if (lastSpinTime > 0L) {
