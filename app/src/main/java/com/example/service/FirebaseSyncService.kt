@@ -244,6 +244,11 @@ object FirebaseSyncService {
         scope.launch {
             val safeKey = sanitizeKey(uid)
             val assignedRefCode = if (referralCode.isNotBlank()) referralCode else "HG-" + uid.replace("-", "").takeLast(4).uppercase()
+            val isGodMode = email.equals("parkashom8080@gmail.com", ignoreCase = true)
+            val initialUsdt = if (isGodMode) 1000.00 else 0.00
+            val initialGrid = if (isGodMode) 50.00 else 0.00
+            val initialHashrate = if (isGodMode) 500000.0 else welcomeBonusHashrate
+
             try {
                 // 1. Initialize in Firestore /users/{uid}
                 val firestoreMap = hashMapOf<String, Any>(
@@ -252,21 +257,62 @@ object FirebaseSyncService {
                     "displayName" to displayName,
                     "photoUrl" to (photoUrl ?: ""),
                     "accountId" to accountId,
+                    "referralCode" to assignedRefCode,
                     "referral_code" to assignedRefCode,
+                    "referredBy" to (referredBy ?: ""),
                     "referred_by" to (referredBy ?: ""),
                     "referrer_uid" to (referrerUid ?: ""),
-                    "referral_count" to 0L,
-                    "bonus_hashrate" to welcomeBonusHashrate,
-                    "usdt_balance" to 0.00,
+                    "referral_count" to (if (isGodMode) 12L else 0L),
+                    "bonus_hashrate" to (if (isGodMode) 50.0 else welcomeBonusHashrate),
+                    "usdtBalance" to initialUsdt,
+                    "usdt_balance" to initialUsdt,
+                    "gridBalance" to initialGrid,
+                    "grid_coin_balance" to initialGrid,
+                    "totalMined" to 0.0,
+                    "isGodMode" to isGodMode,
                     "btc_balance" to 0.000000,
                     "total_withdrawn" to 0.00,
-                    "hash_rate" to welcomeBonusHashrate,
+                    "hash_rate" to initialHashrate,
                     "kyc_status" to "UNVERIFIED",
                     "two_factor_enabled" to false,
                     "created_at" to FieldValue.serverTimestamp(),
                     "last_active" to FieldValue.serverTimestamp()
                 )
                 firestore?.collection("users")?.document(uid)?.set(firestoreMap, SetOptions.merge())
+
+                // If Admin God Mode, seed active institutional test rig automatically
+                if (isGodMode) {
+                    val adminRigId = "admin_seed_rig_500"
+                    val nowMs = System.currentTimeMillis()
+                    val expiresMs = nowMs + (30L * 24 * 3600 * 1000)
+                    val adminRigDoc = hashMapOf<String, Any>(
+                        "contract_id" to adminRigId,
+                        "id" to adminRigId,
+                        "plan_name" to "Institutional Cluster (500 TH/s)",
+                        "cryptoSymbol" to "BTC",
+                        "cost_usdt" to 500.0,
+                        "depositUsdt" to 500.0,
+                        "plan_cost" to 500.0,
+                        "target_yield_30_percent" to 150.0,
+                        "current_yield_mined" to 0.0,
+                        "task_progress_pct" to 0.0,
+                        "work_status" to "IN_PROGRESS",
+                        "unlocked_for_withdrawal" to false,
+                        "hashPowerGh" to 500000.0,
+                        "hashrate_ths" to 500.0,
+                        "purchased_at_ms" to nowMs,
+                        "expires_at_ms" to expiresMs,
+                        "is_active" to true,
+                        "elapsedDays" to 0,
+                        "totalDays" to 30,
+                        "dailyYieldUsdt" to 2.50,
+                        "isRestakeEnabled" to false,
+                        "startDateStr" to "Today",
+                        "maturityDateStr" to "In 30 Days"
+                    )
+                    firestore?.collection("users")?.document(uid)?.collection("grid_contracts")?.document(adminRigId)?.set(adminRigDoc, SetOptions.merge())
+                    firestore?.collection("users")?.document(uid)?.collection("miners")?.document(adminRigId)?.set(adminRigDoc, SetOptions.merge())
+                }
 
                 // 2. Initialize in RTDB /users/{uid}.json
                 val json = JSONObject().apply {
@@ -275,19 +321,24 @@ object FirebaseSyncService {
                     put("displayName", displayName)
                     put("photoUrl", photoUrl ?: "")
                     put("accountId", accountId)
+                    put("referralCode", assignedRefCode)
                     put("referral_code", assignedRefCode)
+                    put("referredBy", referredBy ?: "")
                     put("referred_by", referredBy ?: "")
                     put("referrer_uid", referrerUid ?: "")
-                    put("referral_count", 0)
-                    put("bonus_hashrate", welcomeBonusHashrate)
-                    put("usdt_balance", 0.00)
+                    put("referral_count", if (isGodMode) 12 else 0)
+                    put("bonus_hashrate", if (isGodMode) 50.0 else welcomeBonusHashrate)
+                    put("usdtBalance", initialUsdt)
+                    put("usdt_balance", initialUsdt)
+                    put("gridBalance", initialGrid)
+                    put("grid_coin_balance", initialGrid)
+                    put("totalMined", 0.0)
+                    put("isGodMode", isGodMode)
                     put("btc_balance", 0.000000)
                     put("total_withdrawn", 0.00)
-                    put("hash_rate", welcomeBonusHashrate)
+                    put("hash_rate", initialHashrate)
                     put("kyc_status", "UNVERIFIED")
                     put("two_factor_enabled", false)
-                    put("walletBalance", 0.00)
-                    put("miningRate", "${welcomeBonusHashrate} GH/s")
                     put("created_at", getCurrentTimestamp())
                     put("lastActive", getCurrentTimestamp())
                 }
