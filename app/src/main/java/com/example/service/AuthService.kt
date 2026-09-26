@@ -236,76 +236,39 @@ object AuthService {
         }
 
         try {
-            val auth = firebaseAuth
-            if (auth != null) {
-                val authResult = auth.signInWithEmailAndPassword(cleanEmail, cleanPass).await()
-                val fbUser = authResult.user
+            val auth = firebaseAuth ?: return@withContext AuthStepResult.Failure("Firebase Error: FirebaseAuth instance is null. Please verify google-services.json setup.")
+            val authResult = auth.signInWithEmailAndPassword(cleanEmail, cleanPass).await()
+            val fbUser = authResult.user
 
-                if (fbUser != null) {
-                    val uid = fbUser.uid
-                    val displayName = fbUser.displayName ?: cleanEmail.substringBefore("@").replaceFirstChar { it.uppercase() }
+            if (fbUser != null) {
+                val uid = fbUser.uid
+                val displayName = fbUser.displayName ?: cleanEmail.substringBefore("@").replaceFirstChar { it.uppercase() }
 
-                    // Check user 2FA status in Firebase
-                    val (isTotpEnabled, totpSecret) = FirebaseSyncService.fetchTotpDetails(uid)
-                    return@withContext if (isTotpEnabled && !totpSecret.isNullOrBlank()) {
-                        AuthStepResult.RequireTotpChallenge(
-                            uid = uid,
-                            email = cleanEmail,
-                            displayName = displayName,
-                            totpSecret = totpSecret
-                        )
-                    } else {
-                        val generatedSecret = TotpHelper.generateSecret(16)
-                        AuthStepResult.RequireTotpSetup(
-                            uid = uid,
-                            email = cleanEmail,
-                            displayName = displayName,
-                            totpSecret = generatedSecret
-                        )
-                    }
+                // Check user 2FA status in Firebase
+                val (isTotpEnabled, totpSecret) = FirebaseSyncService.fetchTotpDetails(uid)
+                return@withContext if (isTotpEnabled && !totpSecret.isNullOrBlank()) {
+                    AuthStepResult.RequireTotpChallenge(
+                        uid = uid,
+                        email = cleanEmail,
+                        displayName = displayName,
+                        totpSecret = totpSecret
+                    )
+                } else {
+                    val generatedSecret = TotpHelper.generateSecret(16)
+                    AuthStepResult.RequireTotpSetup(
+                        uid = uid,
+                        email = cleanEmail,
+                        displayName = displayName,
+                        totpSecret = generatedSecret
+                    )
                 }
+            } else {
+                return@withContext AuthStepResult.Failure("Firebase Error: User payload is null after authentication.")
             }
         } catch (e: Exception) {
-            // Check local credentials registry below
+            val errorMsg = e.localizedMessage ?: e.message ?: "Authentication failed."
+            return@withContext AuthStepResult.Failure("Firebase Error: $errorMsg")
         }
-
-        // Fallback for local credentials registry
-        try {
-            val usersJson = prefs?.getString(KEY_SAVED_USERS_JSON, "{}") ?: "{}"
-            val usersObj = JSONObject(usersJson)
-
-            if (usersObj.has(cleanEmail)) {
-                val userRecord = usersObj.getJSONObject(cleanEmail)
-                val storedPassword = userRecord.optString("password", "")
-                if (storedPassword == cleanPass || storedPassword.isBlank()) {
-                    val uid = userRecord.optString("uid", UUID.randomUUID().toString())
-                    val displayName = userRecord.optString("name", cleanEmail.substringBefore("@").replaceFirstChar { it.uppercase() })
-                    val storedTotpSecret = userRecord.optString("totpSecret", "")
-                    val isTotpEnabled = userRecord.optBoolean("totpEnabled", false)
-
-                    return@withContext if (isTotpEnabled && storedTotpSecret.isNotBlank()) {
-                        AuthStepResult.RequireTotpChallenge(
-                            uid = uid,
-                            email = cleanEmail,
-                            displayName = displayName,
-                            totpSecret = storedTotpSecret
-                        )
-                    } else {
-                        val generatedSecret = TotpHelper.generateSecret(16)
-                        AuthStepResult.RequireTotpSetup(
-                            uid = uid,
-                            email = cleanEmail,
-                            displayName = displayName,
-                            totpSecret = generatedSecret
-                        )
-                    }
-                } else {
-                    return@withContext AuthStepResult.Failure("Incorrect password. Please try again.")
-                }
-            }
-        } catch (_: Exception) {}
-
-        AuthStepResult.Failure("Login failed. Please verify your email and password.")
     }
 
     /**
@@ -342,127 +305,67 @@ object AuthService {
         val generatedSecret = TotpHelper.generateSecret(16)
 
         try {
-            val auth = firebaseAuth
-            if (auth != null) {
-                val authResult = auth.createUserWithEmailAndPassword(cleanEmail, cleanPass).await()
-                val fbUser = authResult.user
+            val auth = firebaseAuth ?: return@withContext AuthStepResult.Failure("Firebase Error: FirebaseAuth instance is null. Please verify google-services.json setup.")
+            val authResult = auth.createUserWithEmailAndPassword(cleanEmail, cleanPass).await()
+            val fbUser = authResult.user
 
-                if (fbUser != null) {
-                    val uid = fbUser.uid
-                    val accountId = "HG-" + uid.takeLast(6).uppercase()
-                    val assignedRefCode = generateReferralCode(uid)
+            if (fbUser != null) {
+                val uid = fbUser.uid
+                val accountId = "HG-" + uid.takeLast(6).uppercase()
+                val assignedRefCode = generateReferralCode(uid)
 
-                    var referredByCode: String? = null
-                    var verifiedReferrerUid: String? = null
-                    var welcomeBonusHashrate = 0.0
+                var referredByCode: String? = null
+                var verifiedReferrerUid: String? = null
+                var welcomeBonusHashrate = 0.0
 
-                    if (cleanRef.isNotBlank() && !cleanRef.equals(assignedRefCode, ignoreCase = true)) {
-                        val (isValidReferral, referrerUid) = FirebaseSyncService.validateAndApplyReferral(cleanRef, uid)
-                        if (isValidReferral && !referrerUid.isNullOrBlank() && referrerUid != uid) {
-                            referredByCode = cleanRef
-                            verifiedReferrerUid = referrerUid
-                            welcomeBonusHashrate = 1.5
-                        }
+                if (cleanRef.isNotBlank() && !cleanRef.equals(assignedRefCode, ignoreCase = true)) {
+                    val (isValidReferral, referrerUid) = FirebaseSyncService.validateAndApplyReferral(cleanRef, uid)
+                    if (isValidReferral && !referrerUid.isNullOrBlank() && referrerUid != uid) {
+                        referredByCode = cleanRef
+                        verifiedReferrerUid = referrerUid
+                        welcomeBonusHashrate = 1.5
                     }
-
-                    FirebaseSyncService.initializeNewUser(
-                        uid = uid,
-                        email = cleanEmail,
-                        displayName = cleanName,
-                        photoUrl = null,
-                        accountId = accountId,
-                        referralCode = assignedRefCode,
-                        referredBy = referredByCode,
-                        referrerUid = verifiedReferrerUid,
-                        welcomeBonusHashrate = welcomeBonusHashrate
-                    )
-
-                    saveUserToRegistry(
-                        email = cleanEmail,
-                        pass = cleanPass,
-                        accountId = accountId,
-                        name = cleanName,
-                        refCode = assignedRefCode,
-                        deviceId = deviceIdHash,
-                        isDuplicate = false,
-                        uid = uid,
-                        totpSecret = generatedSecret,
-                        referredBy = referredByCode,
-                        referrerUid = verifiedReferrerUid,
-                        bonusHashrate = welcomeBonusHashrate
-                    )
-
-                    return@withContext AuthStepResult.RequireTotpSetup(
-                        uid = uid,
-                        email = cleanEmail,
-                        displayName = cleanName,
-                        totpSecret = generatedSecret
-                    )
                 }
+
+                FirebaseSyncService.initializeNewUser(
+                    uid = uid,
+                    email = cleanEmail,
+                    displayName = cleanName,
+                    photoUrl = null,
+                    accountId = accountId,
+                    referralCode = assignedRefCode,
+                    referredBy = referredByCode,
+                    referrerUid = verifiedReferrerUid,
+                    welcomeBonusHashrate = welcomeBonusHashrate
+                )
+
+                saveUserToRegistry(
+                    email = cleanEmail,
+                    pass = cleanPass,
+                    accountId = accountId,
+                    name = cleanName,
+                    refCode = assignedRefCode,
+                    deviceId = deviceIdHash,
+                    isDuplicate = false,
+                    uid = uid,
+                    totpSecret = generatedSecret,
+                    referredBy = referredByCode,
+                    referrerUid = verifiedReferrerUid,
+                    bonusHashrate = welcomeBonusHashrate
+                )
+
+                return@withContext AuthStepResult.RequireTotpSetup(
+                    uid = uid,
+                    email = cleanEmail,
+                    displayName = cleanName,
+                    totpSecret = generatedSecret
+                )
+            } else {
+                return@withContext AuthStepResult.Failure("Firebase Error: User creation failed. User payload is null.")
             }
-        } catch (_: Exception) {
-            // Local offline fallback below
-        }
-
-        try {
-            val usersJson = prefs?.getString(KEY_SAVED_USERS_JSON, "{}") ?: "{}"
-            val usersObj = JSONObject(usersJson)
-            if (usersObj.has(cleanEmail) && cleanEmail != "parkashom8080@gmail.com") {
-                return@withContext AuthStepResult.Failure("An account with this email already exists.")
-            }
-
-            val uid = UUID.randomUUID().toString()
-            val accountId = "HG-" + uid.takeLast(6).uppercase()
-            val assignedRefCode = generateReferralCode(uid)
-
-            var referredByCode: String? = null
-            var verifiedReferrerUid: String? = null
-            var welcomeBonusHashrate = 0.0
-
-            if (cleanRef.isNotBlank() && !cleanRef.equals(assignedRefCode, ignoreCase = true)) {
-                val (isValidReferral, referrerUid) = FirebaseSyncService.validateAndApplyReferral(cleanRef, uid)
-                if (isValidReferral && !referrerUid.isNullOrBlank() && referrerUid != uid) {
-                    referredByCode = cleanRef
-                    verifiedReferrerUid = referrerUid
-                    welcomeBonusHashrate = 1.5
-                }
-            }
-
-            FirebaseSyncService.initializeNewUser(
-                uid = uid,
-                email = cleanEmail,
-                displayName = cleanName,
-                photoUrl = null,
-                accountId = accountId,
-                referralCode = assignedRefCode,
-                referredBy = referredByCode,
-                referrerUid = verifiedReferrerUid,
-                welcomeBonusHashrate = welcomeBonusHashrate
-            )
-
-            saveUserToRegistry(
-                email = cleanEmail,
-                pass = cleanPass,
-                accountId = accountId,
-                name = cleanName,
-                refCode = assignedRefCode,
-                deviceId = deviceIdHash,
-                isDuplicate = false,
-                uid = uid,
-                totpSecret = generatedSecret,
-                referredBy = referredByCode,
-                referrerUid = verifiedReferrerUid,
-                bonusHashrate = welcomeBonusHashrate
-            )
-
-            AuthStepResult.RequireTotpSetup(
-                uid = uid,
-                email = cleanEmail,
-                displayName = cleanName,
-                totpSecret = generatedSecret
-            )
         } catch (e: Exception) {
-            AuthStepResult.Failure(e.localizedMessage ?: "Sign-up failed.")
+            val errorMsg = e.localizedMessage ?: e.message ?: "Sign up failed."
+            return@withContext AuthStepResult.Failure("Firebase Error: $errorMsg")
         }
     }
 

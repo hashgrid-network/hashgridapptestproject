@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import com.google.firebase.FirebaseApp
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -711,6 +712,21 @@ fun AuthScreen(
                     color = SlateGray
                 )
             }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            val isFirebaseInit = try {
+                FirebaseApp.getApps(context).isNotEmpty()
+            } catch (_: Exception) {
+                false
+            }
+            Text(
+                text = "Firebase Status: " + (if (isFirebaseInit) "Initialized" else "NOT Initialized"),
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (isFirebaseInit) MintGreen else Color(0xFFD32F2F),
+                modifier = Modifier.testTag("firebase_status_text")
+            )
 
             Spacer(modifier = Modifier.height(16.dp))
         }
