@@ -6,3 +6,6 @@ package com.example.model
  */
 const val OFFICIAL_BEP20_ADDRESS = "0x1fAcE21fc7cA33abb4B37fba82280266C12D9c09"
 const val OFFICIAL_TRC20_ADDRESS = "TJj7G3U8qVSzqcJaxAhQG34ADHihnR6WuD"
+
+const val BASE_WEB_URL = "https://hashgrid-1009452697125.asia-southeast1.run.app"
+fun getReferralUrl(referralCode: String): String = "$BASE_WEB_URL/?ref=$referralCode"

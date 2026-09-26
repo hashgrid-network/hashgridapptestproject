@@ -136,9 +136,8 @@ fun GrowthScreen(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Row(verticalAlignment = Alignment.Bottom) {
-                            val totalRewardUsdt = 142.50 + (referralCount * 1.50)
                             Text(
-                                text = "$${String.format(Locale.US, "%.2f", totalRewardUsdt)}",
+                                text = "$10,000.00",
                                 fontSize = 32.sp,
                                 fontWeight = FontWeight.Black,
                                 color = ObsidianNavy,
@@ -153,6 +152,13 @@ fun GrowthScreen(
                                 modifier = Modifier.padding(bottom = 4.dp)
                             )
                         }
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Up to $10,000 USDT in community tier rewards & team commissions.",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MintDark
+                        )
                     }
 
                     Box(
@@ -212,6 +218,8 @@ fun GrowthScreen(
         // ==========================================
         // 2. BULLETPROOF OBSIDIAN & GOLD REFERRAL CARD
         // ==========================================
+        val finalReferralUrl = com.example.model.getReferralUrl(referralCode)
+
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -296,7 +304,7 @@ fun GrowthScreen(
                 Spacer(modifier = Modifier.height(14.dp))
 
                 Text(
-                    text = "Friends who register with your code receive an instant +1.5 GH/s hashrate welcome gift. You earn +1.5 GH/s hashrate + 7.0% mining commissions.",
+                    text = "Friends who register with your link receive an instant +1.5 GH/s hashrate welcome gift. You earn +1.5 GH/s hashrate + 7.0% mining commissions.",
                     fontSize = 10.sp,
                     color = SlateGray,
                     lineHeight = 14.sp
@@ -304,62 +312,101 @@ fun GrowthScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Action Buttons
-                Row(
+                // 3 Action Buttons: [COPY CODE], [COPY LINK], [SHARE INVITE]
+                Column(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Button 1: Copy Code
-                    Button(
-                        onClick = {
-                            clipboardManager.setText(AnnotatedString(referralCode))
-                            Toast.makeText(context, "Referral code copied! Share it with your friends.", Toast.LENGTH_SHORT).show()
-                        },
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(44.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .testTag("copy_referral_code_button"),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = SlateNavy,
-                            contentColor = Color.White
-                        ),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, GoldBorderSubtle)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.ContentCopy,
-                                contentDescription = null,
-                                tint = GoldGradientMid,
-                                modifier = Modifier.size(15.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "COPY CODE",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
+                        // Button 1: Copy Code
+                        Button(
+                            onClick = {
+                                clipboardManager.setText(AnnotatedString(referralCode))
+                                Toast.makeText(context, "Referral code copied to clipboard!", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(42.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .testTag("copy_referral_code_button"),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = SlateNavy,
+                                contentColor = Color.White
+                            ),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, GoldBorderSubtle)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.ContentCopy,
+                                    contentDescription = null,
+                                    tint = GoldGradientMid,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "COPY CODE",
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                            }
+                        }
+
+                        // Button 2: Copy Link
+                        Button(
+                            onClick = {
+                                clipboardManager.setText(AnnotatedString(finalReferralUrl))
+                                Toast.makeText(context, "Invite link copied to clipboard!", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(42.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .testTag("copy_referral_link_button"),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = SlateNavy,
+                                contentColor = Color.White
+                            ),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, GoldBorderSubtle)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.ContentCopy,
+                                    contentDescription = null,
+                                    tint = GoldGradientMid,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "COPY LINK",
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                            }
                         }
                     }
 
-                    // Button 2: Share Invite via WhatsApp / Telegram
+                    // Button 3: Share Invite via Native Android Share Sheet
                     Button(
                         onClick = {
-                            val shareBody = "⚡ Join HashGrid Cloud Mining Network!\n\n" +
-                                    "1. Download & Install the HashGrid APK: https://hashgrid.is/download\n" +
-                                    "2. Use my Referral Code on Sign-Up: $referralCode\n\n" +
-                                    "🎁 Claim instant +1.5 GH/s Mining Hashrate bonus upon registration!"
+                            val shareMessage = "⚡ Join me on HashGrid Cloud Mining!\n" +
+                                    "Mine native GRID tokens & earn 10% - 15% monthly USDT yields on 30-day institutional contracts.\n\n" +
+                                    "🎁 Referral Code: $referralCode\n" +
+                                    "📲 Download App & Start Mining: $finalReferralUrl"
                             val sendIntent = Intent().apply {
                                 action = Intent.ACTION_SEND
-                                putExtra(Intent.EXTRA_TEXT, shareBody)
+                                putExtra(Intent.EXTRA_TEXT, shareMessage)
                                 type = "text/plain"
                             }
                             val shareIntent = Intent.createChooser(sendIntent, "Share HashGrid Referral Invite")
                             context.startActivity(shareIntent)
                         },
                         modifier = Modifier
-                            .weight(1.3f)
+                            .fillMaxWidth()
                             .height(44.dp)
                             .clip(RoundedCornerShape(12.dp))
                             .testTag("share_invite_social_button"),
@@ -376,14 +423,15 @@ fun GrowthScreen(
                                     imageVector = Icons.Default.Share,
                                     contentDescription = null,
                                     tint = ObsidianNavy,
-                                    modifier = Modifier.size(15.dp)
+                                    modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "SHARE INVITE",
-                                    fontSize = 11.sp,
+                                    text = "SHARE INVITE LINK & CODE",
+                                    fontSize = 11.5.sp,
                                     fontWeight = FontWeight.Black,
-                                    color = ObsidianNavy
+                                    color = ObsidianNavy,
+                                    letterSpacing = 0.5.sp
                                 )
                             }
                         }
