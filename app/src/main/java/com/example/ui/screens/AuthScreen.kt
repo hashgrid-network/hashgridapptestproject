@@ -76,6 +76,7 @@ import com.example.ui.theme.CardWhite
 import com.example.ui.theme.GoldBorderSubtle
 import com.example.ui.theme.GoldGradientEnd
 import com.example.ui.theme.GoldGradientMid
+import com.example.ui.theme.MintDark
 import com.example.ui.theme.MintGreen
 import com.example.ui.theme.ObsidianNavy
 import com.example.ui.theme.SlateGray
@@ -114,13 +115,16 @@ fun AuthScreen(
     LaunchedEffect(selectedTabIndex) {
         if (selectedTabIndex == 1 && signupReferralCode.isBlank()) {
             val clipText = clipboardManager.getText()?.text?.trim() ?: ""
-            val regex = Regex("(?i)\\b(HG-[A-Z0-9]{4,6})\\b")
-            val match = regex.find(clipText)
-            if (match != null) {
-                val detected = match.value.uppercase()
+            val detected = if (clipText.startsWith("HG-", ignoreCase = true)) {
+                clipText.substringBefore(" ").substringBefore("&").substringBefore("?").uppercase()
+            } else {
+                val regex = Regex("(?i)HG-[A-Z0-9]{2,10}")
+                regex.find(clipText)?.value?.uppercase()
+            }
+            if (!detected.isNullOrBlank()) {
                 signupReferralCode = detected
                 isReferralDetectedFromClipboard = true
-                Toast.makeText(context, "Referral code applied from clipboard: $detected ✅", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Referral code applied from invite: $detected ✅", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -585,13 +589,17 @@ fun AuthScreen(
                                             .background(GoldGradientEnd.copy(alpha = 0.15f))
                                             .clickable {
                                                 val clipText = clipboardManager.getText()?.text?.trim() ?: ""
-                                                val regex = Regex("(?i)\\b(HG-[A-Z0-9]{4,6})\\b")
-                                                val match = regex.find(clipText)
-                                                val pasteCode = if (match != null) match.value.uppercase() else clipText.uppercase()
-                                                if (pasteCode.isNotBlank()) {
-                                                    signupReferralCode = pasteCode
+                                                val detected = if (clipText.startsWith("HG-", ignoreCase = true)) {
+                                                    clipText.substringBefore(" ").substringBefore("&").substringBefore("?").uppercase()
+                                                } else {
+                                                    val regex = Regex("(?i)HG-[A-Z0-9]{2,10}")
+                                                    regex.find(clipText)?.value?.uppercase()
+                                                } ?: clipText.uppercase()
+
+                                                if (detected.isNotBlank()) {
+                                                    signupReferralCode = detected
                                                     isReferralDetectedFromClipboard = true
-                                                    Toast.makeText(context, "Referral code applied from clipboard: $pasteCode ✅", Toast.LENGTH_SHORT).show()
+                                                    Toast.makeText(context, "Referral code applied: $detected ✅", Toast.LENGTH_SHORT).show()
                                                 } else {
                                                     Toast.makeText(context, "Clipboard is empty", Toast.LENGTH_SHORT).show()
                                                 }
@@ -619,6 +627,22 @@ fun AuthScreen(
                                     .fillMaxWidth()
                                     .testTag("input_signup_referral")
                             )
+
+                            if (signupReferralCode.isNotBlank() && (isReferralDetectedFromClipboard || signupReferralCode.startsWith("HG-", ignoreCase = true))) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(start = 4.dp, top = 4.dp)
+                                ) {
+                                    Text(
+                                        text = "✓ Referral Code auto-applied from invite link",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MintDark
+                                    )
+                                }
+                            }
 
                             Spacer(modifier = Modifier.height(20.dp))
 

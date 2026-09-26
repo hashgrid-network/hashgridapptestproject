@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HashGrid - Institutional Geothermal Cloud Mining & Multi-Sig Vault</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    :root {
+      --bg-dark: #0A0D14;
+      --bg-card: #121824;
+      --bg-card-hover: #1A2234;
+      --gold-primary: #D4AF37;
+      --gold-light: #F3E5AB;
+      --gold-gradient: linear-gradient(135deg, #F3E5AB 0%, #D4AF37 50%, #AA7C11 100%);
+      --gold-glow: rgba(212, 175, 55, 0.35);
+      --mint-green: #00E676;
+      --mint-glow: rgba(0, 230, 118, 0.35);
+      --text-main: #F0F4F8;
+      --text-muted: #8A99AD;
+      --border-subtle: rgba(212, 175, 55, 0.2);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      overflow-x: hidden;
+      background-image: radial-gradient(circle at 50% -20%, rgba(212, 175, 55, 0.15) 0%, transparent 60%);
+    }
+
+    /* Container */
+    .container {
+      width: 100%;
+      max-width: 900px;
+      padding: 32px 20px 60px 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+    }
+
+    /* Top Nav */
+    .nav-bar {
+      width: 100%;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 0;
+      margin-bottom: 36px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+    }
+
+    .brand-icon {
+      width: 42px;
+      height: 42px;
+      background: #121824;
+      border: 1.5px solid var(--gold-primary);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--gold-primary);
+      font-size: 20px;
+      box-shadow: 0 0 15px var(--gold-glow);
+    }
+
+    .brand-name {
+      font-size: 20px;
+      font-weight: 900;
+      letter-spacing: 1.2px;
+      color: var(--text-main);
+    }
+
+    .status-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(0, 230, 118, 0.1);
+      border: 1px solid rgba(0, 230, 118, 0.3);
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--mint-green);
+    }
+
+    .pulse-dot {
+      width: 8px;
+      height: 8px;
+      background: var(--mint-green);
+      border-radius: 50%;
+      box-shadow: 0 0 8px var(--mint-green);
+      animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+
+    /* Hero */
+    .hero-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(212, 175, 55, 0.12);
+      border: 1px solid var(--border-subtle);
+      padding: 6px 16px;
+      border-radius: 30px;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--gold-light);
+      margin-bottom: 20px;
+      letter-spacing: 0.5px;
+    }
+
+    .hero-title {
+      font-size: clamp(30px, 6vw, 48px);
+      font-weight: 900;
+      line-height: 1.15;
+      letter-spacing: -0.5px;
+      margin-bottom: 16px;
+      background: linear-gradient(180deg, #FFFFFF 0%, #D0D8E4 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .hero-subtitle {
+      font-size: clamp(14px, 2.5vw, 17px);
+      color: var(--text-muted);
+      max-width: 640px;
+      line-height: 1.6;
+      margin-bottom: 28px;
+    }
+
+    /* Referral Banner */
+    .ref-banner {
+      background: rgba(18, 24, 36, 0.9);
+      border: 1px solid var(--border-subtle);
+      border-radius: 16px;
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      margin-bottom: 28px;
+      max-width: 500px;
+      width: 100%;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+    }
+
+    .ref-code {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 15px;
+      font-weight: 800;
+      color: var(--gold-primary);
+      background: rgba(212, 175, 55, 0.15);
+      padding: 4px 10px;
+      border-radius: 8px;
+      border: 1px solid rgba(212, 175, 55, 0.3);
+      letter-spacing: 1px;
+    }
+
+    /* Main Download Button */
+    .download-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      background: var(--gold-gradient);
+      color: #0A0D14;
+      font-size: 16px;
+      font-weight: 900;
+      letter-spacing: 0.8px;
+      padding: 18px 36px;
+      border-radius: 16px;
+      text-decoration: none;
+      border: none;
+      cursor: pointer;
+      box-shadow: 0 12px 35px var(--gold-glow), 0 0 15px rgba(212, 175, 55, 0.2);
+      transition: all 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .download-btn:hover {
+      transform: translateY(-3px) scale(1.02);
+      filter: brightness(1.1);
+      box-shadow: 0 16px 45px var(--gold-glow);
+    }
+
+    .download-btn:active {
+      transform: translateY(1px) scale(0.98);
+    }
+
+    .download-btn i {
+      font-size: 22px;
+    }
+
+    .version-meta {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 14px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    /* Toast / Notification Badge */
+    #copy-toast {
+      position: fixed;
+      bottom: 30px;
+      left: 50%;
+      transform: translateX(-50%) translateY(100px);
+      background: #121824;
+      border: 1.5px solid var(--mint-green);
+      box-shadow: 0 15px 40px rgba(0, 0, 0, 0.8), 0 0 20px var(--mint-glow);
+      padding: 14px 24px;
+      border-radius: 14px;
+      color: #FFFFFF;
+      font-size: 13.5px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      z-index: 9999;
+      opacity: 0;
+      pointer-events: none;
+      transition: all 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+
+    #copy-toast.show {
+      transform: translateX(-50%) translateY(0);
+      opacity: 1;
+    }
+
+    /* Feature Grid */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 20px;
+      width: 100%;
+      margin-top: 60px;
+      text-align: left;
+    }
+
+    .feature-card {
+      background: var(--bg-card);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 18px;
+      padding: 24px;
+      transition: border-color 0.2s ease, transform 0.2s ease;
+    }
+
+    .feature-card:hover {
+      border-color: var(--border-subtle);
+      transform: translateY(-2px);
+    }
+
+    .feature-icon {
+      width: 44px;
+      height: 44px;
+      background: rgba(212, 175, 55, 0.1);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--gold-primary);
+      font-size: 18px;
+      margin-bottom: 16px;
+    }
+
+    .feature-title {
+      font-size: 16px;
+      font-weight: 800;
+      margin-bottom: 8px;
+      color: var(--text-main);
+    }
+
+    .feature-desc {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    footer {
+      margin-top: 50px;
+      font-size: 11.5px;
+      color: var(--text-muted);
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+      padding-top: 24px;
+      width: 100%;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: gap;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <!-- Navigation Bar -->
+    <div class="nav-bar">
+      <a href="#" class="brand">
+        <div class="brand-icon">
+          <i class="fa-solid fa-bolt"></i>
+        </div>
+        <span class="brand-name">HASHGRID</span>
+      </a>
+
+      <div class="status-badge">
+        <div class="pulse-dot"></div>
+        <span>Geothermal Core Online</span>
+      </div>
+    </div>
+
+    <!-- Hero Content -->
+    <div class="hero-chip">
+      <i class="fa-solid fa-shield-halved" style="color: var(--gold-primary);"></i>
+      INSTITUTIONAL GEOTHERMAL CLUSTER v1.0.5
+    </div>
+
+    <h1 class="hero-title">High-Yield Geothermal<br>Cloud Hash Power</h1>
+
+    <p class="hero-subtitle">
+      Deploy enterprise Antminer & Sub-Zero Avalon clusters directly from your mobile device. Zero hardware noise, automated daily USDT disbursements, and institutional 256-bit multi-sig vault security.
+    </p>
+
+    <!-- Referral Invitation Banner -->
+    <div class="ref-banner" id="ref-banner">
+      <i class="fa-solid fa-gift" style="color: var(--gold-primary); font-size: 18px;"></i>
+      <span style="font-size: 13px; color: var(--text-muted);">Invited by:</span>
+      <span class="ref-code" id="ref-display">HG-808080</span>
+      <span style="font-size: 11px; color: var(--mint-green); font-weight: 700;">+1.5 GH/s Bonus</span>
+    </div>
+
+    <!-- Main Download CTA Button -->
+    <button class="download-btn" id="download-apk-btn" onclick="handleApkDownload()">
+      <i class="fa-brands fa-android"></i>
+      <span>DOWNLOAD HASHGRID APK</span>
+    </button>
+
+    <div class="version-meta">
+      <span><i class="fa-solid fa-download"></i> Direct 1-Tap APK</span>
+      <span>•</span>
+      <span><i class="fa-solid fa-shield-check"></i> SHA-256 Verified</span>
+      <span>•</span>
+      <span>v1.0.5 Release</span>
+    </div>
+
+    <!-- Features Grid -->
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon"><i class="fa-solid fa-bolt-lightning"></i></div>
+        <h3 class="feature-title">24H Power Switch Mining</h3>
+        <p class="feature-desc">Engage the high-tech geothermal grid switch once daily to initiate synchronized cloud hashrate and earn GRID tokens seamlessly.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon"><i class="fa-solid fa-wallet"></i></div>
+        <h3 class="feature-title">Zero-Input Auto Deposits</h3>
+        <p class="feature-desc">Dedicated TRC20 and BEP20 QR deposit channels. Transfers are detected by live on-chain scanners and credited automatically in 1-2 minutes.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon"><i class="fa-solid fa-lock"></i></div>
+        <h3 class="feature-title">30% Milestone Security</h3>
+        <p class="feature-desc">Guaranteed hardware stabilization pipeline protecting capital liquidity with structured 10%-15% monthly sustainable yield returns.</p>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <footer>
+      <span>&copy; 2026 HashGrid Infrastructure Inc. All rights reserved.</span>
+      <span>End-to-End Encrypted Multi-Sig Escrow</span>
+    </footer>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="copy-toast">
+    <i class="fa-solid fa-circle-check" style="color: var(--mint-green); font-size: 20px;"></i>
+    <span id="toast-message">Referral code copied! It will auto-apply when you open the app.</span>
+  </div>
+
+  <script>
+    // 1. Read Referral Code from URL parameter or fallback
+    function getReferralCode() {
+      try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const refParam = urlParams.get('ref') || urlParams.get('referral') || urlParams.get('r');
+        if (refParam && refParam.trim().length >= 3) {
+          return refParam.trim().toUpperCase();
+        }
+      } catch (e) {
+        console.error("Error reading URL params:", e);
+      }
+      return "HG-808080";
+    }
+
+    // Set initial display
+    const activeRefCode = getReferralCode();
+    const refDisplayEl = document.getElementById("ref-display");
+    if (refDisplayEl) {
+      refDisplayEl.textContent = activeRefCode;
+    }
+
+    // Direct APK Download Target (GitHub latest release or direct static APK)
+    const APK_DOWNLOAD_URL = "https://github.com/goldbrownp-blip/hashgridapptestproject/releases/download/latest/HashGrid-v1.0.apk";
+    const FALLBACK_APK_URL = "https://github.com/goldbrownp-blip/hashgridapptestproject/releases/download/v1.0.1/app-debug.apk";
+
+    // 2. Main Download & Auto-Copy Handler
+    async function handleApkDownload() {
+      const refCode = getReferralCode();
+
+      // Automatically copy referral code to user's mobile clipboard
+      let copySuccess = false;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        try {
+          await navigator.clipboard.writeText(refCode);
+          copySuccess = true;
+        } catch (err) {
+          console.warn("Clipboard API write failed, using execCommand fallback:", err);
+        }
+      }
+
+      // Fallback for older browsers / webviews
+      if (!copySuccess) {
+        try {
+          const tempInput = document.createElement("input");
+          tempInput.value = refCode;
+          document.body.appendChild(tempInput);
+          tempInput.select();
+          document.execCommand("copy");
+          document.body.removeChild(tempInput);
+          copySuccess = true;
+        } catch (err) {
+          console.error("Fallback copy failed:", err);
+        }
+      }
+
+      // Show unobtrusive notification badge
+      showToast("Referral code copied! It will auto-apply when you open the app. 🚀");
+
+      // Trigger APK direct file download
+      setTimeout(() => {
+        const downloadLink = document.createElement("a");
+        downloadLink.href = APK_DOWNLOAD_URL;
+        downloadLink.download = "HashGrid-v1.0.apk";
+        downloadLink.target = "_blank";
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+        document.body.removeChild(downloadLink);
+      }, 350);
+    }
+
+    // Unobtrusive Toast popup
+    let toastTimeout = null;
+    function showToast(message) {
+      const toast = document.getElementById("copy-toast");
+      const msgEl = document.getElementById("toast-message");
+      if (!toast || !msgEl) return;
+
+      msgEl.textContent = message;
+      toast.classList.add("show");
+
+      if (toastTimeout) clearTimeout(toastTimeout);
+      toastTimeout = setTimeout(() => {
+        toast.classList.remove("show");
+      }, 4000);
+    }
+  </script>
+</body>
+</html>

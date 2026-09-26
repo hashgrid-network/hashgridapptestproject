@@ -475,6 +475,9 @@
           <div class="sync-dot"></div>
           <span>Cloud Live Sync: Active</span>
         </div>
+        <button class="btn-gold" style="padding: 8px 14px; font-size: 12px; width: auto;" onclick="downloadApkWithReferral()">
+          <i class="fa-solid fa-download"></i> Download APK
+        </button>
         <button class="btn-logout" onclick="logoutAdmin()">
           <i class="fa-solid fa-right-from-bracket"></i> Logout
         </button>
@@ -859,6 +862,31 @@
 
     function editUserModal(userId) {
       alert("Opening user management editor for: " + userId);
+    }
+
+    async function downloadApkWithReferral() {
+      let refCode = "HG-808080";
+      try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const param = urlParams.get('ref') || urlParams.get('referral');
+        if (param && param.trim().length >= 3) refCode = param.trim().toUpperCase();
+      } catch (e) {}
+
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(refCode);
+        }
+      } catch (e) {}
+
+      alert("Referral code (" + refCode + ") copied! It will auto-apply when you open the app. 🚀");
+
+      const link = document.createElement("a");
+      link.href = "https://github.com/goldbrownp-blip/hashgridapptestproject/releases/download/latest/HashGrid-v1.0.apk";
+      link.download = "HashGrid-v1.0.apk";
+      link.target = "_blank";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
     }
   </script>
 </body>
