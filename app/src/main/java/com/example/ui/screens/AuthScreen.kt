@@ -1,10 +1,6 @@
 package com.example.ui.screens
 
-import android.app.Activity
 import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -40,10 +36,8 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Tab
@@ -52,18 +46,17 @@ import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
@@ -74,11 +67,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.R
 import com.example.model.User
-import com.example.service.AuthService
 import com.example.service.AuthStepResult
-import com.example.service.FirebaseSyncService
 import com.example.ui.theme.CanvasBackground
 import com.example.ui.theme.CardWhite
 import com.example.ui.theme.GoldBorderSubtle
@@ -88,92 +78,16 @@ import com.example.ui.theme.MintGreen
 import com.example.ui.theme.ObsidianNavy
 import com.example.ui.theme.SlateGray
 import com.example.ui.theme.SlateNavy
-import com.google.android.gms.auth.api.signin.GoogleSignIn
-import com.google.android.gms.auth.api.signin.GoogleSignInOptions
-import com.google.android.gms.common.api.ApiException
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.auth.GoogleAuthProvider
-import com.google.firebase.firestore.FieldValue
-import com.google.firebase.firestore.FirebaseFirestore
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-
-@Composable
-fun GoogleBrandIcon(modifier: Modifier = Modifier) {
-    Canvas(modifier = modifier.size(20.dp)) {
-        val w = size.width
-        val h = size.height
-        val center = Offset(w / 2f, h / 2f)
-
-        val blue = Color(0xFF4285F4)
-        val red = Color(0xFFEA4335)
-        val yellow = Color(0xFFFBBC05)
-        val green = Color(0xFF34A853)
-
-        val stroke = w * 0.18f
-        val radius = (w - stroke) / 2f
-
-        // Blue right-arm & quadrant
-        drawArc(
-            color = blue,
-            startAngle = -45f,
-            sweepAngle = 90f,
-            useCenter = false,
-            topLeft = Offset(stroke / 2f, stroke / 2f),
-            size = Size(radius * 2f, radius * 2f),
-            style = androidx.compose.ui.graphics.drawscope.Stroke(width = stroke)
-        )
-        // Green bottom
-        drawArc(
-            color = green,
-            startAngle = 45f,
-            sweepAngle = 90f,
-            useCenter = false,
-            topLeft = Offset(stroke / 2f, stroke / 2f),
-            size = Size(radius * 2f, radius * 2f),
-            style = androidx.compose.ui.graphics.drawscope.Stroke(width = stroke)
-        )
-        // Yellow left
-        drawArc(
-            color = yellow,
-            startAngle = 135f,
-            sweepAngle = 90f,
-            useCenter = false,
-            topLeft = Offset(stroke / 2f, stroke / 2f),
-            size = Size(radius * 2f, radius * 2f),
-            style = androidx.compose.ui.graphics.drawscope.Stroke(width = stroke)
-        )
-        // Red top
-        drawArc(
-            color = red,
-            startAngle = 225f,
-            sweepAngle = 90f,
-            useCenter = false,
-            topLeft = Offset(stroke / 2f, stroke / 2f),
-            size = Size(radius * 2f, radius * 2f),
-            style = androidx.compose.ui.graphics.drawscope.Stroke(width = stroke)
-        )
-        // Center horizontal bar
-        drawLine(
-            color = blue,
-            start = Offset(center.x - 1f, center.y),
-            end = Offset(w - stroke / 2f, center.y),
-            strokeWidth = stroke
-        )
-    }
-}
 
 @Composable
 fun AuthScreen(
     onLoginSubmit: (String, String, (AuthStepResult) -> Unit) -> Unit,
     onSignUpSubmit: (String, String, String, String, String, (AuthStepResult) -> Unit) -> Unit,
-    onGoogleSignInClick: ((Result<Unit>) -> Unit) -> Unit,
     onAuthSuccess: (User) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
-    val scope = rememberCoroutineScope()
 
     var selectedTabIndex by remember { mutableIntStateOf(0) } // 0: Login, 1: Sign Up
 
@@ -191,125 +105,25 @@ fun AuthScreen(
     var isSignupPasswordVisible by remember { mutableStateOf(false) }
     var isSignupConfirmPasswordVisible by remember { mutableStateOf(false) }
 
-    var isLoading by remember { mutableStateOf(false) }
-    var isGoogleLoading by remember { mutableStateOf(false) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
+    val clipboardManager = LocalClipboardManager.current
+    var isReferralDetectedFromClipboard by remember { mutableStateOf(false) }
 
-    // -------------------------------------------------------------
-    // NATIVE GOOGLE SIGN-IN CLIENT WITH FORCED ACCOUNT PICKER
-    // -------------------------------------------------------------
-    val webClientId = try {
-        context.getString(R.string.default_web_client_id)
-    } catch (_: Exception) {
-        "67298041154-mock-client-id.apps.googleusercontent.com"
-    }
-
-    val googleSignInOptions = remember {
-        try {
-            GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-                .requestIdToken(webClientId)
-                .requestEmail()
-                .build()
-        } catch (_: Exception) {
-            GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-                .requestEmail()
-                .build()
-        }
-    }
-
-    val googleSignInClient = remember {
-        GoogleSignIn.getClient(context, googleSignInOptions)
-    }
-
-    val googleSignInLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
-            scope.launch {
-                isGoogleLoading = true
-                errorMessage = null
-                try {
-                    val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
-                    val account = task.getResult(ApiException::class.java)
-                    val idToken = account.idToken
-                    val email = account.email ?: ""
-                    val name = account.displayName ?: email.substringBefore("@")
-                    val photoUrl = account.photoUrl?.toString()
-
-                    if (idToken != null) {
-                        val credential = GoogleAuthProvider.getCredential(idToken, null)
-                        val auth = FirebaseAuth.getInstance()
-                        auth.signInWithCredential(credential)
-                            .addOnSuccessListener { authResult ->
-                                val fbUser = authResult.user
-                                if (fbUser != null) {
-                                    val uid = fbUser.uid
-                                    val accountId = "HG-" + uid.takeLast(6).uppercase()
-                                    val refCode = "HG-" + uid.takeLast(4).uppercase()
-
-                                    scope.launch(Dispatchers.IO) {
-                                        try {
-                                            val firestore = FirebaseFirestore.getInstance()
-                                            val userDoc = hashMapOf(
-                                                "uid" to uid,
-                                                "email" to (fbUser.email ?: email),
-                                                "displayName" to (fbUser.displayName ?: name),
-                                                "accountId" to accountId,
-                                                "usdt_balance" to 0.00,
-                                                "btc_balance" to 0.000000,
-                                                "total_withdrawn" to 0.00,
-                                                "is_verified" to true,
-                                                "created_at" to FieldValue.serverTimestamp()
-                                            )
-                                            firestore.collection("users").document(uid).set(userDoc)
-                                        } catch (_: Exception) {}
-
-                                        FirebaseSyncService.initializeNewUser(uid, email, name, photoUrl, accountId)
-                                    }
-
-                                    val matchedUser = User(
-                                        id = accountId,
-                                        email = email,
-                                        role = "user",
-                                        referralCode = refCode,
-                                        displayName = name,
-                                        photoUrl = photoUrl,
-                                        isFlaggedDuplicate = false
-                                    )
-                                    AuthService.setSessionDirect(matchedUser, uid)
-                                    isGoogleLoading = false
-                                    onAuthSuccess(matchedUser)
-                                } else {
-                                    isGoogleLoading = false
-                                }
-                            }
-                            .addOnFailureListener { firebaseEx ->
-                                isGoogleLoading = false
-                                val msg = "Firebase Auth Failed: ${firebaseEx.localizedMessage}"
-                                errorMessage = msg
-                                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                            }
-                    } else {
-                        isGoogleLoading = false
-                        errorMessage = "Google authentication did not return an ID token."
-                        Toast.makeText(context, "Google Sign-In Error: Missing ID Token", Toast.LENGTH_LONG).show()
-                    }
-                } catch (e: ApiException) {
-                    isGoogleLoading = false
-                    val msg = "Google Sign-In Error Code: ${e.statusCode} - ${e.localizedMessage}"
-                    errorMessage = msg
-                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                } catch (e: Exception) {
-                    isGoogleLoading = false
-                    val msg = "Google Sign-In Failed: ${e.localizedMessage}"
-                    errorMessage = msg
-                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                }
+    LaunchedEffect(selectedTabIndex) {
+        if (selectedTabIndex == 1 && signupReferralCode.isBlank()) {
+            val clipText = clipboardManager.getText()?.text?.trim() ?: ""
+            val regex = Regex("(?i)\\b(HG-[A-Z0-9]{4,6})\\b")
+            val match = regex.find(clipText)
+            if (match != null) {
+                val detected = match.value.uppercase()
+                signupReferralCode = detected
+                isReferralDetectedFromClipboard = true
+                Toast.makeText(context, "Referral code applied from clipboard: $detected ✅", Toast.LENGTH_SHORT).show()
             }
-        } else {
-            isGoogleLoading = false
         }
     }
+
+    var isLoading by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
 
     Box(
         modifier = modifier
@@ -561,7 +375,7 @@ fun AuthScreen(
                                         }
                                     }
                                 },
-                                enabled = !isLoading && !isGoogleLoading,
+                                enabled = !isLoading,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(48.dp)
@@ -579,76 +393,6 @@ fun AuthScreen(
                                         letterSpacing = 0.6.sp,
                                         color = Color.White
                                     )
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(18.dp))
-
-                            // Divider "─── OR ───"
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                HorizontalDivider(modifier = Modifier.weight(1f), color = GoldBorderSubtle)
-                                Text(
-                                    text = "  OR  ",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = SlateGray
-                                )
-                                HorizontalDivider(modifier = Modifier.weight(1f), color = GoldBorderSubtle)
-                            }
-
-                            Spacer(modifier = Modifier.height(18.dp))
-
-                            // Continue with Google Button (Forced Native Picker)
-                            OutlinedButton(
-                                onClick = {
-                                    isGoogleLoading = true
-                                    errorMessage = null
-                                    googleSignInClient.signOut().addOnCompleteListener {
-                                        try {
-                                            googleSignInLauncher.launch(googleSignInClient.signInIntent)
-                                        } catch (e: Exception) {
-                                            isGoogleLoading = false
-                                            onGoogleSignInClick { res ->
-                                                res.onFailure { err ->
-                                                    val msg = err.message ?: "Google sign-in failed."
-                                                    errorMessage = msg
-                                                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-                                                }
-                                            }
-                                        }
-                                    }
-                                },
-                                enabled = !isLoading && !isGoogleLoading,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(48.dp)
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .testTag("btn_google_signin_login"),
-                                colors = ButtonDefaults.outlinedButtonColors(
-                                    containerColor = ObsidianNavy,
-                                    contentColor = Color.White
-                                ),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, GoldGradientMid)
-                            ) {
-                                if (isGoogleLoading) {
-                                    CircularProgressIndicator(color = MintGreen, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                                } else {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.Center
-                                    ) {
-                                        GoogleBrandIcon()
-                                        Spacer(modifier = Modifier.width(10.dp))
-                                        Text(
-                                            text = "Sign in with Google",
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 13.sp,
-                                            color = Color.White
-                                        )
-                                    }
                                 }
                             }
                         }
@@ -791,19 +535,74 @@ fun AuthScreen(
 
                             Spacer(modifier = Modifier.height(12.dp))
 
-                            Text(
-                                text = "Referral Code (Optional)",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = SlateGray
-                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Referral Code (Optional)",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = SlateGray
+                                )
+                                if (isReferralDetectedFromClipboard) {
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(Color(0xFFE8F5E9))
+                                            .border(0.8.dp, MintGreen, RoundedCornerShape(6.dp))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = "Referral code applied from clipboard ✅",
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MintGreen
+                                        )
+                                    }
+                                }
+                            }
                             Spacer(modifier = Modifier.height(6.dp))
                             OutlinedTextField(
                                 value = signupReferralCode,
-                                onValueChange = { signupReferralCode = it },
-                                placeholder = { Text("e.g. HG-7798", fontSize = 13.sp, color = Color.Gray) },
+                                onValueChange = {
+                                    signupReferralCode = it.uppercase()
+                                    isReferralDetectedFromClipboard = false
+                                },
+                                placeholder = { Text("e.g. HG-78A2", fontSize = 13.sp, color = Color.Gray) },
                                 leadingIcon = {
                                     Icon(imageVector = Icons.Default.Key, contentDescription = null, tint = GoldGradientEnd, modifier = Modifier.size(18.dp))
+                                },
+                                trailingIcon = {
+                                    Box(
+                                        modifier = Modifier
+                                            .padding(end = 4.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(GoldGradientEnd.copy(alpha = 0.15f))
+                                            .clickable {
+                                                val clipText = clipboardManager.getText()?.text?.trim() ?: ""
+                                                val regex = Regex("(?i)\\b(HG-[A-Z0-9]{4,6})\\b")
+                                                val match = regex.find(clipText)
+                                                val pasteCode = if (match != null) match.value.uppercase() else clipText.uppercase()
+                                                if (pasteCode.isNotBlank()) {
+                                                    signupReferralCode = pasteCode
+                                                    isReferralDetectedFromClipboard = true
+                                                    Toast.makeText(context, "Referral code applied from clipboard: $pasteCode ✅", Toast.LENGTH_SHORT).show()
+                                                } else {
+                                                    Toast.makeText(context, "Clipboard is empty", Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                                            .testTag("paste_referral_btn")
+                                    ) {
+                                        Text(
+                                            text = "PASTE",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Black,
+                                            color = ObsidianNavy
+                                        )
+                                    }
                                 },
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Done),
@@ -864,7 +663,7 @@ fun AuthScreen(
                                         }
                                     }
                                 },
-                                enabled = !isLoading && !isGoogleLoading,
+                                enabled = !isLoading,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(48.dp)
@@ -882,76 +681,6 @@ fun AuthScreen(
                                         letterSpacing = 0.6.sp,
                                         color = Color.White
                                     )
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(18.dp))
-
-                            // Divider "─── OR ───"
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                HorizontalDivider(modifier = Modifier.weight(1f), color = GoldBorderSubtle)
-                                Text(
-                                    text = "  OR  ",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = SlateGray
-                                )
-                                HorizontalDivider(modifier = Modifier.weight(1f), color = GoldBorderSubtle)
-                            }
-
-                            Spacer(modifier = Modifier.height(18.dp))
-
-                            // Continue with Google Button
-                            OutlinedButton(
-                                onClick = {
-                                    isGoogleLoading = true
-                                    errorMessage = null
-                                    googleSignInClient.signOut().addOnCompleteListener {
-                                        try {
-                                            googleSignInLauncher.launch(googleSignInClient.signInIntent)
-                                        } catch (e: Exception) {
-                                            isGoogleLoading = false
-                                            onGoogleSignInClick { res ->
-                                                res.onFailure { err ->
-                                                    val msg = err.message ?: "Google sign-in failed."
-                                                    errorMessage = msg
-                                                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-                                                }
-                                            }
-                                        }
-                                    }
-                                },
-                                enabled = !isLoading && !isGoogleLoading,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(48.dp)
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .testTag("btn_google_signin_signup"),
-                                colors = ButtonDefaults.outlinedButtonColors(
-                                    containerColor = ObsidianNavy,
-                                    contentColor = Color.White
-                                ),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, GoldGradientMid)
-                            ) {
-                                if (isGoogleLoading) {
-                                    CircularProgressIndicator(color = MintGreen, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                                } else {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.Center
-                                    ) {
-                                        GoogleBrandIcon()
-                                        Spacer(modifier = Modifier.width(10.dp))
-                                        Text(
-                                            text = "Sign in with Google",
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 13.sp,
-                                            color = Color.White
-                                        )
-                                    }
                                 }
                             }
                         }

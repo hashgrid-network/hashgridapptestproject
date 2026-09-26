@@ -17,6 +17,7 @@ import com.example.model.MiningPlan
 import com.example.model.PayoutItem
 import com.example.model.PayoutStatus
 import com.example.model.PriceDirection
+import com.example.model.TokenConfig
 import com.example.model.User
 import com.example.service.AppUpdateInfo
 import com.example.service.AppUpdateManager
@@ -29,9 +30,14 @@ import com.example.service.FirebaseUser
 import com.example.service.FirebaseWithdrawal
 import com.example.service.GeminiSupportService
 import com.example.service.UpdateStatus
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.Locale
@@ -72,6 +78,13 @@ class HashGridViewModel : ViewModel() {
     private val _walletBalanceUsdt = MutableStateFlow(0.00)
     val walletBalanceUsdt: StateFlow<Double> = _walletBalanceUsdt.asStateFlow()
 
+    // Bulletproof Referral Stats
+    private val _referralCount = MutableStateFlow(0L)
+    val referralCount: StateFlow<Long> = _referralCount.asStateFlow()
+
+    private val _bonusHashrate = MutableStateFlow(0.0)
+    val bonusHashrate: StateFlow<Double> = _bonusHashrate.asStateFlow()
+
     // Atomic Escrow Balance (Locked in 24h Audit)
     private val _lockedAuditBalanceUsdt = MutableStateFlow(0.0)
     val lockedAuditBalanceUsdt: StateFlow<Double> = _lockedAuditBalanceUsdt.asStateFlow()
@@ -103,6 +116,7 @@ class HashGridViewModel : ViewModel() {
     // --- UI Modals State ---
     val showLuckyWheelModal = MutableStateFlow(false)
     val showDepositModal = MutableStateFlow(false)
+    val showStarterDeployModal = MutableStateFlow(false)
     val showWithdrawModal = MutableStateFlow(false)
     val showAuditDossierModal = MutableStateFlow(false)
     val showSyndicateModal = MutableStateFlow(false)
@@ -122,6 +136,20 @@ class HashGridViewModel : ViewModel() {
 
     // --- Marketplace Plans ---
     val marketplacePlans = listOf(
+        MiningPlan(
+            id = "plan_starter_rig",
+            name = "Starter Grid Rig (10 TH/s)",
+            subtitle = "Dedicated ASIC Instant Yield Node",
+            cryptoSymbol = "USDT",
+            iconCrypto = "⚡",
+            minDepositUsdt = 10.0,
+            hashPowerGh = 10000.0, // 10 TH/s
+            monthlyYieldPercent = 30.0,
+            termDays = 30,
+            dailyYieldUsdtEst = 0.35,
+            hardwareType = "Antminer Micro 10 TH/s Liquid Rig",
+            tag = "Starter $10"
+        ),
         MiningPlan(
             id = "plan_kas",
             name = "Starter Kaspa Node",
@@ -183,6 +211,12 @@ class HashGridViewModel : ViewModel() {
     // Dynamic Contracts list
     private val _activeContracts = MutableStateFlow<List<ActiveContract>>(emptyList())
     val activeContracts: StateFlow<List<ActiveContract>> = _activeContracts.asStateFlow()
+
+    // Withdrawable Unlocked Balance: sum of earnings from grids where work_status == "COMPLETED"
+    val withdrawableUnlockedBalance: StateFlow<Double> = _activeContracts.map { contracts ->
+        contracts.filter { it.work_status == "COMPLETED" }
+            .sumOf { it.current_yield_mined.coerceAtLeast(it.target_yield_30_percent) }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, 0.0)
 
     // Dynamic Activity List
     private val _activityList = MutableStateFlow<List<ActivityItem>>(emptyList())
@@ -291,11 +325,56 @@ class HashGridViewModel : ViewModel() {
     private val _miningSessionEndTimestamp = MutableStateFlow(System.currentTimeMillis() + (14L * 3600 * 1000 + 22L * 60 * 1000))
     val miningSessionEndTimestamp: StateFlow<Long> = _miningSessionEndTimestamp.asStateFlow()
 
+    // GRID Native Tokenomics State
+    private val _gridCoinBalance = MutableStateFlow(24.8500)
+    val gridCoinBalance: StateFlow<Double> = _gridCoinBalance.asStateFlow()
+
+    private val _isGridMiningActive = MutableStateFlow(true)
+    val isGridMiningActive: StateFlow<Boolean> = _isGridMiningActive.asStateFlow()
+
+    private val _globalMinersCount = MutableStateFlow(842L)
+    val globalMinersCount: StateFlow<Long> = _globalMinersCount.asStateFlow()
+
+    private val _activeReferralsMiningNow = MutableStateFlow(3)
+    val activeReferralsMiningNow: StateFlow<Int> = _activeReferralsMiningNow.asStateFlow()
+
+    private val _baseGridRate = MutableStateFlow(TokenConfig.BASE_RATE_PER_HOUR)
+    val baseGridRate: StateFlow<Double> = _baseGridRate.asStateFlow()
+
+    private val _effectiveGridRate = MutableStateFlow(
+        TokenConfig.calculateEffectiveRate(TokenConfig.BASE_RATE_PER_HOUR, 3)
+    )
+    val effectiveGridRate: StateFlow<Double> = _effectiveGridRate.asStateFlow()
+
+    val showMiningSheetModal = MutableStateFlow(false)
+
     init {
         try {
             BinanceWebSocketService.start()
         } catch (e: Exception) {
             e.printStackTrace()
+        }
+
+        // Live second-by-second fractional GRID token accumulator with anti-cheat guard
+        viewModelScope.launch {
+            while (isActive) {
+                delay(1000L)
+                if (_isGridMiningActive.value) {
+                    val now = FirebaseSyncService.getAuthoritativeServerTime()
+                    if (now < _miningSessionEndTimestamp.value) {
+                        val rate = _effectiveGridRate.value
+                        val secAccrual = rate / 3600.0
+                        _gridCoinBalance.value += secAccrual
+                    } else {
+                        _isGridMiningActive.value = false
+                        FirebaseSyncService.updateGridCoinBalance(
+                            userId,
+                            _gridCoinBalance.value,
+                            false
+                        )
+                    }
+                }
+            }
         }
 
         viewModelScope.launch {
@@ -321,10 +400,12 @@ class HashGridViewModel : ViewModel() {
                         if (user != null && user.id.isNotBlank()) {
                             FirebaseSyncService.listenFirestoreUser(
                                 userId = user.id,
-                                onProfileUpdated = { remoteBal, kyc, twoFa ->
+                                onProfileUpdated = { remoteBal, kyc, twoFa, refCount, bonusHr, _ ->
                                     _walletBalanceUsdt.value = remoteBal
                                     _kycStatus.value = kyc
                                     _twoFactorEnabled.value = twoFa
+                                    _referralCount.value = refCount
+                                    _bonusHashrate.value = bonusHr
                                 },
                                 onTransactionsUpdated = { acts, payouts ->
                                     if (acts.isNotEmpty()) _activityList.value = acts
@@ -333,16 +414,30 @@ class HashGridViewModel : ViewModel() {
                                 onMinersUpdated = { miners ->
                                     if (miners.isNotEmpty()) {
                                         _activeContracts.value = miners
-                                        _hashPower.value = miners.sumOf { it.hashPowerGh }
+                                        _hashPower.value = miners.sumOf { it.hashPowerGh } + _bonusHashrate.value
                                     }
                                 },
                                 onNotificationsCountUpdated = { count ->
                                     _unreadNotificationsCount.value = count
+                                },
+                                onGridMiningUpdated = { remoteGridBal, remoteActive, _, remoteEnd, remoteBase, _ ->
+                                    if (remoteGridBal > 0.0) {
+                                        _gridCoinBalance.value = remoteGridBal
+                                    }
+                                    _isGridMiningActive.value = remoteActive
+                                    if (remoteEnd > 0L) {
+                                        _miningSessionEndTimestamp.value = remoteEnd
+                                    }
+                                    if (remoteBase > 0.0) {
+                                        _baseGridRate.value = remoteBase
+                                    }
                                 }
                             )
                         } else {
                             _walletBalanceUsdt.value = 0.00
                             _hashPower.value = 0.0
+                            _referralCount.value = 0L
+                            _bonusHashrate.value = 0.0
                             _activeContracts.value = emptyList()
                             _activityList.value = emptyList()
                             _payoutsList.value = emptyList()
@@ -353,7 +448,68 @@ class HashGridViewModel : ViewModel() {
                 }
             } catch (_: Exception) {}
         }
+
+        // Live Cloud Mining Ticks for 30% Contract Work Completion
+        viewModelScope.launch {
+            while (isActive) {
+                delay(3000L)
+                try {
+                    val currentList = _activeContracts.value
+                    if (currentList.isNotEmpty() && currentList.any { it.work_status == "IN_PROGRESS" && it.depositUsdt > 0 }) {
+                        var hasChanges = false
+                        val updatedList = currentList.map { contract ->
+                            if (contract.work_status == "IN_PROGRESS" && contract.depositUsdt > 0) {
+                                hasChanges = true
+                                val microYield = (contract.target_yield_30_percent * 0.006).coerceAtLeast(0.02)
+                                val newYield = contract.current_yield_mined + microYield
+                                val isCompleted = newYield >= contract.target_yield_30_percent
+                                val finalYield = if (isCompleted) contract.target_yield_30_percent else newYield
+                                val progress = ((finalYield / contract.target_yield_30_percent) * 100.0).coerceIn(0.0, 100.0)
+                                val status = if (isCompleted) "COMPLETED" else "IN_PROGRESS"
+
+                                if (isCompleted && contract.work_status != "COMPLETED") {
+                                    _walletBalanceUsdt.value += contract.target_yield_30_percent
+                                    val newAct = ActivityItem(
+                                        id = "act_${System.currentTimeMillis()}",
+                                        title = "+$${String.format(Locale.US, "%.2f", contract.target_yield_30_percent)} USDT",
+                                        subtitle = "${contract.planName} 30% Mining Task Completed! Unlocked for Withdrawal",
+                                        btcAmountStr = "Task Finished",
+                                        usdtAmount = contract.target_yield_30_percent,
+                                        timestampStr = "Just now",
+                                        isCredit = true
+                                    )
+                                    _activityList.value = listOf(newAct) + _activityList.value
+                                }
+
+                                FirebaseSyncService.updateGridContractWorkStatus(
+                                    userId = userId,
+                                    contractId = contract.id,
+                                    currentYieldMined = finalYield,
+                                    taskProgressPct = progress,
+                                    workStatus = status,
+                                    unlockedForWithdrawal = isCompleted
+                                )
+
+                                contract.copy(
+                                    current_yield_mined = finalYield,
+                                    accruedProfitUsdt = finalYield,
+                                    task_progress_pct = progress,
+                                    work_status = status,
+                                    unlocked_for_withdrawal = isCompleted
+                                )
+                            } else {
+                                contract
+                            }
+                        }
+                        if (hasChanges) {
+                            _activeContracts.value = updatedList
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+        }
     }
+
 
     fun setTab(index: Int) {
         _currentTab.value = index
@@ -387,7 +543,31 @@ class HashGridViewModel : ViewModel() {
     }
 
     fun extendMiningSession() {
-        _miningSessionEndTimestamp.value = System.currentTimeMillis() + (24L * 3600 * 1000)
+        activateGridMiningSession()
+    }
+
+    fun activateGridMiningSession() {
+        val base = TokenConfig.getBaseRateForMiners(_globalMinersCount.value)
+        val teamBonus = _activeReferralsMiningNow.value * 0.10
+        val effective = TokenConfig.calculateEffectiveRate(base, _activeReferralsMiningNow.value)
+
+        _baseGridRate.value = base
+        _effectiveGridRate.value = effective
+        _isGridMiningActive.value = true
+
+        val currentServerTime = FirebaseSyncService.getAuthoritativeServerTime()
+        val sessionEnd = currentServerTime + TokenConfig.SESSION_DURATION_MS
+        _miningSessionEndTimestamp.value = sessionEnd
+
+        FirebaseSyncService.startGridMiningSession(
+            userId = userId,
+            baseRate = base,
+            teamBonusRate = teamBonus
+        ) { success, _, end ->
+            if (success) {
+                _miningSessionEndTimestamp.value = end
+            }
+        }
     }
 
     fun getFreeAdCooldownHoursRemaining(): Int {
@@ -443,6 +623,7 @@ class HashGridViewModel : ViewModel() {
         _hashPower.value += plan.hashPowerGh
 
         val minerId = "miner_${UUID.randomUUID().toString().take(6)}"
+        val targetYield30 = plan.minDepositUsdt * 0.30
         val newContract = ActiveContract(
             id = minerId,
             planName = plan.name,
@@ -455,7 +636,13 @@ class HashGridViewModel : ViewModel() {
             dailyYieldUsdt = plan.dailyYieldUsdtEst,
             isRestakeEnabled = false,
             startDateStr = "Today",
-            maturityDateStr = "In ${plan.termDays} Days"
+            maturityDateStr = "In ${plan.termDays} Days",
+            plan_cost = plan.minDepositUsdt,
+            target_yield_30_percent = targetYield30,
+            current_yield_mined = 0.0,
+            task_progress_pct = 0.0,
+            work_status = if (plan.minDepositUsdt > 0) "IN_PROGRESS" else "COMPLETED",
+            unlocked_for_withdrawal = (plan.minDepositUsdt <= 0)
         )
         _activeContracts.value = listOf(newContract) + _activeContracts.value
 
@@ -473,6 +660,11 @@ class HashGridViewModel : ViewModel() {
         // Sync miner & transaction document to Firestore
         FirebaseSyncService.purchaseMiningPlan(userId, plan) {}
         return true
+    }
+
+    fun deployStarterRig(): Boolean {
+        val starterPlan = marketplacePlans.find { it.id == "plan_starter_rig" } ?: return false
+        return activatePlan(starterPlan)
     }
 
     fun toggleRestake(contractId: String) {
@@ -561,6 +753,13 @@ class HashGridViewModel : ViewModel() {
     }
 
     fun requestWithdrawal(amountUsdt: Double, address: String, network: String): String? {
+        val inProgressContract = _activeContracts.value.firstOrNull { it.work_status == "IN_PROGRESS" && it.depositUsdt > 0 }
+        if (inProgressContract != null) {
+            val cur = String.format(Locale.US, "%.2f", inProgressContract.current_yield_mined)
+            val tar = String.format(Locale.US, "%.2f", inProgressContract.target_yield_30_percent)
+            val pct = inProgressContract.task_progress_pct.toInt()
+            return "Task In Progress: $$cur / $$tar USDT ($pct%). Withdrawal unlocks once this grid completes 100% of its 30% mining task."
+        }
         if (amountUsdt < 130.0) {
             return "Minimum withdrawal threshold is 130.00 USDT."
         }
@@ -893,20 +1092,6 @@ class HashGridViewModel : ViewModel() {
         }
     }
 
-    fun signInWithGoogle(context: Context, onComplete: (Result<Unit>) -> Unit) {
-        viewModelScope.launch {
-            val res = AuthService.signInWithGoogleCredential(context)
-            if (res.isSuccess) {
-                val user = res.getOrThrow()
-                FirebaseSyncService.startRealtimeBalanceListener(user.id) { remoteBal ->
-                    _walletBalanceUsdt.value = remoteBal
-                }
-                onComplete(Result.success(Unit))
-            } else {
-                onComplete(Result.failure(res.exceptionOrNull() ?: Exception("Google sign-in failed")))
-            }
-        }
-    }
 
     fun onDirectAuthSuccess(user: User) {
         FirebaseSyncService.startRealtimeBalanceListener(user.id) { remoteBal ->

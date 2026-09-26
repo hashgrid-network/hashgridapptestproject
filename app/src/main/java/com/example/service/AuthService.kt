@@ -4,15 +4,8 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.provider.Settings
 import com.example.model.User
-import com.google.android.libraries.identity.googleid.GetGoogleIdOption
-import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
-import androidx.credentials.CredentialManager
-import androidx.credentials.GetCredentialRequest
-import androidx.credentials.GetCredentialResponse
-import androidx.credentials.exceptions.GetCredentialCancellationException
 import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.auth.GoogleAuthProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -53,7 +46,13 @@ object AuthService {
     private const val KEY_IS_FLAGGED_DUPLICATE = "is_flagged_duplicate"
     private const val KEY_SAVED_USERS_JSON = "saved_users_json"
 
+    private const val KEY_REFERRED_BY = "referred_by"
+    private const val KEY_REFERRER_UID = "referrer_uid"
+    private const val KEY_REFERRAL_COUNT = "referral_count"
+    private const val KEY_BONUS_HASHRATE = "bonus_hashrate"
+
     private var prefs: SharedPreferences? = null
+    private var appContext: Context? = null
 
     val firebaseAuth: FirebaseAuth?
         get() = try {
@@ -68,8 +67,22 @@ object AuthService {
     private val _isLoggedIn = MutableStateFlow(false)
     val isLoggedIn: StateFlow<Boolean> = _isLoggedIn.asStateFlow()
 
+    fun generateReferralCode(uid: String): String {
+        val sanitized = uid.replace("-", "").filter { it.isLetterOrDigit() }.uppercase()
+        val suffix = if (sanitized.length >= 4) sanitized.takeLast(4) else (sanitized + "7798").take(4)
+        return "HG-$suffix"
+    }
+
+    /**
+     * In-memory device session flag for Bulletproof 2FA verification.
+     * Must be true before entering Dashboard.
+     */
+    var isSession2FAVerified: Boolean = false
+
     fun init(context: Context) {
         try {
+            appContext = context.applicationContext
+            val sessionManager = SessionManager.getInstance(context)
             try {
                 FirebaseApp.initializeApp(context.applicationContext)
             } catch (_: Exception) {}
@@ -88,12 +101,12 @@ object AuthService {
                 null
             }
 
-            if (loggedIn && firebaseUser != null && !firebaseUser.uid.isNullOrBlank()) {
+            if (firebaseUser != null && !firebaseUser.uid.isNullOrBlank()) {
                 val uid = firebaseUser.uid
                 val email = firebaseUser.email ?: currentPrefs?.getString(KEY_USER_EMAIL, "") ?: ""
                 val name = firebaseUser.displayName ?: currentPrefs?.getString(KEY_USER_NAME, "Miner") ?: "Miner"
                 val photoUrl = firebaseUser.photoUrl?.toString() ?: currentPrefs?.getString(KEY_PHOTO_URL, null)
-                val refCode = currentPrefs?.getString(KEY_REFERRAL_CODE, "HG-" + uid.takeLast(4).uppercase()) ?: "HG-7798"
+                val refCode = currentPrefs?.getString(KEY_REFERRAL_CODE, generateReferralCode(uid)) ?: generateReferralCode(uid)
                 val accountId = "HG-" + uid.takeLast(6).uppercase()
 
                 val user = User(
@@ -101,25 +114,47 @@ object AuthService {
                     email = email,
                     role = "user",
                     referralCode = refCode,
+                    referredBy = currentPrefs?.getString(KEY_REFERRED_BY, null),
+                    referrerUid = currentPrefs?.getString(KEY_REFERRER_UID, null),
+                    referralCount = currentPrefs?.getLong(KEY_REFERRAL_COUNT, 0L) ?: 0L,
+                    bonusHashrate = (currentPrefs?.getFloat(KEY_BONUS_HASHRATE, 0.0f) ?: 0.0f).toDouble(),
                     displayName = name,
                     photoUrl = photoUrl,
                     isFlaggedDuplicate = currentPrefs?.getBoolean(KEY_IS_FLAGGED_DUPLICATE, false) ?: false
                 )
 
                 _currentUser.value = user
-                _isLoggedIn.value = true
+                val isVerified = sessionManager.isDeviceVerified(uid)
+                if (isVerified) {
+                    isSession2FAVerified = true
+                    _isLoggedIn.value = true
+                } else {
+                    isSession2FAVerified = false
+                    _isLoggedIn.value = false
+                }
             } else if (loggedIn && !savedUid.isNullOrBlank() && !savedEmail.isNullOrBlank()) {
                 val user = User(
                     id = savedUid,
                     email = savedEmail,
                     role = currentPrefs.getString(KEY_USER_ROLE, "user") ?: "user",
                     referralCode = currentPrefs.getString(KEY_REFERRAL_CODE, "HG-7798") ?: "HG-7798",
+                    referredBy = currentPrefs.getString(KEY_REFERRED_BY, null),
+                    referrerUid = currentPrefs.getString(KEY_REFERRER_UID, null),
+                    referralCount = currentPrefs.getLong(KEY_REFERRAL_COUNT, 0L),
+                    bonusHashrate = currentPrefs.getFloat(KEY_BONUS_HASHRATE, 0.0f).toDouble(),
                     displayName = currentPrefs.getString(KEY_USER_NAME, "Institutional Miner") ?: "Institutional Miner",
                     photoUrl = currentPrefs.getString(KEY_PHOTO_URL, null),
                     isFlaggedDuplicate = currentPrefs.getBoolean(KEY_IS_FLAGGED_DUPLICATE, false)
                 )
                 _currentUser.value = user
-                _isLoggedIn.value = true
+                val isVerified = sessionManager.isDeviceVerified(savedUid)
+                if (isVerified) {
+                    isSession2FAVerified = true
+                    _isLoggedIn.value = true
+                } else {
+                    isSession2FAVerified = false
+                    _isLoggedIn.value = false
+                }
             } else {
                 _currentUser.value = null
                 _isLoggedIn.value = false
@@ -240,6 +275,10 @@ object AuthService {
      * Step 1 Sign-Up with Email + Password.
      * Creates account and returns RequireTotpSetup with generated Base32 secret.
      */
+    /**
+     * Step 1 Sign-Up with Email + Password.
+     * Creates account and returns RequireTotpSetup with generated Base32 secret.
+     */
     suspend fun signUpWithEmail(
         context: Context,
         name: String,
@@ -252,7 +291,7 @@ object AuthService {
         val cleanEmail = email.trim().lowercase()
         val cleanPass = password.trim()
         val cleanConfirm = confirmPass.trim()
-        val cleanRef = referralCode.trim()
+        val cleanRef = referralCode.trim().uppercase()
 
         if (cleanName.isBlank()) {
             return@withContext AuthStepResult.Failure("Please enter your name or username.")
@@ -279,10 +318,48 @@ object AuthService {
                 if (fbUser != null) {
                     val uid = fbUser.uid
                     val accountId = "HG-" + uid.takeLast(6).uppercase()
-                    val assignedRefCode = if (cleanRef.isNotBlank()) cleanRef else "HG-" + uid.takeLast(4).uppercase()
+                    val assignedRefCode = generateReferralCode(uid)
 
-                    FirebaseSyncService.initializeNewUser(uid, cleanEmail, cleanName, null, accountId)
-                    saveUserToRegistry(cleanEmail, cleanPass, accountId, cleanName, assignedRefCode, deviceIdHash, false, uid, generatedSecret)
+                    // Transactional sign-up referral validation with SELF-REFERRAL PREVENTION LOCK
+                    var referredByCode: String? = null
+                    var verifiedReferrerUid: String? = null
+                    var welcomeBonusHashrate = 0.0
+
+                    if (cleanRef.isNotBlank() && !cleanRef.equals(assignedRefCode, ignoreCase = true)) {
+                        val (isValidReferral, referrerUid) = FirebaseSyncService.validateAndApplyReferral(cleanRef, uid)
+                        if (isValidReferral && !referrerUid.isNullOrBlank() && referrerUid != uid) {
+                            referredByCode = cleanRef
+                            verifiedReferrerUid = referrerUid
+                            welcomeBonusHashrate = 1.5 // +1.5 GH/s welcome bonus
+                        }
+                    }
+
+                    FirebaseSyncService.initializeNewUser(
+                        uid = uid,
+                        email = cleanEmail,
+                        displayName = cleanName,
+                        photoUrl = null,
+                        accountId = accountId,
+                        referralCode = assignedRefCode,
+                        referredBy = referredByCode,
+                        referrerUid = verifiedReferrerUid,
+                        welcomeBonusHashrate = welcomeBonusHashrate
+                    )
+
+                    saveUserToRegistry(
+                        email = cleanEmail,
+                        pass = cleanPass,
+                        accountId = accountId,
+                        name = cleanName,
+                        refCode = assignedRefCode,
+                        deviceId = deviceIdHash,
+                        isDuplicate = false,
+                        uid = uid,
+                        totpSecret = generatedSecret,
+                        referredBy = referredByCode,
+                        referrerUid = verifiedReferrerUid,
+                        bonusHashrate = welcomeBonusHashrate
+                    )
 
                     return@withContext AuthStepResult.RequireTotpSetup(
                         uid = uid,
@@ -305,10 +382,47 @@ object AuthService {
 
             val uid = UUID.randomUUID().toString()
             val accountId = "HG-" + uid.takeLast(6).uppercase()
-            val assignedRefCode = if (cleanRef.isNotBlank()) cleanRef else "HG-" + uid.takeLast(4).uppercase()
+            val assignedRefCode = generateReferralCode(uid)
 
-            FirebaseSyncService.initializeNewUser(uid, cleanEmail, cleanName, null, accountId)
-            saveUserToRegistry(cleanEmail, cleanPass, accountId, cleanName, assignedRefCode, deviceIdHash, false, uid, generatedSecret)
+            var referredByCode: String? = null
+            var verifiedReferrerUid: String? = null
+            var welcomeBonusHashrate = 0.0
+
+            if (cleanRef.isNotBlank() && !cleanRef.equals(assignedRefCode, ignoreCase = true)) {
+                val (isValidReferral, referrerUid) = FirebaseSyncService.validateAndApplyReferral(cleanRef, uid)
+                if (isValidReferral && !referrerUid.isNullOrBlank() && referrerUid != uid) {
+                    referredByCode = cleanRef
+                    verifiedReferrerUid = referrerUid
+                    welcomeBonusHashrate = 1.5
+                }
+            }
+
+            FirebaseSyncService.initializeNewUser(
+                uid = uid,
+                email = cleanEmail,
+                displayName = cleanName,
+                photoUrl = null,
+                accountId = accountId,
+                referralCode = assignedRefCode,
+                referredBy = referredByCode,
+                referrerUid = verifiedReferrerUid,
+                welcomeBonusHashrate = welcomeBonusHashrate
+            )
+
+            saveUserToRegistry(
+                email = cleanEmail,
+                pass = cleanPass,
+                accountId = accountId,
+                name = cleanName,
+                refCode = assignedRefCode,
+                deviceId = deviceIdHash,
+                isDuplicate = false,
+                uid = uid,
+                totpSecret = generatedSecret,
+                referredBy = referredByCode,
+                referrerUid = verifiedReferrerUid,
+                bonusHashrate = welcomeBonusHashrate
+            )
 
             AuthStepResult.RequireTotpSetup(
                 uid = uid,
@@ -321,98 +435,6 @@ object AuthService {
         }
     }
 
-    /**
-     * Native Google Sign-In (Auto-authenticated with Google 2FA)
-     */
-    suspend fun signInWithGoogleCredential(
-        context: Context,
-        serverClientId: String = "67298041154-mock-client-id.apps.googleusercontent.com"
-    ): Result<User> = withContext(Dispatchers.IO) {
-        val deviceIdHash = getHashedDeviceId(context)
-
-        try {
-            val credentialManager = try {
-                CredentialManager.create(context)
-            } catch (e: Exception) {
-                return@withContext Result.failure(IllegalArgumentException("Credential Manager is unavailable on this device."))
-            }
-
-            val rawNonce = UUID.randomUUID().toString()
-            val md = MessageDigest.getInstance("SHA-256")
-            val digest = md.digest(rawNonce.toByteArray())
-            val hashedNonce = digest.fold("") { str, it -> str + "%02x".format(it) }
-
-            val googleIdOption = try {
-                GetGoogleIdOption.Builder()
-                    .setFilterByAuthorizedAccounts(false)
-                    .setServerClientId(serverClientId)
-                    .setAutoSelectEnabled(false)
-                    .setNonce(hashedNonce)
-                    .build()
-            } catch (e: Exception) {
-                return@withContext Result.failure(IllegalArgumentException("Failed to configure Google Sign-In: ${e.localizedMessage}"))
-            }
-
-            val request = GetCredentialRequest.Builder()
-                .addCredentialOption(googleIdOption)
-                .build()
-
-            val response: GetCredentialResponse = credentialManager.getCredential(
-                request = request,
-                context = context
-            )
-
-            val credential = response.credential
-            val googleIdTokenCredential = try {
-                GoogleIdTokenCredential.createFrom(credential.data)
-            } catch (e: Exception) {
-                return@withContext Result.failure(IllegalArgumentException("Could not extract Google credentials: ${e.localizedMessage}"))
-            }
-
-            val idToken = googleIdTokenCredential.idToken
-            val googleEmail = googleIdTokenCredential.id
-            val googleName = googleIdTokenCredential.displayName ?: googleEmail.substringBefore("@")
-            val photoUrl = googleIdTokenCredential.profilePictureUri?.toString()
-
-            var uid = UUID.randomUUID().toString()
-            try {
-                val auth = firebaseAuth
-                if (auth != null && !idToken.isNullOrBlank()) {
-                    val firebaseCred = GoogleAuthProvider.getCredential(idToken, null)
-                    val authRes = auth.signInWithCredential(firebaseCred).await()
-                    if (authRes.user != null) {
-                        uid = authRes.user!!.uid
-                    }
-                }
-            } catch (_: Exception) {}
-
-            val accountId = "HG-" + uid.takeLast(6).uppercase()
-            val refCode = "HG-" + uid.takeLast(4).uppercase()
-
-            val existingRemote = FirebaseSyncService.fetchUserData(uid)
-            if (existingRemote == null) {
-                FirebaseSyncService.initializeNewUser(uid, googleEmail, googleName, photoUrl, accountId)
-            }
-
-            val matchedUser = User(
-                id = accountId,
-                email = googleEmail,
-                role = "user",
-                referralCode = refCode,
-                displayName = googleName,
-                photoUrl = photoUrl,
-                isFlaggedDuplicate = false
-            )
-
-            saveUserToRegistry(googleEmail, "oauth_google", accountId, googleName, refCode, deviceIdHash, false, uid, null)
-            setSessionDirect(matchedUser, uid)
-            Result.success(matchedUser)
-        } catch (e: GetCredentialCancellationException) {
-            Result.failure(IllegalArgumentException("Google sign-in was cancelled."))
-        } catch (e: Exception) {
-            Result.failure(IllegalArgumentException(e.localizedMessage ?: "Google sign-in encountered an error. Please try again."))
-        }
-    }
 
     private fun saveUserToRegistry(
         email: String,
@@ -423,7 +445,10 @@ object AuthService {
         deviceId: String,
         isDuplicate: Boolean,
         uid: String,
-        totpSecret: String?
+        totpSecret: String?,
+        referredBy: String? = null,
+        referrerUid: String? = null,
+        bonusHashrate: Double = 0.0
     ) {
         try {
             val usersJson = prefs?.getString(KEY_SAVED_USERS_JSON, "{}") ?: "{}"
@@ -435,6 +460,9 @@ object AuthService {
                 put("name", name)
                 put("role", "user")
                 put("referralCode", refCode)
+                put("referredBy", referredBy ?: "")
+                put("referrerUid", referrerUid ?: "")
+                put("bonusHashrate", bonusHashrate)
                 put("deviceId", deviceId)
                 put("isFlaggedDuplicate", isDuplicate)
                 if (!totpSecret.isNullOrBlank()) {
@@ -459,11 +487,16 @@ object AuthService {
                 ?.putString(KEY_USER_EMAIL, user.email)
                 ?.putString(KEY_USER_ROLE, user.role)
                 ?.putString(KEY_REFERRAL_CODE, user.referralCode)
+                ?.putString(KEY_REFERRED_BY, user.referredBy)
+                ?.putString(KEY_REFERRER_UID, user.referrerUid)
+                ?.putLong(KEY_REFERRAL_COUNT, user.referralCount)
+                ?.putFloat(KEY_BONUS_HASHRATE, user.bonusHashrate.toFloat())
                 ?.putString(KEY_PHOTO_URL, user.photoUrl)
                 ?.putBoolean(KEY_IS_FLAGGED_DUPLICATE, user.isFlaggedDuplicate)
                 ?.apply()
         } catch (_: Exception) {}
 
+        isSession2FAVerified = true
         _currentUser.value = user
         _isLoggedIn.value = true
 
@@ -479,6 +512,10 @@ object AuthService {
 
     fun logout() {
         try {
+            appContext?.let { SessionManager.getInstance(it).clearDeviceSession() }
+        } catch (_: Exception) {}
+
+        try {
             firebaseAuth?.signOut()
         } catch (_: Exception) {}
 
@@ -490,11 +527,16 @@ object AuthService {
                 ?.remove(KEY_USER_EMAIL)
                 ?.remove(KEY_USER_ROLE)
                 ?.remove(KEY_REFERRAL_CODE)
+                ?.remove(KEY_REFERRED_BY)
+                ?.remove(KEY_REFERRER_UID)
+                ?.remove(KEY_REFERRAL_COUNT)
+                ?.remove(KEY_BONUS_HASHRATE)
                 ?.remove(KEY_PHOTO_URL)
                 ?.remove(KEY_IS_FLAGGED_DUPLICATE)
                 ?.apply()
         } catch (_: Exception) {}
 
+        isSession2FAVerified = false
         _currentUser.value = null
         _isLoggedIn.value = false
     }

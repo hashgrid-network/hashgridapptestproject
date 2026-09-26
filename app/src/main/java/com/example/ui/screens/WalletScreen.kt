@@ -348,6 +348,57 @@ fun WalletScreen(
         Spacer(modifier = Modifier.height(14.dp))
 
         // ==========================================
+        // BILINGUAL TASK COMPLETION POLICY CARD
+        // ==========================================
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .border(1.dp, GoldBorder, RoundedCornerShape(18.dp))
+                .testTag("wallet_task_completion_policy_card"),
+            colors = CardDefaults.cardColors(containerColor = ObsidianNavy),
+            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(14.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Shield,
+                        contentDescription = null,
+                        tint = GoldGradientEnd,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Grid Task Completion Policy | ग्रिड कार्य पूर्णता नियम",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = GoldGradientEnd
+                    )
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "Each purchased grid runs on a dedicated cloud hardware allocation until it completes its 30% yield target. Payouts unlock only after the grid finishes its assigned task to prevent premature disruption.",
+                    fontSize = 10.sp,
+                    color = Color.White.copy(alpha = 0.95f),
+                    lineHeight = 14.sp
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "प्रत्येक ग्रिड अपने 30% माइनिंग कार्य को पूरा करने तक निरंतर कार्य करता है। ग्रिड का काम पूरा होते ही विथड्रॉल अनलॉक हो जाता है ताकि आपको पूरा लाभ मिले और सिस्टम की स्थिरता बनी रहे।",
+                    fontSize = 10.sp,
+                    color = GoldLight,
+                    lineHeight = 14.sp
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // ==========================================
         // 3. SUB-TABS: ACTIVITY VS PAYOUTS
         // ==========================================
         TabRow(

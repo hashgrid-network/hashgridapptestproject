@@ -50,12 +50,17 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.filled.Shield
+import com.example.model.ActiveContract
 import com.example.ui.theme.CardWhite
 import com.example.ui.theme.CrimsonRed
 import com.example.ui.theme.GoldBorder
 import com.example.ui.theme.GoldBrush
 import com.example.ui.theme.GoldGradientEnd
 import com.example.ui.theme.GoldLight
+import com.example.ui.theme.MintDark
 import com.example.ui.theme.ObsidianNavy
 import com.example.ui.theme.SlateGray
 import com.example.ui.theme.SlateNavy
@@ -65,6 +70,8 @@ import java.util.Locale
 fun WithdrawModal(
     availableBalanceUsdt: Double,
     lockedAuditBalanceUsdt: Double = 0.0,
+    activeContracts: List<ActiveContract> = emptyList(),
+    withdrawableUnlockedBalanceUsdt: Double = 0.0,
     onDismiss: () -> Unit,
     onSubmitWithdrawal: (Double, String, String) -> String?
 ) {
@@ -75,6 +82,9 @@ fun WithdrawModal(
     var addressInput by remember { mutableStateOf("") }
     var amountInput by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    val inProgressContract = activeContracts.firstOrNull { it.work_status == "IN_PROGRESS" && it.depositUsdt > 0 }
+    val isWithdrawalLocked = inProgressContract != null
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -89,6 +99,7 @@ fun WithdrawModal(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
                     .padding(22.dp)
             ) {
                 // Header
@@ -154,8 +165,31 @@ fun WithdrawModal(
                         )
                     }
 
+                    if (withdrawableUnlockedBalanceUsdt > 0) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Unlocked Task Yield:",
+                                fontSize = 11.sp,
+                                color = MintDark,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "$" + String.format(Locale.US, "%.2f", withdrawableUnlockedBalanceUsdt) + " USDT",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MintDark,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+
                     if (lockedAuditBalanceUsdt > 0) {
-                        Spacer(modifier = Modifier.height(6.dp))
+                        Spacer(modifier = Modifier.height(4.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -173,6 +207,47 @@ fun WithdrawModal(
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFFB45309),
                                 fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+                }
+
+                // Grid Task In Progress Status Pill & Notice
+                if (inProgressContract != null) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xFFFFF7ED))
+                            .border(1.dp, Color(0xFFFDBA74), RoundedCornerShape(12.dp))
+                            .padding(10.dp)
+                    ) {
+                        Column {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(androidx.compose.foundation.shape.CircleShape)
+                                        .background(Color(0xFFEA580C))
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Task In Progress: $${String.format(Locale.US, "%.2f", inProgressContract.current_yield_mined)} / $${String.format(Locale.US, "%.2f", inProgressContract.target_yield_30_percent)} USDT (${inProgressContract.task_progress_pct.toInt()}%)",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = ObsidianNavy,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Withdrawal unlocks once this grid completes 100% of its 30% mining task.",
+                                fontSize = 10.sp,
+                                color = SlateNavy,
+                                fontWeight = FontWeight.Medium
                             )
                         }
                     }
@@ -271,6 +346,57 @@ fun WithdrawModal(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
+                // ==========================================
+                // BILINGUAL TASK COMPLETION POLICY CARD
+                // ==========================================
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .border(1.dp, GoldBorder, RoundedCornerShape(12.dp))
+                        .testTag("task_completion_policy_card"),
+                    colors = CardDefaults.cardColors(containerColor = ObsidianNavy),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Shield,
+                                contentDescription = null,
+                                tint = GoldGradientEnd,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Grid Task Completion Policy | ग्रिड कार्य पूर्णता नियम",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = GoldGradientEnd
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Each purchased grid runs on a dedicated cloud hardware allocation until it completes its 30% yield target. Payouts unlock only after the grid finishes its assigned task to prevent premature disruption.",
+                            fontSize = 10.sp,
+                            color = Color.White.copy(alpha = 0.95f),
+                            lineHeight = 14.sp
+                        )
+                        Spacer(modifier = Modifier.height(5.dp))
+                        Text(
+                            text = "प्रत्येक ग्रिड अपने 30% माइनिंग कार्य को पूरा करने तक निरंतर कार्य करता है। ग्रिड का काम पूरा होते ही विथड्रॉल अनलॉक हो जाता है ताकि आपको पूरा लाभ मिले और सिस्टम की स्थिरता बनी रहे।",
+                            fontSize = 10.sp,
+                            color = GoldLight,
+                            lineHeight = 14.sp
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
                 // Security & Policy Disclaimer
                 Box(
                     modifier = Modifier
@@ -312,6 +438,10 @@ fun WithdrawModal(
                 // Submit Button
                 Button(
                     onClick = {
+                        if (isWithdrawalLocked) {
+                            errorMessage = "Withdrawal unlocks once this grid completes 100% of its 30% mining task."
+                            return@Button
+                        }
                         val amt = amountInput.toDoubleOrNull()
                         if (amt == null) {
                             errorMessage = "Please enter a valid numeric amount."
@@ -324,22 +454,28 @@ fun WithdrawModal(
                             Toast.makeText(context, "Withdrawal queued for 24h review.", Toast.LENGTH_LONG).show()
                         }
                     },
+                    enabled = !isWithdrawalLocked,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp)
                         .clip(RoundedCornerShape(14.dp))
                         .testTag("submit_withdraw_button"),
-                    colors = ButtonDefaults.buttonColors(containerColor = SlateNavy)
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = SlateNavy,
+                        disabledContainerColor = Color(0xFFD1D5DB),
+                        disabledContentColor = Color(0xFF6B7280)
+                    )
                 ) {
                     Text(
-                        text = "REQUEST AUDITED WITHDRAWAL",
+                        text = if (isWithdrawalLocked) "WITHDRAWAL LOCKED (TASK IN PROGRESS)" else "REQUEST AUDITED WITHDRAWAL",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 1.sp,
-                        color = Color.White
+                        color = if (isWithdrawalLocked) Color(0xFF6B7280) else Color.White
                     )
                 }
             }
+
         }
     }
 }

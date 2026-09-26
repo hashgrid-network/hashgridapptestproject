@@ -100,6 +100,7 @@ const val TRC20_ADDRESS = "TJj7G3U8qVSzqcJaxAhQG34ADHihnR6WuD"
 @Composable
 fun DepositModal(
     userId: String,
+    initialAmount: String = "100",
     onDismiss: () -> Unit,
     onDepositSuccess: (Double, String) -> Unit
 ) {
@@ -110,8 +111,8 @@ fun DepositModal(
     val networks = listOf("USDT (TRC-20)", "USDT (BEP-20 / BSC)")
     val networkCodes = listOf("usdttrc20", "usdtbsc")
 
-    var depositAmountInput by remember { mutableStateOf("100") }
-    val quickAmounts = listOf(20, 50, 100, 300, 500, 1000)
+    var depositAmountInput by remember { mutableStateOf(initialAmount) }
+    val quickAmounts = listOf(10, 20, 50, 100, 300, 500, 1000)
 
     var isCreatingPayment by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }

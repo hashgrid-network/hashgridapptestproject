@@ -1,11 +1,18 @@
 package com.example.ui.screens
 
+import android.widget.Toast
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -25,6 +32,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ElectricBolt
 import androidx.compose.material.icons.filled.FlashOn
@@ -40,6 +50,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -54,13 +65,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.example.model.ActiveContract
 import com.example.model.LiveTickerItem
+import com.example.ui.components.LiveCommunityTicker
 import com.example.ui.components.UnifiedCryptoPriceBar
 import com.example.ui.theme.CanvasBackground
 import com.example.ui.theme.CardWhite
@@ -73,6 +88,7 @@ import com.example.ui.theme.MintDark
 import com.example.ui.theme.MintGreen
 import com.example.ui.theme.ObsidianNavy
 import com.example.ui.theme.SlateGray
+import com.example.ui.theme.SlateNavy
 import kotlinx.coroutines.delay
 import java.util.Locale
 import java.util.concurrent.TimeUnit
@@ -85,12 +101,19 @@ fun HomeScreen(
     walletBalanceUsdt: Double = 84.20,
     miningSessionEndTimestampMs: Long = System.currentTimeMillis() + (7L * 60 * 1000 + 45 * 1000),
     liveTickers: List<LiveTickerItem> = emptyList(),
+    activeContracts: List<ActiveContract> = emptyList(),
     onClaimDailySpin: () -> Unit,
     onExtendMining: () -> Unit = {},
     onOpenAuditDossier: () -> Unit,
     onNavigateToPlans: (Int) -> Unit, // 0: marketplace, 1: active
+    onDeployStarterPlan: () -> Unit = {},
+    gridCoinBalance: Double = 24.85,
+    isGridMiningActive: Boolean = true,
+    effectiveGridRate: Double = 1.30,
+    onOpenMiningSheet: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val infiniteTransition = rememberInfiniteTransition(label = "hero_pulse")
     val pulseAlpha by infiniteTransition.animateFloat(
         initialValue = 0.35f,
@@ -246,6 +269,149 @@ fun HomeScreen(
         Spacer(modifier = Modifier.height(12.dp))
 
         // ========================================================
+        // 1B. DUAL WALLET DISPLAY CARDS (USDT & GRID BALANCES)
+        // ========================================================
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            // Card 1: [USDT Balance] -> Withdrawable mining profits from purchased grids
+            Card(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(18.dp))
+                    .border(1.2.dp, GoldBorderSubtle, RoundedCornerShape(18.dp))
+                    .testTag("card_usdt_wallet_balance"),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF101522)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "USDT BALANCE",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = SlateGray,
+                            letterSpacing = 0.8.sp
+                        )
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color(0xFF00C853).copy(alpha = 0.15f))
+                                .border(0.6.dp, Color(0xFF00C853).copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                                .padding(horizontal = 5.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = "WITHDRAWABLE",
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Black,
+                                color = Color(0xFF00E676),
+                                letterSpacing = 0.4.sp
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Text(
+                        text = String.format(Locale.US, "$%.2f", walletBalanceUsdt),
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Black,
+                        fontFamily = FontFamily.Monospace,
+                        color = Color.White
+                    )
+
+                    Spacer(modifier = Modifier.height(3.dp))
+
+                    Text(
+                        text = "Withdrawable mining profits from purchased grids",
+                        fontSize = 9.sp,
+                        color = SlateGray,
+                        lineHeight = 12.5.sp
+                    )
+                }
+            }
+
+            // Card 2: [GRID Balance] -> Pre-launch native token reserve (100% claimable at DEX listing)
+            Card(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(18.dp))
+                    .border(1.2.dp, GoldBorder, RoundedCornerShape(18.dp))
+                    .clickable { onOpenMiningSheet() }
+                    .testTag("card_grid_token_balance"),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF101522)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "GRID BALANCE",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = GoldGradientEnd,
+                            letterSpacing = 0.8.sp
+                        )
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(GoldLight.copy(alpha = 0.15f))
+                                .border(0.6.dp, GoldBorderSubtle, RoundedCornerShape(6.dp))
+                                .padding(horizontal = 5.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = "GENESIS",
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Black,
+                                color = GoldGradientEnd,
+                                letterSpacing = 0.4.sp
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Text(
+                        text = String.format(Locale.US, "%.4f", gridCoinBalance),
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Black,
+                        fontFamily = FontFamily.Monospace,
+                        color = GoldGradientEnd
+                    )
+
+                    Spacer(modifier = Modifier.height(3.dp))
+
+                    Text(
+                        text = "Pre-launch native token reserve (100% claimable at DEX listing)",
+                        fontSize = 9.sp,
+                        color = SlateGray,
+                        lineHeight = 12.5.sp
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // ========================================================
         // 2. PRIMARY MINING POWER HERO CARD (INITIAL VIEWPORT)
         // ========================================================
         Card(
@@ -325,54 +491,243 @@ fun HomeScreen(
 
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    // Aggregate Hashpower Display: "520.87 Gh/s"
-                    Text(
-                        text = "AGGREGATE HASHPOWER",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = SlateGray,
-                        letterSpacing = 1.sp
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Row(
-                        verticalAlignment = Alignment.Bottom
+                    // ========================================================
+                    // 1. PROMINENT 24H "MINE GRID" TAP BUTTON (TOP/CENTER)
+                    // ========================================================
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
+                        Box(
+                            modifier = Modifier
+                                .size(116.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    Brush.radialGradient(
+                                        colors = listOf(
+                                            GoldGradientEnd.copy(alpha = 0.28f * pulseAlpha),
+                                            Color.Transparent
+                                        )
+                                    )
+                                )
+                                .padding(6.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Button(
+                                onClick = {
+                                    onExtendMining()
+                                    onOpenMiningSheet()
+                                    Toast.makeText(context, "⛏️ 24h Node Mining Active (+${String.format(Locale.US, "%.2f", effectiveGridRate)} GRID/hr)!", Toast.LENGTH_SHORT).show()
+                                },
+                                modifier = Modifier
+                                    .size(96.dp)
+                                    .clip(CircleShape)
+                                    .border(2.5.dp, GoldBrush, CircleShape)
+                                    .testTag("mine_grid_tap_button"),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(
+                                            Brush.linearGradient(
+                                                listOf(ObsidianNavy, Color(0xFF1B2333))
+                                            )
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.ElectricBolt,
+                                            contentDescription = "Mine GRID",
+                                            tint = GoldGradientEnd,
+                                            modifier = Modifier.size(28.dp)
+                                        )
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = "MINE GRID",
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.Black,
+                                            letterSpacing = 0.8.sp,
+                                            color = Color.White
+                                        )
+                                        Text(
+                                            text = "24h Session",
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MintGreen
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
                         Text(
-                            text = String.format(Locale.US, "%.2f", hashPower),
-                            fontSize = 38.sp,
-                            fontWeight = FontWeight.Black,
-                            color = ObsidianNavy,
+                            text = "Tap to extend 24h session • Next tap in: $countdownText",
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = SlateGray,
                             fontFamily = FontFamily.Monospace
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Gh/s",
-                            fontSize = 19.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = GoldGradientEnd,
-                            modifier = Modifier.padding(bottom = 6.dp)
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(4.dp))
-                    
-                    // Dual-notation balance display: e.g., "0.000963 BTC (~ $84.20 USDT)"
-                    val btcEquiv = if (btcPrice > 0) walletBalanceUsdt / btcPrice else 0.000963
-                    Text(
-                        text = String.format(
-                            Locale.US,
-                            "Settled Balance: %.6f BTC (~ $%.2f USDT)",
-                            btcEquiv,
-                            walletBalanceUsdt
-                        ),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = SlateGray
-                    )
-
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    // Primary Button: Golden Gradient Pill "Claim Daily Spin / Extend Mining (+2h)"
+                    // Aggregate Hashpower & Settled Balance Display
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "AGGREGATE HASHPOWER",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = SlateGray,
+                                letterSpacing = 1.sp
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Row(verticalAlignment = Alignment.Bottom) {
+                                Text(
+                                    text = String.format(Locale.US, "%.2f", hashPower),
+                                    fontSize = 30.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = ObsidianNavy,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Gh/s",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = GoldGradientEnd,
+                                    modifier = Modifier.padding(bottom = 4.dp)
+                                )
+                            }
+                        }
+
+                        val btcEquiv = if (btcPrice > 0) walletBalanceUsdt / btcPrice else 0.000963
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(
+                                text = "SETTLED BALANCE",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = SlateGray,
+                                letterSpacing = 1.sp
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = String.format(Locale.US, "$%.2f USDT", walletBalanceUsdt),
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Black,
+                                color = MintDark,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Text(
+                                text = String.format(Locale.US, "≈ %.6f BTC", btcEquiv),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = SlateGray
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // ========================================================
+                    // 2. SPEED COMPARISON CHIP
+                    // ========================================================
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .border(0.8.dp, GoldBorderSubtle, RoundedCornerShape(12.dp))
+                            .testTag("speed_comparison_chip"),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F9FA))
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 9.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(7.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFF00C853))
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Current Status: Free Node (0.50 GRID/hr)",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = ObsidianNavy
+                                    )
+                                }
+                                Text(
+                                    text = "FREE",
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = SlateGray,
+                                    letterSpacing = 0.5.sp
+                                )
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(GoldLight)
+                                        .border(0.6.dp, GoldBorderSubtle, RoundedCornerShape(6.dp))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Bolt,
+                                        contentDescription = null,
+                                        tint = GoldGradientEnd,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "Boost Potential: +10 TH/s USDT with $10 Plan",
+                                        fontSize = 10.5.sp,
+                                        fontWeight = FontWeight.Black,
+                                        color = ObsidianNavy
+                                    )
+                                }
+
+                                Text(
+                                    text = "⚡ 20x YIELD",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = MintDark
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Secondary Action: Golden Gradient Pill "Claim Daily Spin / Extend Mining (+2h)"
                     Button(
                         onClick = {
                             onExtendMining()
@@ -380,15 +735,15 @@ fun HomeScreen(
                         },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(48.dp)
-                            .clip(RoundedCornerShape(24.dp))
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(22.dp))
                             .testTag("claim_spin_hero_button"),
                         colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent)
                     ) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(48.dp)
+                                .height(44.dp)
                                 .background(GoldBrush),
                             contentAlignment = Alignment.Center
                         ) {
@@ -399,16 +754,444 @@ fun HomeScreen(
                                     imageVector = Icons.Default.Stars,
                                     contentDescription = null,
                                     tint = ObsidianNavy,
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = "Claim Daily Spin / Extend Mining (+2h)",
-                                    fontSize = 12.sp,
+                                    fontSize = 11.5.sp,
                                     fontWeight = FontWeight.Black,
                                     letterSpacing = 0.3.sp,
                                     color = ObsidianNavy
                                 )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // ========================================================
+        // 2A. SLEEK GOLD-BORDERED STARTER UPGRADE TEASER CARD
+        // ========================================================
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(20.dp))
+                .border(1.5.dp, GoldBorder, RoundedCornerShape(20.dp))
+                .testTag("starter_upgrade_teaser_card"),
+            colors = CardDefaults.cardColors(containerColor = CardWhite),
+            elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        Brush.linearGradient(
+                            listOf(Color.White, Color(0xFFFFFDF8), Color(0xFFFFF9EE))
+                        )
+                    )
+                    .padding(18.dp)
+            ) {
+                Column {
+                    // Header: "⚡ Want Instant USDT Yields?"
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(CircleShape)
+                                    .background(GoldLight),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Bolt,
+                                    contentDescription = null,
+                                    tint = GoldGradientEnd,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "⚡ Want Instant USDT Yields?",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = ObsidianNavy
+                                )
+                                Text(
+                                    text = "INSTANT ACTIVATION • DEDICATED HARDWARE",
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = GoldGradientEnd,
+                                    letterSpacing = 0.5.sp
+                                )
+                            }
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFFE8F8F0))
+                                .border(0.6.dp, MintGreen, RoundedCornerShape(10.dp))
+                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                        ) {
+                            Text(
+                                text = "$10 ENTRY",
+                                fontSize = 9.5.sp,
+                                fontWeight = FontWeight.Black,
+                                color = MintDark
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Sub-text
+                    Text(
+                        text = "Upgrade from free node to Starter Grid for just $10 USDT. Mine real-time withdrawable balance.",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = SlateNavy,
+                        lineHeight = 17.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Value Highlights Row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color(0xFFF4F6F8))
+                                .padding(vertical = 6.dp, horizontal = 4.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "⚡ 10 TH/s Rig",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = ObsidianNavy
+                            )
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color(0xFFF4F6F8))
+                                .padding(vertical = 6.dp, horizontal = 4.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "🎯 $3.00 Task Yield",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = ObsidianNavy
+                            )
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color(0xFFF4F6F8))
+                                .padding(vertical = 6.dp, horizontal = 4.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "🔓 Auto Unlocked",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MintDark
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Action Button: "DEPLOY $10 STARTER RIG (10 TH/s)" -> Directly opens instant deposit/purchase sheet
+                    Button(
+                        onClick = onDeployStarterPlan,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .clip(RoundedCornerShape(24.dp))
+                            .testTag("deploy_starter_rig_button"),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .background(GoldBrush),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.ElectricBolt,
+                                    contentDescription = null,
+                                    tint = ObsidianNavy,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "DEPLOY $10 STARTER RIG (10 TH/s)",
+                                    fontSize = 12.5.sp,
+                                    fontWeight = FontWeight.Black,
+                                    letterSpacing = 0.5.sp,
+                                    color = ObsidianNavy
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                    contentDescription = null,
+                                    tint = ObsidianNavy,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // ========================================================
+        // 2B. DASHBOARD ACTIVE GRIDS RACK (30% WORK-COMPLETION PROGRESS)
+        // ========================================================
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(22.dp))
+                .border(1.dp, GoldBorderSubtle, RoundedCornerShape(22.dp))
+                .testTag("dashboard_active_grids_rack"),
+            colors = CardDefaults.cardColors(containerColor = CardWhite),
+            elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(18.dp)
+            ) {
+                // Header
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clip(CircleShape)
+                                .background(GoldLight),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Memory,
+                                contentDescription = null,
+                                tint = GoldGradientEnd,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "ACTIVE MINING RIGS RACK",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 1.sp,
+                            color = ObsidianNavy
+                        )
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(GoldLight)
+                            .border(0.6.dp, GoldBorderSubtle, RoundedCornerShape(12.dp))
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                    ) {
+                        Text(
+                            text = "${activeContracts.size} Units",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = ObsidianNavy
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                if (activeContracts.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(Color(0xFFF9F7F3))
+                            .border(0.8.dp, GoldBorderSubtle, RoundedCornerShape(14.dp))
+                            .padding(14.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = "No Active Hardware Contracts Deployed",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = ObsidianNavy
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Deploy a dedicated cloud mining grid to begin 30-day yield task completion.",
+                                fontSize = 11.sp,
+                                color = SlateGray,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                lineHeight = 15.sp
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Button(
+                                onClick = { onNavigateToPlans(0) },
+                                modifier = Modifier
+                                    .height(34.dp)
+                                    .clip(RoundedCornerShape(17.dp))
+                                    .testTag("deploy_first_rig_button"),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 0.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .height(34.dp)
+                                        .background(GoldBrush)
+                                        .padding(horizontal = 14.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "Deploy Cloud Mining Rig",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = ObsidianNavy
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        activeContracts.forEach { contract ->
+                            val isCompleted = contract.work_status == "COMPLETED"
+                            val progressFloat = (contract.task_progress_pct / 100.0).coerceIn(0.0, 1.0).toFloat()
+
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(if (isCompleted) Color(0xFFF0FDF4) else Color(0xFFFCFBF9))
+                                    .border(
+                                        width = 1.dp,
+                                        color = if (isCompleted) MintGreen.copy(alpha = 0.6f) else GoldBorderSubtle,
+                                        shape = RoundedCornerShape(14.dp)
+                                    )
+                                    .padding(12.dp)
+                            ) {
+                                Column {
+                                    // Row 1: Plan Title, Tier Badge, & Status Pill
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                text = contract.planName,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Black,
+                                                color = ObsidianNavy
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(6.dp))
+                                                    .background(GoldLight)
+                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                            ) {
+                                                Text(
+                                                    text = "${contract.hashrateThs.toInt()} TH/s Dedicated",
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = GoldGradientEnd
+                                                )
+                                            }
+                                        }
+
+                                        // Status Pill: "🟡 MINING TASK IN PROGRESS" or "🟢 TASK COMPLETED - WITHDRAW READY"
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .background(
+                                                    if (isCompleted) MintGreen.copy(alpha = 0.2f) else Color(0xFFFEF3C7)
+                                                )
+                                                .border(
+                                                    0.6.dp,
+                                                    if (isCompleted) MintDark else Color(0xFFF59E0B),
+                                                    RoundedCornerShape(10.dp)
+                                                )
+                                                .padding(horizontal = 7.dp, vertical = 3.dp)
+                                        ) {
+                                            Text(
+                                                text = if (isCompleted) "🟢 TASK COMPLETED - WITHDRAW READY" else "🟡 MINING TASK IN PROGRESS",
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (isCompleted) MintDark else Color(0xFFB45309)
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(10.dp))
+
+                                    // Row 2: Live Progress Bar towards 30% threshold
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "Task Progress (30% Yield Target):",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = SlateNavy
+                                        )
+                                        Text(
+                                            text = "$${String.format(Locale.US, "%.2f", contract.current_yield_mined)} / $${String.format(Locale.US, "%.2f", contract.target_yield_30_percent)} USDT (${contract.task_progress_pct.toInt()}%)",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isCompleted) MintDark else GoldGradientEnd,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.height(5.dp))
+
+                                    LinearProgressIndicator(
+                                        progress = { progressFloat },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(8.dp)
+                                            .clip(RoundedCornerShape(4.dp)),
+                                        color = if (isCompleted) MintDark else GoldGradientEnd,
+                                        trackColor = Color(0xFFF1ECE4)
+                                    )
+                                }
                             }
                         }
                     }
@@ -638,7 +1421,18 @@ fun HomeScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // ========================================================
+        // 7. LIVE MINING COMMUNITY ACTIVITY TICKER
+        // ========================================================
+        LiveCommunityTicker(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("live_community_activity_ticker")
+        )
+
+        Spacer(modifier = Modifier.height(20.dp))
     }
 
     // PWA Install Instructions Modal
@@ -764,3 +1558,5 @@ fun HomeScreen(
         }
     }
 }
+
+

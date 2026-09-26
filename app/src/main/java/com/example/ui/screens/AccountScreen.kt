@@ -34,16 +34,26 @@ import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.SupportAgent
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.WorkspacePremium
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.window.Dialog
+import com.example.service.SessionManager
+import com.google.firebase.auth.FirebaseAuth
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -88,6 +98,7 @@ fun AccountScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    var showLogoutConfirmation by remember { mutableStateOf(false) }
 
     val initials = if (displayName.isNotBlank()) {
         displayName.split(" ").take(2).mapNotNull { it.firstOrNull()?.uppercase() }.joinToString("")
@@ -592,12 +603,13 @@ fun AccountScreen(
         // 6. LOG OUT ACTION BUTTON
         // ==========================================
         Button(
-            onClick = onLogout,
+            onClick = { showLogoutConfirmation = true },
             modifier = Modifier
                 .fillMaxWidth()
                 .height(48.dp)
                 .clip(RoundedCornerShape(14.dp))
-                .border(1.dp, Color(0xFFFFCCCC), RoundedCornerShape(14.dp)),
+                .border(1.dp, Color(0xFFFFCCCC), RoundedCornerShape(14.dp))
+                .testTag("btn_logout_account"),
             colors = ButtonDefaults.buttonColors(
                 containerColor = Color(0xFFFFF0F0),
                 contentColor = Color(0xFFD32F2F)
@@ -615,7 +627,7 @@ fun AccountScreen(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "LOG OUT OF ACCOUNT",
+                    text = "LOG OUT / EXIT ACCOUNT",
                     fontWeight = FontWeight.Bold,
                     fontSize = 12.sp,
                     letterSpacing = 0.5.sp,
@@ -625,6 +637,113 @@ fun AccountScreen(
         }
 
         Spacer(modifier = Modifier.height(24.dp))
+    }
+
+    // Confirmation Dialog for Explicit Logout
+    if (showLogoutConfirmation) {
+        Dialog(onDismissRequest = { showLogoutConfirmation = false }) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth(0.92f)
+                    .clip(RoundedCornerShape(24.dp))
+                    .border(1.2.dp, GoldBorderSubtle, RoundedCornerShape(24.dp))
+                    .testTag("dialog_logout_confirmation"),
+                colors = CardDefaults.cardColors(containerColor = CardWhite),
+                elevation = CardDefaults.cardElevation(12.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color(0xFFFFF0F0))
+                            .border(1.dp, Color(0xFFFFCCCC), RoundedCornerShape(16.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ExitToApp,
+                            contentDescription = "Log Out",
+                            tint = Color(0xFFD32F2F),
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Text(
+                        text = "Are you sure you want to log out?",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Black,
+                        color = ObsidianNavy,
+                        textAlign = TextAlign.Center
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = "Your persistent trusted-device session will be cleared. You will need to enter your 2FA authentication code to sign in again.",
+                        fontSize = 11.5.sp,
+                        color = SlateGray,
+                        textAlign = TextAlign.Center,
+                        lineHeight = 16.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    Button(
+                        onClick = {
+                            showLogoutConfirmation = false
+                            SessionManager.getInstance(context).clearDeviceSession()
+                            try {
+                                FirebaseAuth.getInstance().signOut()
+                            } catch (_: Exception) {}
+                            onLogout()
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(46.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .testTag("btn_confirm_logout"),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFFD32F2F),
+                            contentColor = Color.White
+                        )
+                    ) {
+                        Text(
+                            text = "LOG OUT / EXIT ACCOUNT",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            letterSpacing = 0.6.sp
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    OutlinedButton(
+                        onClick = { showLogoutConfirmation = false },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(46.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .testTag("btn_cancel_logout"),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = SlateNavy),
+                        border = BorderStroke(1.dp, GoldBorderSubtle)
+                    ) {
+                        Text(
+                            text = "Cancel",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 12.sp,
+                            color = SlateNavy
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 

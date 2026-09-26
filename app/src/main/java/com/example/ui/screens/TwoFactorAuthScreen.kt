@@ -60,6 +60,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.User
 import com.example.service.AuthService
+import com.example.service.SessionManager
 import com.example.service.TotpHelper
 import com.example.ui.theme.CanvasBackground
 import com.example.ui.theme.CardWhite
@@ -78,7 +79,7 @@ fun TwoFactorAuthScreen(
     displayName: String = "Miner",
     totpSecret: String,
     onAuthSuccess: (User) -> Unit,
-    onBackToLogin: () -> Unit,
+    onSignOut: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -88,8 +89,9 @@ fun TwoFactorAuthScreen(
     var isVerifying by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    BackHandler {
-        onBackToLogin()
+    // HARD BACK-PRESS LOCK: User CANNOT press Android physical back button or gesture to escape back to Dashboard or bypass 2FA
+    BackHandler(enabled = true) {
+        // Intentionally no-op: locked to prevent bypassing 2FA
     }
 
     Box(
@@ -262,8 +264,10 @@ fun TwoFactorAuthScreen(
                                     isFlaggedDuplicate = false
                                 )
 
+                                SessionManager.getInstance(context).markDeviceAsVerified(uid)
+                                AuthService.isSession2FAVerified = true
                                 AuthService.setSessionDirect(verifiedUser, uid)
-                                Toast.makeText(context, "Verification Successful! Welcome back.", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Two-Factor Authentication Verified ✅", Toast.LENGTH_SHORT).show()
                                 onAuthSuccess(verifiedUser)
                             } else {
                                 isVerifying = false
@@ -294,16 +298,28 @@ fun TwoFactorAuthScreen(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    Text(
-                        text = "Back to Sign In",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = SlateGray,
+                    // SIGN OUT / SWITCH ACCOUNT (Only valid exit)
+                    Row(
                         modifier = Modifier
-                            .clickable { onBackToLogin() }
+                            .clickable { onSignOut() }
                             .padding(8.dp)
-                            .testTag("btn_challenge_back")
-                    )
+                            .testTag("btn_challenge_sign_out"),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Lock,
+                            contentDescription = null,
+                            tint = SlateGray,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Sign Out / Switch Account",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = SlateGray
+                        )
+                    }
                 }
             }
 

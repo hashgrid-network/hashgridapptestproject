@@ -57,6 +57,10 @@ data class User(
     val email: String = "",
     val role: String = "user",
     val referralCode: String = "",
+    val referredBy: String? = null,
+    val referrerUid: String? = null,
+    val referralCount: Long = 0,
+    val bonusHashrate: Double = 0.0,
     val displayName: String = "Institutional Miner",
     val photoUrl: String? = null,
     val isFlaggedDuplicate: Boolean = false,
@@ -84,19 +88,37 @@ data class MiningPlan(
 data class ActiveContract(
     val id: String,
     val planName: String,
-    val cryptoSymbol: String,
+    val cryptoSymbol: String = "BTC",
     val depositUsdt: Double,
     val hashPowerGh: Double,
-    val elapsedDays: Int,
+    val elapsedDays: Int = 0,
     val totalDays: Int = 30,
-    val accruedProfitUsdt: Double,
-    val dailyYieldUsdt: Double,
+    val accruedProfitUsdt: Double = 0.0,
+    val dailyYieldUsdt: Double = 0.0,
     val isRestakeEnabled: Boolean = false,
-    val startDateStr: String,
-    val maturityDateStr: String,
-    val startTimestampMs: Long = System.currentTimeMillis() - (12L * 24 * 3600 * 1000),
-    val endTimestampMs: Long = System.currentTimeMillis() + (18L * 24 * 3600 * 1000)
-)
+    val startDateStr: String = "Today",
+    val maturityDateStr: String = "30 Days Term",
+    val startTimestampMs: Long = System.currentTimeMillis(),
+    val endTimestampMs: Long = System.currentTimeMillis() + (30L * 24 * 3600 * 1000),
+    val costUsdt: Double = depositUsdt,
+    val hashrateThs: Double = if (hashPowerGh >= 1000) hashPowerGh / 1000.0 else hashPowerGh,
+    val isActive: Boolean = System.currentTimeMillis() < endTimestampMs,
+    // Work Tracker Data Model (30% contract completion rule)
+    val plan_cost: Double = depositUsdt,
+    val target_yield_30_percent: Double = depositUsdt * 0.30,
+    val current_yield_mined: Double = accruedProfitUsdt,
+    val task_progress_pct: Double = if (depositUsdt > 0) ((accruedProfitUsdt / (depositUsdt * 0.30)) * 100.0).coerceIn(0.0, 100.0) else 100.0,
+    val work_status: String = if (accruedProfitUsdt >= (depositUsdt * 0.30) && depositUsdt > 0) "COMPLETED" else if (depositUsdt <= 0) "COMPLETED" else "IN_PROGRESS",
+    val unlocked_for_withdrawal: Boolean = (accruedProfitUsdt >= (depositUsdt * 0.30) || depositUsdt <= 0)
+) {
+    val planCost: Double get() = plan_cost
+    val targetYield30Percent: Double get() = target_yield_30_percent
+    val currentYieldMined: Double get() = current_yield_mined
+    val taskProgressPct: Double get() = task_progress_pct
+    val workStatus: String get() = work_status
+    val unlockedForWithdrawal: Boolean get() = unlocked_for_withdrawal
+}
+
 
 data class ActivityItem(
     val id: String,

@@ -368,17 +368,19 @@ private fun ActiveContractCard(
                             color = ObsidianNavy
                         )
                         Spacer(modifier = Modifier.width(8.dp))
+                        val isTaskCompleted = contract.work_status == "COMPLETED"
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(6.dp))
-                                .background(GoldBrush)
+                                .background(if (isTaskCompleted) MintGreen.copy(alpha = 0.2f) else Color(0xFFFEF3C7))
+                                .border(0.6.dp, if (isTaskCompleted) MintDark else Color(0xFFF59E0B), RoundedCornerShape(6.dp))
                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                         ) {
                             Text(
-                                text = "ACTIVE",
+                                text = if (isTaskCompleted) "🟢 TASK READY" else "🟡 IN PROGRESS",
                                 fontSize = 8.sp,
                                 fontWeight = FontWeight.Black,
-                                color = ObsidianNavy
+                                color = if (isTaskCompleted) MintDark else Color(0xFFB45309)
                             )
                         }
                     }
@@ -403,19 +405,51 @@ private fun ActiveContractCard(
 
             Spacer(modifier = Modifier.height(14.dp))
 
+            // 30% Task Work Target Progress Bar
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "30% Task Work Target",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = ObsidianNavy
+                )
+                Text(
+                    text = "$${String.format(Locale.US, "%.2f", contract.current_yield_mined)} / $${String.format(Locale.US, "%.2f", contract.target_yield_30_percent)} USDT (${contract.task_progress_pct.toInt()}%)",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (contract.work_status == "COMPLETED") MintDark else GoldGradientEnd,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            LinearProgressIndicator(
+                progress = { (contract.task_progress_pct / 100.0).coerceIn(0.0, 1.0).toFloat() },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(4.dp)),
+                color = if (contract.work_status == "COMPLETED") MintDark else GoldGradientEnd,
+                trackColor = Color(0xFFF1ECE4)
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
             // Duration Progress Bar
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = "Day ${contract.elapsedDays} / ${contract.totalDays}",
+                    text = "Contract Term: Day ${contract.elapsedDays} / ${contract.totalDays}",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = ObsidianNavy
                 )
                 Text(
-                    text = "${remainingDays}d 04h remaining",
+                    text = "${remainingDays}d remaining",
                     fontSize = 11.sp,
                     color = SlateGray
                 )

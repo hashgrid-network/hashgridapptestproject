@@ -76,9 +76,19 @@ data class UserRemoteData(
     val btcBalance: Double = 0.0,
     val hashRate: Double = 0.0,
     val totalWithdrawn: Double = 0.0,
+    val referralCount: Long = 0,
+    val bonusHashrate: Double = 0.0,
+    val referralCode: String = "",
+    val referredBy: String? = null,
     val kycStatus: String = "UNVERIFIED",
     val twoFactorEnabled: Boolean = false,
-    val activityLogs: List<ActivityItem> = emptyList()
+    val activityLogs: List<ActivityItem> = emptyList(),
+    val gridCoinBalance: Double = 0.0,
+    val gridMiningActive: Boolean = false,
+    val gridSessionStart: Long = 0L,
+    val gridSessionEnd: Long = 0L,
+    val appliedBaseRate: Double = 1.0,
+    val activeTeamBonus: Double = 0.0
 )
 
 object FirebaseSyncService {
@@ -150,11 +160,19 @@ object FirebaseSyncService {
                         val hr = obj.optDouble("hash_rate", 0.0)
                         val kyc = obj.optString("kyc_status", "UNVERIFIED")
                         val twoFa = obj.optBoolean("two_factor_enabled", false)
+                        val refCount = obj.optLong("referral_count", 0L)
+                        val bonusHr = obj.optDouble("bonus_hashrate", 0.0)
+                        val refCode = obj.optString("referral_code", "")
+                        val refBy = obj.optString("referred_by", null)
                         UserRemoteData(
                             usdtBalance = usdt,
                             btcBalance = btc,
                             hashRate = hr,
                             totalWithdrawn = withdrawn,
+                            referralCount = refCount,
+                            bonusHashrate = bonusHr,
+                            referralCode = refCode,
+                            referredBy = refBy,
                             kycStatus = kyc,
                             twoFactorEnabled = twoFa
                         )
@@ -167,6 +185,47 @@ object FirebaseSyncService {
     }
 
     /**
+     * Validates referral code in Firestore transactional/query lookup
+     * Returns Pair(isValid, referrerUid) and updates referrer atomically (+1 referral_count, +1.5 GH/s bonus)
+     */
+    suspend fun validateAndApplyReferral(cleanCode: String, newUid: String): Pair<Boolean, String?> = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        val uppercaseCode = cleanCode.trim().uppercase()
+        if (uppercaseCode.isBlank()) return@withContext Pair(false, null)
+
+        try {
+            val db = firestore
+            if (db != null) {
+                val querySnap = db.collection("users")
+                    .whereEqualTo("referral_code", uppercaseCode)
+                    .limit(1)
+                    .get()
+                    .await()
+
+                if (!querySnap.isEmpty) {
+                    val referrerDoc = querySnap.documents[0]
+                    val referrerUid = referrerDoc.getString("uid") ?: referrerDoc.id
+
+                    // Bulletproof Self-referral prevention lock
+                    if (referrerUid.isNotBlank() && referrerUid != newUid && referrerDoc.id != newUid) {
+                        try {
+                            db.collection("users").document(referrerUid).update(
+                                "referral_count", FieldValue.increment(1),
+                                "bonus_hashrate", FieldValue.increment(1.5),
+                                "hash_rate", FieldValue.increment(1.5)
+                            )
+                        } catch (_: Exception) {}
+                        return@withContext Pair(true, referrerUid)
+                    } else {
+                        // Matching self-referral is explicitly rejected
+                        return@withContext Pair(false, null)
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        Pair(false, null)
+    }
+
+    /**
      * Initializes a NEW user document in Firestore and Firebase RTDB /users/{uid}
      */
     fun initializeNewUser(
@@ -174,10 +233,15 @@ object FirebaseSyncService {
         email: String,
         displayName: String,
         photoUrl: String?,
-        accountId: String
+        accountId: String,
+        referralCode: String = "",
+        referredBy: String? = null,
+        referrerUid: String? = null,
+        welcomeBonusHashrate: Double = 0.0
     ) {
         scope.launch {
             val safeKey = sanitizeKey(uid)
+            val assignedRefCode = if (referralCode.isNotBlank()) referralCode else "HG-" + uid.replace("-", "").takeLast(4).uppercase()
             try {
                 // 1. Initialize in Firestore /users/{uid}
                 val firestoreMap = hashMapOf<String, Any>(
@@ -186,10 +250,15 @@ object FirebaseSyncService {
                     "displayName" to displayName,
                     "photoUrl" to (photoUrl ?: ""),
                     "accountId" to accountId,
+                    "referral_code" to assignedRefCode,
+                    "referred_by" to (referredBy ?: ""),
+                    "referrer_uid" to (referrerUid ?: ""),
+                    "referral_count" to 0L,
+                    "bonus_hashrate" to welcomeBonusHashrate,
                     "usdt_balance" to 0.00,
                     "btc_balance" to 0.000000,
                     "total_withdrawn" to 0.00,
-                    "hash_rate" to 0.0,
+                    "hash_rate" to welcomeBonusHashrate,
                     "kyc_status" to "UNVERIFIED",
                     "two_factor_enabled" to false,
                     "created_at" to FieldValue.serverTimestamp(),
@@ -204,14 +273,19 @@ object FirebaseSyncService {
                     put("displayName", displayName)
                     put("photoUrl", photoUrl ?: "")
                     put("accountId", accountId)
+                    put("referral_code", assignedRefCode)
+                    put("referred_by", referredBy ?: "")
+                    put("referrer_uid", referrerUid ?: "")
+                    put("referral_count", 0)
+                    put("bonus_hashrate", welcomeBonusHashrate)
                     put("usdt_balance", 0.00)
                     put("btc_balance", 0.000000)
                     put("total_withdrawn", 0.00)
-                    put("hash_rate", 0.0)
+                    put("hash_rate", welcomeBonusHashrate)
                     put("kyc_status", "UNVERIFIED")
                     put("two_factor_enabled", false)
                     put("walletBalance", 0.00)
-                    put("miningRate", "0.00 GH/s")
+                    put("miningRate", "${welcomeBonusHashrate} GH/s")
                     put("created_at", getCurrentTimestamp())
                     put("lastActive", getCurrentTimestamp())
                 }
@@ -370,34 +444,53 @@ object FirebaseSyncService {
         onComplete: (Boolean) -> Unit
     ) {
         scope.launch {
-            val minerId = "miner_" + System.currentTimeMillis().toString().takeLast(8)
+            val contractId = "grid_" + System.currentTimeMillis().toString().takeLast(8) + "_" + UUID.randomUUID().toString().take(4)
             val nowStr = getCurrentTimestamp()
+            val purchasedAtMs = System.currentTimeMillis()
+            val expiresAtMs = purchasedAtMs + (30L * 24 * 3600 * 1000)
+            val hashrateThs = if (plan.hashPowerGh >= 1000) plan.hashPowerGh / 1000.0 else plan.hashPowerGh
 
             try {
-                // 1. Add miner record under /users/{uid}/miners
-                val minerDoc = hashMapOf<String, Any>(
-                    "id" to minerId,
+                val targetYield30 = plan.minDepositUsdt * 0.30
+                val gridContractDoc = hashMapOf<String, Any>(
+                    "contract_id" to contractId,
+                    "id" to contractId,
+                    "plan_name" to plan.name,
                     "planId" to plan.id,
-                    "planName" to plan.name,
-                    "cryptoSymbol" to plan.cryptoSymbol,
+                    "cost_usdt" to plan.minDepositUsdt,
                     "depositUsdt" to plan.minDepositUsdt,
+                    "plan_cost" to plan.minDepositUsdt,
+                    "target_yield_30_percent" to targetYield30,
+                    "current_yield_mined" to 0.0,
+                    "task_progress_pct" to 0.0,
+                    "work_status" to if (plan.minDepositUsdt > 0) "IN_PROGRESS" else "COMPLETED",
+                    "unlocked_for_withdrawal" to (plan.minDepositUsdt <= 0),
+                    "hashrate_ths" to hashrateThs,
                     "hashPowerGh" to plan.hashPowerGh,
+                    "purchased_at" to FieldValue.serverTimestamp(),
+                    "purchased_at_ms" to purchasedAtMs,
+                    "expires_at" to FieldValue.serverTimestamp(),
+                    "expires_at_ms" to expiresAtMs,
+                    "is_active" to true,
                     "elapsedDays" to 0,
                     "totalDays" to plan.termDays,
                     "dailyYieldUsdt" to plan.dailyYieldUsdtEst,
                     "isRestakeEnabled" to false,
+                    "cryptoSymbol" to plan.cryptoSymbol,
                     "startDateStr" to nowStr,
-                    "createdAt" to FieldValue.serverTimestamp()
+                    "maturityDateStr" to "30 Days Term"
                 )
-                firestore?.collection("users")?.document(userId)?.collection("miners")?.document(minerId)?.set(minerDoc)
+
+                firestore?.collection("users")?.document(userId)?.collection("grid_contracts")?.document(contractId)?.set(gridContractDoc)
+                firestore?.collection("users")?.document(userId)?.collection("miners")?.document(contractId)?.set(gridContractDoc)
 
                 // 2. Add transaction record under /users/{uid}/transactions
                 if (plan.minDepositUsdt > 0) {
                     val txDoc = hashMapOf<String, Any>(
                         "id" to "act_${System.currentTimeMillis()}",
                         "title" to "-$${String.format(Locale.US, "%.2f", plan.minDepositUsdt)} USDT",
-                        "subtitle" to "Activated: ${plan.name}",
-                        "btcAmountStr" to "",
+                        "subtitle" to "Activated: ${plan.name} (${hashrateThs.toInt()} TH/s)",
+                        "btcAmountStr" to "${hashrateThs.toInt()} TH/s Added",
                         "usdtAmount" to plan.minDepositUsdt,
                         "isCredit" to false,
                         "type" to "PLAN_PURCHASE",
@@ -407,12 +500,18 @@ object FirebaseSyncService {
                     )
                     firestore?.collection("users")?.document(userId)?.collection("transactions")?.document("act_${System.currentTimeMillis()}")?.set(txDoc)
 
-                    // 3. Deduct USDT balance in Firestore
-                    firestore?.collection("users")?.document(userId)?.update("usdt_balance", FieldValue.increment(-plan.minDepositUsdt))
+                    // 3. Deduct USDT balance in Firestore & increment active investment sum
+                    firestore?.collection("users")?.document(userId)?.update(
+                        "usdt_balance", FieldValue.increment(-plan.minDepositUsdt),
+                        "active_investment_sum", FieldValue.increment(plan.minDepositUsdt)
+                    )
                 }
 
-                // 4. Update hashpower in Firestore
-                firestore?.collection("users")?.document(userId)?.update("hash_rate", FieldValue.increment(plan.hashPowerGh))
+                // 4. Update hashpower and total_active_grid_power in Firestore
+                firestore?.collection("users")?.document(userId)?.update(
+                    "hash_rate", FieldValue.increment(plan.hashPowerGh),
+                    "total_active_grid_power", FieldValue.increment(hashrateThs)
+                )
 
                 onComplete(true)
             } catch (_: Exception) {
@@ -473,15 +572,123 @@ object FirebaseSyncService {
         }
     }
 
+    // Authoritative Server Time Offset (delta between Firestore server time and local device clock)
+    private var serverTimeOffsetMs: Long = 0L
+
+    fun getAuthoritativeServerTime(): Long {
+        return System.currentTimeMillis() + serverTimeOffsetMs
+    }
+
+    suspend fun syncServerTimeOffset(): Long = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        try {
+            val docRef = firestore?.collection("_system_time")?.document("ping")
+            val before = System.currentTimeMillis()
+            docRef?.set(mapOf("ping" to FieldValue.serverTimestamp()))?.await()
+            val snap = docRef?.get()?.await()
+            val serverDate = snap?.getDate("ping")
+            if (serverDate != null) {
+                val after = System.currentTimeMillis()
+                val latency = (after - before) / 2
+                val serverTime = serverDate.time + latency
+                serverTimeOffsetMs = serverTime - System.currentTimeMillis()
+                return@withContext getAuthoritativeServerTime()
+            }
+        } catch (_: Exception) {}
+        System.currentTimeMillis() + serverTimeOffsetMs
+    }
+
+    /**
+     * Activates 24-hour GRID mining session with server timestamp anti-cheat guard.
+     */
+    fun startGridMiningSession(
+        userId: String,
+        baseRate: Double = com.example.model.TokenConfig.BASE_RATE_PER_HOUR,
+        teamBonusRate: Double = 0.0,
+        onComplete: ((Boolean, Long, Long) -> Unit)? = null
+    ) {
+        scope.launch {
+            try {
+                val currentServerTime = syncServerTimeOffset()
+                val sessionEnd = currentServerTime + com.example.model.TokenConfig.SESSION_DURATION_MS
+
+                val updateMap = hashMapOf<String, Any>(
+                    "grid_mining_active" to true,
+                    "session_start_server" to FieldValue.serverTimestamp(),
+                    "grid_session_start" to currentServerTime,
+                    "grid_session_end" to sessionEnd,
+                    "applied_base_rate" to baseRate,
+                    "active_team_bonus" to teamBonusRate
+                )
+
+                firestore?.collection("users")?.document(userId)?.set(updateMap, SetOptions.merge())?.await()
+
+                val safeKey = sanitizeKey(userId)
+                val patchJson = JSONObject().apply {
+                    put("grid_mining_active", true)
+                    put("grid_session_start", currentServerTime)
+                    put("grid_session_end", sessionEnd)
+                    put("applied_base_rate", baseRate)
+                    put("active_team_bonus", teamBonusRate)
+                }
+                val url = "$firebaseDatabaseUrl/users/$safeKey.json"
+                val body = patchJson.toString().toRequestBody(jsonMediaType)
+                val request = Request.Builder().url(url).patch(body).build()
+                httpClient.newCall(request).execute().close()
+
+                onComplete?.invoke(true, currentServerTime, sessionEnd)
+            } catch (_: Exception) {
+                val fallbackStart = System.currentTimeMillis()
+                val fallbackEnd = fallbackStart + com.example.model.TokenConfig.SESSION_DURATION_MS
+                onComplete?.invoke(false, fallbackStart, fallbackEnd)
+            }
+        }
+    }
+
+    /**
+     * Updates GRID balance and mining active state with server verification.
+     */
+    fun updateGridCoinBalance(
+        userId: String,
+        newBalance: Double,
+        active: Boolean,
+        onComplete: ((Boolean) -> Unit)? = null
+    ) {
+        scope.launch {
+            try {
+                val updateMap = hashMapOf<String, Any>(
+                    "grid_coin_balance" to newBalance,
+                    "grid_mining_active" to active,
+                    "last_claim_server" to FieldValue.serverTimestamp()
+                )
+                firestore?.collection("users")?.document(userId)?.set(updateMap, SetOptions.merge())?.await()
+
+                val safeKey = sanitizeKey(userId)
+                val patchJson = JSONObject().apply {
+                    put("grid_coin_balance", newBalance)
+                    put("grid_mining_active", active)
+                }
+                val url = "$firebaseDatabaseUrl/users/$safeKey.json"
+                val body = patchJson.toString().toRequestBody(jsonMediaType)
+                val request = Request.Builder().url(url).patch(body).build()
+                httpClient.newCall(request).execute().close()
+
+                onComplete?.invoke(true)
+            } catch (_: Exception) {
+                onComplete?.invoke(false)
+            }
+        }
+    }
+
     /**
      * Listen to Firestore user document & subcollections
      */
     fun listenFirestoreUser(
         userId: String,
-        onProfileUpdated: (Double, String, Boolean) -> Unit,
+        onProfileUpdated: (Double, String, Boolean, Long, Double, String) -> Unit,
         onTransactionsUpdated: (List<ActivityItem>, List<PayoutItem>) -> Unit,
         onMinersUpdated: (List<ActiveContract>) -> Unit,
-        onNotificationsCountUpdated: (Int) -> Unit
+        onNotificationsCountUpdated: (Int) -> Unit,
+        onGridMiningUpdated: ((Double, Boolean, Long, Long, Double, Double) -> Unit)? = null
     ) {
         if (userId.isBlank()) return
 
@@ -495,7 +702,18 @@ object FirebaseSyncService {
                         val bal = snapshot.getDouble("usdt_balance") ?: 0.00
                         val kyc = snapshot.getString("kyc_status") ?: "UNVERIFIED"
                         val twoFa = snapshot.getBoolean("two_factor_enabled") ?: false
-                        onProfileUpdated(bal, kyc, twoFa)
+                        val refCount = snapshot.getLong("referral_count") ?: 0L
+                        val bonusHr = snapshot.getDouble("bonus_hashrate") ?: 0.0
+                        val refCode = snapshot.getString("referral_code") ?: ""
+                        onProfileUpdated(bal, kyc, twoFa, refCount, bonusHr, refCode)
+
+                        val gridBal = snapshot.getDouble("grid_coin_balance") ?: 0.0
+                        val gridActive = snapshot.getBoolean("grid_mining_active") ?: false
+                        val gridStart = snapshot.getLong("grid_session_start") ?: 0L
+                        val gridEnd = snapshot.getLong("grid_session_end") ?: 0L
+                        val appliedBase = snapshot.getDouble("applied_base_rate") ?: 1.0
+                        val teamBonus = snapshot.getDouble("active_team_bonus") ?: 0.0
+                        onGridMiningUpdated?.invoke(gridBal, gridActive, gridStart, gridEnd, appliedBase, teamBonus)
                     }
                 }
 
@@ -553,22 +771,35 @@ object FirebaseSyncService {
                     }
                 }
 
-            // 3. Miners subcollection listener (/users/{uid}/miners)
-            db.collection("users").document(userId).collection("miners")
+            // 3. Multi-Grid contracts subcollection listener (/users/{uid}/grid_contracts)
+            db.collection("users").document(userId).collection("grid_contracts")
                 .addSnapshotListener { snapshot, _ ->
-                    if (snapshot != null) {
+                    if (snapshot != null && !snapshot.isEmpty) {
                         val contracts = mutableListOf<ActiveContract>()
+                        val now = System.currentTimeMillis()
                         for (doc in snapshot.documents) {
-                            val id = doc.getString("id") ?: doc.id
-                            val planName = doc.getString("planName") ?: "Mining Node"
+                            val id = doc.getString("contract_id") ?: doc.getString("id") ?: doc.id
+                            val planName = doc.getString("plan_name") ?: doc.getString("planName") ?: "Starter Grid"
                             val cryptoSymbol = doc.getString("cryptoSymbol") ?: "BTC"
-                            val depositUsdt = doc.getDouble("depositUsdt") ?: 0.0
-                            val hashPowerGh = doc.getDouble("hashPowerGh") ?: 0.0
-                            val elapsedDays = doc.getLong("elapsedDays")?.toInt() ?: 0
+                            val depositUsdt = doc.getDouble("cost_usdt") ?: doc.getDouble("depositUsdt") ?: 10.0
+                            val planCost = doc.getDouble("plan_cost") ?: depositUsdt
+                            val targetYield30 = doc.getDouble("target_yield_30_percent") ?: (planCost * 0.30)
+                            val hashPowerGh = doc.getDouble("hashPowerGh") ?: ((doc.getDouble("hashrate_ths") ?: 10.0) * 1000.0)
+                            val hashrateThs = doc.getDouble("hashrate_ths") ?: (hashPowerGh / 1000.0)
                             val totalDays = doc.getLong("totalDays")?.toInt() ?: 30
-                            val dailyYieldUsdt = doc.getDouble("dailyYieldUsdt") ?: 0.0
+                            val dailyYieldUsdt = doc.getDouble("dailyYieldUsdt") ?: (depositUsdt * 0.005)
                             val isRestake = doc.getBoolean("isRestakeEnabled") ?: false
                             val startDateStr = doc.getString("startDateStr") ?: "Active"
+                            val maturityDateStr = doc.getString("maturityDateStr") ?: "30 Days Term"
+                            val startMs = doc.getLong("purchased_at_ms") ?: now
+                            val endMs = doc.getLong("expires_at_ms") ?: (startMs + (totalDays * 24L * 3600 * 1000))
+                            val isActive = doc.getBoolean("is_active") ?: (now < endMs)
+                            val elapsedDays = ((now - startMs) / (24L * 3600 * 1000)).toInt().coerceIn(0, totalDays)
+
+                            val currentYield = doc.getDouble("current_yield_mined") ?: doc.getDouble("accruedProfitUsdt") ?: (dailyYieldUsdt * elapsedDays)
+                            val taskProgress = doc.getDouble("task_progress_pct") ?: if (targetYield30 > 0) ((currentYield / targetYield30) * 100.0).coerceIn(0.0, 100.0) else 100.0
+                            val workStatus = doc.getString("work_status") ?: (if (currentYield >= targetYield30 && targetYield30 > 0) "COMPLETED" else if (planCost <= 0) "COMPLETED" else "IN_PROGRESS")
+                            val unlocked = doc.getBoolean("unlocked_for_withdrawal") ?: (workStatus == "COMPLETED")
 
                             contracts.add(
                                 ActiveContract(
@@ -579,15 +810,83 @@ object FirebaseSyncService {
                                     hashPowerGh = hashPowerGh,
                                     elapsedDays = elapsedDays,
                                     totalDays = totalDays,
-                                    accruedProfitUsdt = dailyYieldUsdt * elapsedDays,
+                                    accruedProfitUsdt = currentYield,
                                     dailyYieldUsdt = dailyYieldUsdt,
                                     isRestakeEnabled = isRestake,
                                     startDateStr = startDateStr,
-                                    maturityDateStr = "30 Days Term"
+                                    maturityDateStr = maturityDateStr,
+                                    startTimestampMs = startMs,
+                                    endTimestampMs = endMs,
+                                    costUsdt = depositUsdt,
+                                    hashrateThs = hashrateThs,
+                                    isActive = isActive,
+                                    plan_cost = planCost,
+                                    target_yield_30_percent = targetYield30,
+                                    current_yield_mined = currentYield,
+                                    task_progress_pct = taskProgress,
+                                    work_status = workStatus,
+                                    unlocked_for_withdrawal = unlocked
                                 )
                             )
                         }
                         onMinersUpdated(contracts)
+                    } else {
+                        // Fallback check miners subcollection
+                        db.collection("users").document(userId).collection("miners")
+                            .get().addOnSuccessListener { minerSnap ->
+                                if (minerSnap != null && !minerSnap.isEmpty) {
+                                    val fallbackContracts = mutableListOf<ActiveContract>()
+                                    val now = System.currentTimeMillis()
+                                    for (doc in minerSnap.documents) {
+                                        val id = doc.getString("contract_id") ?: doc.getString("id") ?: doc.id
+                                        val planName = doc.getString("plan_name") ?: doc.getString("planName") ?: "Mining Rig"
+                                        val depositUsdt = doc.getDouble("cost_usdt") ?: doc.getDouble("depositUsdt") ?: 10.0
+                                        val planCost = doc.getDouble("plan_cost") ?: depositUsdt
+                                        val targetYield30 = doc.getDouble("target_yield_30_percent") ?: (planCost * 0.30)
+                                        val hashPowerGh = doc.getDouble("hashPowerGh") ?: 10000.0
+                                        val hashrateThs = doc.getDouble("hashrate_ths") ?: (hashPowerGh / 1000.0)
+                                        val startMs = doc.getLong("purchased_at_ms") ?: now
+                                        val endMs = doc.getLong("expires_at_ms") ?: (startMs + (30L * 24 * 3600 * 1000))
+                                        val dailyYieldUsdt = doc.getDouble("dailyYieldUsdt") ?: 0.5
+                                        val elapsedDays = ((now - startMs) / (24L * 3600 * 1000)).toInt().coerceIn(0, 30)
+
+                                        val currentYield = doc.getDouble("current_yield_mined") ?: doc.getDouble("accruedProfitUsdt") ?: (dailyYieldUsdt * elapsedDays)
+                                        val taskProgress = doc.getDouble("task_progress_pct") ?: if (targetYield30 > 0) ((currentYield / targetYield30) * 100.0).coerceIn(0.0, 100.0) else 100.0
+                                        val workStatus = doc.getString("work_status") ?: (if (currentYield >= targetYield30 && targetYield30 > 0) "COMPLETED" else if (planCost <= 0) "COMPLETED" else "IN_PROGRESS")
+                                        val unlocked = doc.getBoolean("unlocked_for_withdrawal") ?: (workStatus == "COMPLETED")
+
+                                        fallbackContracts.add(
+                                            ActiveContract(
+                                                id = id,
+                                                planName = planName,
+                                                cryptoSymbol = doc.getString("cryptoSymbol") ?: "BTC",
+                                                depositUsdt = depositUsdt,
+                                                hashPowerGh = hashPowerGh,
+                                                elapsedDays = elapsedDays,
+                                                totalDays = 30,
+                                                accruedProfitUsdt = currentYield,
+                                                dailyYieldUsdt = dailyYieldUsdt,
+                                                isRestakeEnabled = doc.getBoolean("isRestakeEnabled") ?: false,
+                                                startDateStr = doc.getString("startDateStr") ?: "Active",
+                                                maturityDateStr = "30 Days Term",
+                                                startTimestampMs = startMs,
+                                                endTimestampMs = endMs,
+                                                costUsdt = depositUsdt,
+                                                hashrateThs = hashrateThs,
+                                                isActive = now < endMs,
+                                                plan_cost = planCost,
+                                                target_yield_30_percent = targetYield30,
+                                                current_yield_mined = currentYield,
+                                                task_progress_pct = taskProgress,
+                                                work_status = workStatus,
+                                                unlocked_for_withdrawal = unlocked
+                                            )
+                                        )
+                                    }
+                                    onMinersUpdated(fallbackContracts)
+                                }
+                            }
+
                     }
                 }
 
@@ -890,4 +1189,32 @@ object FirebaseSyncService {
         } catch (_: Exception) {}
         Pair(false, null)
     }
+
+    /**
+     * Updates work status & mining progress for a grid contract
+     */
+    fun updateGridContractWorkStatus(
+        userId: String,
+        contractId: String,
+        currentYieldMined: Double,
+        taskProgressPct: Double,
+        workStatus: String,
+        unlockedForWithdrawal: Boolean
+    ) {
+        if (userId.isBlank() || contractId.isBlank()) return
+        scope.launch {
+            try {
+                val updates = hashMapOf<String, Any>(
+                    "current_yield_mined" to currentYieldMined,
+                    "task_progress_pct" to taskProgressPct,
+                    "work_status" to workStatus,
+                    "unlocked_for_withdrawal" to unlockedForWithdrawal,
+                    "accruedProfitUsdt" to currentYieldMined
+                )
+                firestore?.collection("users")?.document(userId)?.collection("grid_contracts")?.document(contractId)?.update(updates)
+                firestore?.collection("users")?.document(userId)?.collection("miners")?.document(contractId)?.update(updates)
+            } catch (_: Exception) {}
+        }
+    }
 }
+

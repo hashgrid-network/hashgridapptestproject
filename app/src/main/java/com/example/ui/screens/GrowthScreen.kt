@@ -77,9 +77,14 @@ import com.example.ui.theme.SlateGray
 import com.example.ui.theme.SlateNavy
 import java.util.Locale
 
+import android.content.Intent
+import androidx.compose.material.icons.filled.ContentCopy
+
 @Composable
 fun GrowthScreen(
     referralCode: String,
+    referralCount: Long = 0L,
+    bonusHashrate: Double = 0.0,
     bountyTasks: List<BountyTask>,
     freeAdCooldownHours: Int,
     onClaimFreeAdSession: () -> Pair<Boolean, String>,
@@ -100,7 +105,7 @@ fun GrowthScreen(
             .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
         // ==========================================
-        // 1. TOP EARNINGS HEADER
+        // 1. TOP EARNINGS & LIVE STATS HEADER
         // ==========================================
         Card(
             modifier = Modifier
@@ -131,9 +136,10 @@ fun GrowthScreen(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Row(verticalAlignment = Alignment.Bottom) {
+                            val totalRewardUsdt = 142.50 + (referralCount * 1.50)
                             Text(
-                                text = "$142.50",
-                                fontSize = 34.sp,
+                                text = "$${String.format(Locale.US, "%.2f", totalRewardUsdt)}",
+                                fontSize = 32.sp,
                                 fontWeight = FontWeight.Black,
                                 color = ObsidianNavy,
                                 fontFamily = FontFamily.Monospace
@@ -179,8 +185,8 @@ fun GrowthScreen(
                             .padding(10.dp)
                     ) {
                         Column {
-                            Text("Direct VIP Partners", fontSize = 10.sp, color = SlateGray)
-                            Text("14 Qualified", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = ObsidianNavy)
+                            Text("Total Friends Joined", fontSize = 10.sp, color = SlateGray)
+                            Text("$referralCount Joined", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = ObsidianNavy)
                         }
                     }
 
@@ -193,8 +199,8 @@ fun GrowthScreen(
                             .padding(10.dp)
                     ) {
                         Column {
-                            Text("Paid Commission Rate", fontSize = 10.sp, color = SlateGray)
-                            Text("7.0% Verified", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = GoldGradientEnd)
+                            Text("Extra Hashrate Earned", fontSize = 10.sp, color = SlateGray)
+                            Text("+${String.format(Locale.US, "%.1f", bonusHashrate)} GH/s", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = GoldGradientEnd)
                         }
                     }
                 }
@@ -204,64 +210,165 @@ fun GrowthScreen(
         Spacer(modifier = Modifier.height(16.dp))
 
         // ==========================================
-        // 2. REFERRAL CODE & SHARE
+        // 2. BULLETPROOF OBSIDIAN & GOLD REFERRAL CARD
         // ==========================================
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(20.dp))
-                .border(1.dp, GoldBorder, RoundedCornerShape(20.dp)),
-            colors = CardDefaults.cardColors(containerColor = CardWhite)
+                .clip(RoundedCornerShape(22.dp))
+                .border(1.5.dp, GoldBorder, RoundedCornerShape(22.dp))
+                .testTag("exclusive_referral_card"),
+            colors = CardDefaults.cardColors(containerColor = ObsidianNavy),
+            elevation = CardDefaults.cardElevation(defaultElevation = 10.dp)
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp)
+                    .padding(20.dp)
             ) {
-                Text(
-                    text = "YOUR EXCLUSIVE REFERRAL CODE",
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = SlateGray,
-                    letterSpacing = 1.sp
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(Color(0xFFF1ECE4))
-                        .border(1.dp, GoldBorder, RoundedCornerShape(14.dp))
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clip(CircleShape)
+                                .background(GoldGradientEnd.copy(alpha = 0.2f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.GroupAdd,
+                                contentDescription = null,
+                                tint = GoldGradientMid,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "YOUR EXCLUSIVE REFERRAL CODE",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Black,
+                            color = GoldGradientMid,
+                            letterSpacing = 1.sp
+                        )
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(GoldGradientEnd.copy(alpha = 0.25f))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "+1.5 GH/s BONUS",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = GoldGradientMid
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Big Bold Code Box
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(SlateNavy)
+                        .border(1.dp, GoldBorderSubtle, RoundedCornerShape(14.dp))
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    contentAlignment = Alignment.Center
+                ) {
                     Text(
                         text = referralCode,
-                        fontSize = 18.sp,
+                        fontSize = 26.sp,
                         fontWeight = FontWeight.Black,
-                        color = ObsidianNavy,
+                        color = Color.White,
                         fontFamily = FontFamily.Monospace,
-                        letterSpacing = 2.sp
+                        letterSpacing = 3.sp
                     )
+                }
 
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Text(
+                    text = "Friends who register with your code receive an instant +1.5 GH/s hashrate welcome gift. You earn +1.5 GH/s hashrate + 7.0% mining commissions.",
+                    fontSize = 10.sp,
+                    color = SlateGray,
+                    lineHeight = 14.sp
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Action Buttons
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // Button 1: Copy Code
                     Button(
                         onClick = {
-                            clipboardManager.setText(AnnotatedString("https://hashgrid.io/join?ref=$referralCode"))
-                            Toast.makeText(context, "Referral link copied to clipboard!", Toast.LENGTH_SHORT).show()
+                            clipboardManager.setText(AnnotatedString(referralCode))
+                            Toast.makeText(context, "Referral code copied! Share it with your friends.", Toast.LENGTH_SHORT).show()
                         },
                         modifier = Modifier
-                            .height(36.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .testTag("copy_share_referral_button"),
+                            .weight(1f)
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .testTag("copy_referral_code_button"),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = SlateNavy,
+                            contentColor = Color.White
+                        ),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, GoldBorderSubtle)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.ContentCopy,
+                                contentDescription = null,
+                                tint = GoldGradientMid,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "COPY CODE",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                    }
+
+                    // Button 2: Share Invite via WhatsApp / Telegram
+                    Button(
+                        onClick = {
+                            val shareBody = "⚡ Join HashGrid Cloud Mining Network!\n\n" +
+                                    "1. Download & Install the HashGrid APK: https://hashgrid.is/download\n" +
+                                    "2. Use my Referral Code on Sign-Up: $referralCode\n\n" +
+                                    "🎁 Claim instant +1.5 GH/s Mining Hashrate bonus upon registration!"
+                            val sendIntent = Intent().apply {
+                                action = Intent.ACTION_SEND
+                                putExtra(Intent.EXTRA_TEXT, shareBody)
+                                type = "text/plain"
+                            }
+                            val shareIntent = Intent.createChooser(sendIntent, "Share HashGrid Referral Invite")
+                            context.startActivity(shareIntent)
+                        },
+                        modifier = Modifier
+                            .weight(1.3f)
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .testTag("share_invite_social_button"),
                         colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent)
                     ) {
                         Box(
                             modifier = Modifier
-                                .height(36.dp)
-                                .background(GoldBrush)
-                                .padding(horizontal = 12.dp),
+                                .fillMaxSize()
+                                .background(GoldBrush),
                             contentAlignment = Alignment.Center
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -269,13 +376,13 @@ fun GrowthScreen(
                                     imageVector = Icons.Default.Share,
                                     contentDescription = null,
                                     tint = ObsidianNavy,
-                                    modifier = Modifier.size(14.dp)
+                                    modifier = Modifier.size(15.dp)
                                 )
-                                Spacer(modifier = Modifier.width(4.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "COPY & SHARE",
+                                    text = "SHARE INVITE",
                                     fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
+                                    fontWeight = FontWeight.Black,
                                     color = ObsidianNavy
                                 )
                             }
