@@ -139,7 +139,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         try {
-            FirebaseApp.initializeApp(applicationContext)
+            HashGridApplication.ensureFirebaseInitialized(applicationContext)
             com.example.service.FirebaseAppCheckManager.initialize(applicationContext)
         } catch (e: Exception) {
             e.printStackTrace()

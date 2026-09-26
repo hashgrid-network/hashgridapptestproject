@@ -655,7 +655,11 @@ fun AuthScreen(
                                         isLoading = false
                                         when (res) {
                                             is AuthStepResult.Authenticated -> {
+                                                Toast.makeText(context, "Account created on Cloud!", Toast.LENGTH_SHORT).show()
                                                 onAuthSuccess(res.user)
+                                            }
+                                            is AuthStepResult.RequireTotpSetup, is AuthStepResult.RequireTotpChallenge -> {
+                                                Toast.makeText(context, "Account created on Cloud!", Toast.LENGTH_SHORT).show()
                                             }
                                             is AuthStepResult.Failure -> {
                                                 errorMessage = res.message
@@ -720,8 +724,13 @@ fun AuthScreen(
             } catch (_: Exception) {
                 false
             }
+            val statusText = if (isFirebaseInit) {
+                "Firebase Status: Connected & Online"
+            } else {
+                "Firebase Init Error: " + (com.example.HashGridApplication.lastFirebaseInitError ?: "Not Initialized")
+            }
             Text(
-                text = "Firebase Status: " + (if (isFirebaseInit) "Initialized" else "NOT Initialized"),
+                text = statusText,
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
                 color = if (isFirebaseInit) MintGreen else Color(0xFFD32F2F),

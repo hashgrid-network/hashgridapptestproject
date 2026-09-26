@@ -1,15 +1,45 @@
 package com.example
 
 import android.app.Application
+import android.content.Context
+import android.util.Log
 import com.example.service.AuthService
 import com.example.service.FirebaseAppCheckManager
 import com.google.firebase.FirebaseApp
+import com.google.firebase.FirebaseOptions
 
 class HashGridApplication : Application() {
+
+    companion object {
+        var lastFirebaseInitError: String? = null
+
+        fun ensureFirebaseInitialized(context: Context): Boolean {
+            return try {
+                if (FirebaseApp.getApps(context).isEmpty()) {
+                    val options = FirebaseOptions.Builder()
+                        .setApplicationId("1:885427334784:android:3b18fbfb14a82cb36e0065")
+                        .setProjectId("hashgrid-c7fe4")
+                        .setApiKey("AIzaSyCMDAfHJ6awiJYRDoJ1PR-UMC7yF8_kauc")
+                        .setGcmSenderId("885427334784")
+                        .setStorageBucket("hashgrid-c7fe4.firebasestorage.app")
+                        .build()
+                    FirebaseApp.initializeApp(context, options)
+                }
+                lastFirebaseInitError = null
+                true
+            } catch (e: Exception) {
+                val errorMsg = e.localizedMessage ?: e.message ?: "Failed to initialize Firebase"
+                lastFirebaseInitError = errorMsg
+                Log.e("HashGridApp", "Firebase programmatic init error: $errorMsg", e)
+                false
+            }
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
+        ensureFirebaseInitialized(this)
         try {
-            FirebaseApp.initializeApp(this)
             FirebaseAppCheckManager.initialize(this)
         } catch (e: Exception) {
             e.printStackTrace()
@@ -21,3 +51,4 @@ class HashGridApplication : Application() {
         }
     }
 }
+

@@ -84,7 +84,7 @@ object AuthService {
             appContext = context.applicationContext
             val sessionManager = SessionManager.getInstance(context)
             try {
-                FirebaseApp.initializeApp(context.applicationContext)
+                com.example.HashGridApplication.ensureFirebaseInitialized(context.applicationContext)
             } catch (_: Exception) {}
 
             prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
