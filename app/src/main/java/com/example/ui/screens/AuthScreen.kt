@@ -718,7 +718,10 @@ fun AuthScreen(
         if (showForgotPasswordModal) {
             ForgotPasswordModal(
                 initialEmail = loginEmail,
-                onDismiss = { showForgotPasswordModal = false }
+                onDismiss = { showForgotPasswordModal = false },
+                onPasswordResetSuccess = { resetEmail ->
+                    loginEmail = resetEmail
+                }
             )
         }
     }

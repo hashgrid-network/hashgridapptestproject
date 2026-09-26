@@ -392,10 +392,10 @@ private fun ActiveContractCard(
                 }
 
                 Column(horizontalAlignment = Alignment.End) {
-                    Text("Accrued Profit", fontSize = 10.sp, color = SlateGray)
+                    Text("Accrued Mining Earnings (Locked)", fontSize = 9.5.sp, color = SlateGray)
                     Text(
-                        text = "+$" + String.format(Locale.US, "%.2f", contract.accruedProfitUsdt) + " USDT",
-                        fontSize = 13.sp,
+                        text = "+$" + String.format(Locale.US, "%.4f", contract.accruedProfitUsdt) + " USDT",
+                        fontSize = 12.5.sp,
                         fontWeight = FontWeight.Bold,
                         color = MintDark,
                         fontFamily = FontFamily.Monospace
@@ -405,19 +405,19 @@ private fun ActiveContractCard(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // 30% Task Work Target Progress Bar
+            // Capital Unlock Milestone Progress Bar
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = "30% Task Work Target",
+                    text = "Capital Unlock Milestone:",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = ObsidianNavy
                 )
                 Text(
-                    text = "$${String.format(Locale.US, "%.2f", contract.current_yield_mined)} / $${String.format(Locale.US, "%.2f", contract.target_yield_30_percent)} USDT (${contract.task_progress_pct.toInt()}%)",
+                    text = "$${String.format(Locale.US, "%.4f", contract.current_yield_mined)} / $${String.format(Locale.US, "%.2f", contract.target_yield_30_percent)} USDT (${String.format(Locale.US, "%.1f", contract.task_progress_pct)}%)",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     color = if (contract.work_status == "COMPLETED") MintDark else GoldGradientEnd,
@@ -449,9 +449,11 @@ private fun ActiveContractCard(
                     color = ObsidianNavy
                 )
                 Text(
-                    text = "${remainingDays}d remaining",
+                    text = "Contract Maturity: ${contract.getMaturityCountdownStr(now)}",
                     fontSize = 11.sp,
-                    color = SlateGray
+                    fontWeight = FontWeight.Bold,
+                    color = SlateNavy,
+                    fontFamily = FontFamily.Monospace
                 )
             }
             Spacer(modifier = Modifier.height(4.dp))

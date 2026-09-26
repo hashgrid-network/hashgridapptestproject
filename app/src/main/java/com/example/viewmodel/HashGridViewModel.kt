@@ -361,14 +361,24 @@ class HashGridViewModel : ViewModel() {
                         ?: marketplacePlans.firstOrNull()
                     val newDailyYield = matchingPlan?.dailyYieldUsdtEst ?: contract.dailyYieldUsdt
                     val newHashPower = matchingPlan?.hashPowerGh ?: contract.hashPowerGh
-                    val elapsedSec = ((now - contract.startTimestampMs) / 1000).coerceAtLeast(0)
-                    val calculatedAccrued = (elapsedSec / 86400.0) * newDailyYield
-                    val updatedAccrued = contract.accruedProfitUsdt.coerceAtLeast(calculatedAccrued)
+                    val startMs = if (contract.startTimestampMs > 0 && contract.startTimestampMs <= now) contract.startTimestampMs else now
+                    val elapsedSec = ((now - startMs) / 1000.0).coerceAtLeast(0.0)
+                    val calculatedAccrued = elapsedSec * (newDailyYield / 86400.0)
+                    val target30Pct = if (contract.depositUsdt > 0) contract.depositUsdt * 0.30 else 3.0
+                    val isCompleted = calculatedAccrued >= target30Pct
+                    val finalAccrued = if (isCompleted) target30Pct else calculatedAccrued
+                    val progressPct = if (target30Pct > 0) ((finalAccrued / target30Pct) * 100.0).coerceIn(0.0, 100.0) else 100.0
+                    val status = if (isCompleted) "COMPLETED" else "IN_PROGRESS"
 
                     contract.copy(
                         dailyYieldUsdt = newDailyYield,
                         hashPowerGh = newHashPower,
-                        accruedProfitUsdt = updatedAccrued,
+                        startTimestampMs = startMs,
+                        accruedProfitUsdt = finalAccrued,
+                        current_yield_mined = finalAccrued,
+                        task_progress_pct = progressPct,
+                        work_status = status,
+                        unlocked_for_withdrawal = isCompleted,
                         totalDays = matchingPlan?.termDays ?: 30
                     )
                 }
@@ -528,32 +538,37 @@ class HashGridViewModel : ViewModel() {
             } catch (_: Exception) {}
         }
 
-        // Live Cloud Mining Ticks for 30% Contract Work Completion
+        // Live Cloud Mining Ticks for 30% Contract Work Completion based on exact elapsed seconds
         viewModelScope.launch {
             while (isActive) {
-                delay(3000L)
+                delay(1000L)
                 try {
                     val currentList = _activeContracts.value
                     if (currentList.isNotEmpty() && currentList.any { it.work_status == "IN_PROGRESS" && it.depositUsdt > 0 }) {
+                        val now = System.currentTimeMillis()
                         var hasChanges = false
                         val updatedList = currentList.map { contract ->
                             if (contract.work_status == "IN_PROGRESS" && contract.depositUsdt > 0) {
                                 hasChanges = true
-                                val microYield = (contract.target_yield_30_percent * 0.006).coerceAtLeast(0.02)
-                                val newYield = contract.current_yield_mined + microYield
-                                val isCompleted = newYield >= contract.target_yield_30_percent
-                                val finalYield = if (isCompleted) contract.target_yield_30_percent else newYield
-                                val progress = ((finalYield / contract.target_yield_30_percent) * 100.0).coerceIn(0.0, 100.0)
+                                val matchingPlan = marketplacePlans.find { it.minDepositUsdt == contract.depositUsdt }
+                                val dailyYield = matchingPlan?.dailyYieldUsdtEst ?: contract.dailyYieldUsdt.takeIf { it > 0 } ?: 2.50
+                                val startMs = if (contract.startTimestampMs > 0 && contract.startTimestampMs <= now) contract.startTimestampMs else now
+                                val elapsedSec = ((now - startMs) / 1000.0).coerceAtLeast(0.0)
+                                val calculatedYield = elapsedSec * (dailyYield / 86400.0)
+                                val target30Pct = contract.target_yield_30_percent
+                                val isCompleted = calculatedYield >= target30Pct
+                                val finalYield = if (isCompleted) target30Pct else calculatedYield
+                                val progress = if (target30Pct > 0) ((finalYield / target30Pct) * 100.0).coerceIn(0.0, 100.0) else 100.0
                                 val status = if (isCompleted) "COMPLETED" else "IN_PROGRESS"
 
                                 if (isCompleted && contract.work_status != "COMPLETED") {
-                                    _walletBalanceUsdt.value += contract.target_yield_30_percent
+                                    _walletBalanceUsdt.value += target30Pct
                                     val newAct = ActivityItem(
                                         id = "act_${System.currentTimeMillis()}",
-                                        title = "+$${String.format(Locale.US, "%.2f", contract.target_yield_30_percent)} USDT",
+                                        title = "+$${String.format(Locale.US, "%.2f", target30Pct)} USDT",
                                         subtitle = "${contract.planName} 30% Mining Task Completed! Unlocked for Withdrawal",
                                         btcAmountStr = "Task Finished",
-                                        usdtAmount = contract.target_yield_30_percent,
+                                        usdtAmount = target30Pct,
                                         timestampStr = "Just now",
                                         isCredit = true
                                     )
@@ -570,6 +585,7 @@ class HashGridViewModel : ViewModel() {
                                 )
 
                                 contract.copy(
+                                    dailyYieldUsdt = dailyYield,
                                     current_yield_mined = finalYield,
                                     accruedProfitUsdt = finalYield,
                                     task_progress_pct = progress,
@@ -859,9 +875,12 @@ class HashGridViewModel : ViewModel() {
             val pct = inProgressContract.task_progress_pct.toInt()
             return "Hardware Stability Notice: Minimum payout unlocks after completing the 30% work milestone ($$tar for this rig). Current progress: $$cur / $$tar ($pct%)."
         }
-        val minWithdrawalTarget = _activeContracts.value.firstOrNull { it.depositUsdt > 0 }?.target_yield_30_percent ?: 3.0
-        if (amountUsdt < minWithdrawalTarget) {
-            return "Minimum withdrawal threshold is ${String.format(Locale.US, "%.2f", minWithdrawalTarget)} USDT."
+        val minWithdrawalThreshold = 10.00
+        if (amountUsdt < minWithdrawalThreshold) {
+            return "Minimum withdrawal amount is 10.00 USDT."
+        }
+        if (_walletBalanceUsdt.value < minWithdrawalThreshold) {
+            return "Minimum withdrawable threshold is 10 USDT. Keep mining to reach threshold."
         }
         if (amountUsdt > _walletBalanceUsdt.value) {
             return "Insufficient balance."

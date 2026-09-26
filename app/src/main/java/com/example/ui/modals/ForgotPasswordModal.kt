@@ -5,7 +5,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,7 +26,11 @@ import androidx.compose.material.icons.filled.AlternateEmail
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockReset
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -54,16 +57,15 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.example.service.AuthService
 import com.example.ui.theme.CardWhite
 import com.example.ui.theme.CrimsonRed
-import com.example.ui.theme.GoldBorder
 import com.example.ui.theme.GoldBorderSubtle
-import com.example.ui.theme.GoldBrush
 import com.example.ui.theme.GoldGradientEnd
 import com.example.ui.theme.GoldLight
 import com.example.ui.theme.MintDark
@@ -76,19 +78,30 @@ import kotlinx.coroutines.launch
 @Composable
 fun ForgotPasswordModal(
     initialEmail: String = "",
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onPasswordResetSuccess: ((String) -> Unit)? = null
 ) {
     val coroutineScope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
 
     var email by remember { mutableStateOf(initialEmail) }
+    var totpCode by remember { mutableStateOf("") }
+    var newPassword by remember { mutableStateOf("") }
+    var confirmPassword by remember { mutableStateOf("") }
+
+    var isNewPasswordVisible by remember { mutableStateOf(false) }
+    var isConfirmPasswordVisible by remember { mutableStateOf(false) }
+
     var isLoading by remember { mutableStateOf(false) }
     var successMessage by remember { mutableStateOf<String?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    fun handleSendReset() {
+    fun handleVerifyAndReset() {
         focusManager.clearFocus()
         val cleanEmail = email.trim()
+        val cleanCode = totpCode.trim()
+        val cleanNewPass = newPassword.trim()
+        val cleanConfirmPass = confirmPassword.trim()
 
         if (cleanEmail.isBlank()) {
             errorMessage = "Please enter your registered email address."
@@ -97,7 +110,25 @@ fun ForgotPasswordModal(
         }
 
         if (!android.util.Patterns.EMAIL_ADDRESS.matcher(cleanEmail).matches()) {
-            errorMessage = "Invalid email format. Please enter a valid address (e.g. name@domain.com)."
+            errorMessage = "Invalid email format. Please enter a valid address."
+            successMessage = null
+            return
+        }
+
+        if (cleanCode.isBlank()) {
+            errorMessage = "Invalid Authenticator code. Please check your Authenticator app."
+            successMessage = null
+            return
+        }
+
+        if (cleanNewPass.length < 6) {
+            errorMessage = "Password must be at least 6 characters."
+            successMessage = null
+            return
+        }
+
+        if (cleanNewPass != cleanConfirmPass) {
+            errorMessage = "Passwords do not match."
             successMessage = null
             return
         }
@@ -107,15 +138,21 @@ fun ForgotPasswordModal(
         successMessage = null
 
         coroutineScope.launch {
-            val result = AuthService.sendPasswordReset(cleanEmail)
+            val result = AuthService.resetPasswordWithTotp(
+                email = cleanEmail,
+                totpCode = cleanCode,
+                newPass = cleanNewPass,
+                confirmPass = cleanConfirmPass
+            )
             isLoading = false
             result.fold(
                 onSuccess = { msg ->
                     successMessage = msg
                     errorMessage = null
+                    onPasswordResetSuccess?.invoke(cleanEmail)
                 },
                 onFailure = { err ->
-                    errorMessage = err.message ?: "Failed to send reset link. Please verify your email."
+                    errorMessage = err.message ?: "Invalid Authenticator code. Please check your Authenticator app."
                     successMessage = null
                 }
             )
@@ -170,7 +207,7 @@ fun ForgotPasswordModal(
                                 color = ObsidianNavy
                             )
                             Text(
-                                text = "Account Recovery Portal",
+                                text = "2FA Authenticator Verification",
                                 fontSize = 11.sp,
                                 color = SlateGray
                             )
@@ -190,27 +227,27 @@ fun ForgotPasswordModal(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
                 Text(
-                    text = "Enter your registered email address below. We'll send an encrypted password reset link directly to your inbox.",
-                    fontSize = 12.sp,
+                    text = "A valid 2FA Authenticator code from your security app is MANDATORY to update your password.",
+                    fontSize = 11.5.sp,
                     color = SlateGray,
-                    lineHeight = 17.sp,
+                    lineHeight = 16.sp,
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
-                // Email Input
+                // Field 1: Email Address
                 Text(
-                    text = "Registered Email Address",
+                    text = "1. Registered Email Address",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     color = SlateGray,
                     modifier = Modifier.fillMaxWidth()
                 )
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(4.dp))
                 OutlinedTextField(
                     value = email,
                     onValueChange = {
@@ -227,8 +264,7 @@ fun ForgotPasswordModal(
                         )
                     },
                     singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(onDone = { handleSendReset() }),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = GoldGradientEnd,
                         unfocusedBorderColor = GoldBorderSubtle
@@ -237,6 +273,145 @@ fun ForgotPasswordModal(
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("input_forgot_password_email")
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Field 2: 6-Digit Authenticator Code
+                Text(
+                    text = "2. 6-Digit Authenticator Code",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = SlateGray,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                OutlinedTextField(
+                    value = totpCode,
+                    onValueChange = {
+                        if (it.length <= 6) {
+                            totpCode = it.filter { char -> char.isDigit() }
+                            errorMessage = null
+                        }
+                    },
+                    placeholder = { Text("000000", fontSize = 12.sp, color = Color.Gray) },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Security,
+                            contentDescription = null,
+                            tint = GoldGradientEnd,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = GoldGradientEnd,
+                        unfocusedBorderColor = GoldBorderSubtle
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("input_authenticator_code")
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Field 3: New Password
+                Text(
+                    text = "3. New Password",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = SlateGray,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                OutlinedTextField(
+                    value = newPassword,
+                    onValueChange = {
+                        newPassword = it
+                        errorMessage = null
+                    },
+                    placeholder = { Text("At least 6 characters", fontSize = 12.sp, color = Color.Gray) },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Lock,
+                            contentDescription = null,
+                            tint = GoldGradientEnd,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    },
+                    trailingIcon = {
+                        IconButton(onClick = { isNewPasswordVisible = !isNewPasswordVisible }) {
+                            Icon(
+                                imageVector = if (isNewPasswordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                contentDescription = if (isNewPasswordVisible) "Hide password" else "Show password",
+                                tint = SlateGray,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    },
+                    visualTransformation = if (isNewPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Next),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = GoldGradientEnd,
+                        unfocusedBorderColor = GoldBorderSubtle
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("input_reset_new_password")
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Field 4: Confirm New Password
+                Text(
+                    text = "4. Confirm New Password",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = SlateGray,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                OutlinedTextField(
+                    value = confirmPassword,
+                    onValueChange = {
+                        confirmPassword = it
+                        errorMessage = null
+                    },
+                    placeholder = { Text("Re-enter new password", fontSize = 12.sp, color = Color.Gray) },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Lock,
+                            contentDescription = null,
+                            tint = GoldGradientEnd,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    },
+                    trailingIcon = {
+                        IconButton(onClick = { isConfirmPasswordVisible = !isConfirmPasswordVisible }) {
+                            Icon(
+                                imageVector = if (isConfirmPasswordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                contentDescription = if (isConfirmPasswordVisible) "Hide password" else "Show password",
+                                tint = SlateGray,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    },
+                    visualTransformation = if (isConfirmPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { handleVerifyAndReset() }),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = GoldGradientEnd,
+                        unfocusedBorderColor = GoldBorderSubtle
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("input_reset_confirm_password")
                 )
 
                 // Inline Feedback: Success
@@ -317,17 +492,17 @@ fun ForgotPasswordModal(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
-                // Send Reset Link Button
+                // Verify Authenticator & Reset Password Button
                 Button(
-                    onClick = { handleSendReset() },
+                    onClick = { handleVerifyAndReset() },
                     enabled = !isLoading,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp)
                         .clip(RoundedCornerShape(14.dp))
-                        .testTag("btn_send_reset_link"),
+                        .testTag("btn_verify_reset_password"),
                     colors = ButtonDefaults.buttonColors(containerColor = SlateNavy)
                 ) {
                     if (isLoading) {
@@ -338,23 +513,23 @@ fun ForgotPasswordModal(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "SENDING RECOVERY LINK...",
-                            fontSize = 12.sp,
+                            text = "VERIFYING AUTHENTICATOR...",
+                            fontSize = 11.5.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
                         )
                     } else {
                         Text(
-                            text = if (successMessage != null) "RESEND RESET LINK" else "SEND RESET LINK",
-                            fontSize = 12.sp,
+                            text = "VERIFY AUTHENTICATOR & RESET PASSWORD",
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.sp,
+                            letterSpacing = 0.5.sp,
                             color = Color.White
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
                 // Back to Login Button
                 TextButton(

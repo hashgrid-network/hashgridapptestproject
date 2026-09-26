@@ -1139,7 +1139,10 @@ fun HomeScreen(
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Row(
+                                            modifier = Modifier.weight(1f, fill = false),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
                                             Text(
                                                 text = contract.planName,
                                                 fontSize = 13.sp,
@@ -1177,30 +1180,54 @@ fun HomeScreen(
                                                 .padding(horizontal = 7.dp, vertical = 3.dp)
                                         ) {
                                             Text(
-                                                text = if (isCompleted) "🟢 TASK COMPLETED - WITHDRAW READY" else "🟡 MINING TASK IN PROGRESS",
-                                                fontSize = 9.sp,
+                                                text = if (isCompleted) "🟢 WITHDRAW READY" else "⚡ MINING IN PROGRESS",
+                                                fontSize = 9.5.sp,
                                                 fontWeight = FontWeight.Bold,
-                                                color = if (isCompleted) MintDark else Color(0xFFB45309)
+                                                color = if (isCompleted) MintDark else Color(0xFFB45309),
+                                                maxLines = 1,
+                                                softWrap = false
                                             )
                                         }
                                     }
 
-                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Spacer(modifier = Modifier.height(8.dp))
 
-                                    // Row 2: Live Progress Bar towards 30% threshold
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
-                                            text = "Task Progress (30% Yield Target):",
+                                            text = "Contract Maturity: ${contract.getMaturityCountdownStr(currentTimeMs)}",
+                                            fontSize = 10.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = SlateNavy,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                        Text(
+                                            text = "Accrued Profit (Locked): $${String.format(Locale.US, "%.4f", contract.current_yield_mined)} USDT",
+                                            fontSize = 10.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isCompleted) MintDark else GoldGradientEnd,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "Capital Unlock Milestone:",
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.SemiBold,
                                             color = SlateNavy
                                         )
                                         Text(
-                                            text = "$${String.format(Locale.US, "%.2f", contract.current_yield_mined)} / $${String.format(Locale.US, "%.2f", contract.target_yield_30_percent)} USDT (${contract.task_progress_pct.toInt()}%)",
+                                            text = "$${String.format(Locale.US, "%.4f", contract.current_yield_mined)} / $${String.format(Locale.US, "%.2f", contract.target_yield_30_percent)} USDT (${String.format(Locale.US, "%.1f", contract.task_progress_pct)}%)",
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = if (isCompleted) MintDark else GoldGradientEnd,

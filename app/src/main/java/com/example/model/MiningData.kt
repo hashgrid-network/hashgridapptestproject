@@ -117,6 +117,15 @@ data class ActiveContract(
     val taskProgressPct: Double get() = task_progress_pct
     val workStatus: String get() = work_status
     val unlockedForWithdrawal: Boolean get() = unlocked_for_withdrawal
+
+    fun getMaturityCountdownStr(currentTimeMs: Long = System.currentTimeMillis()): String {
+        val remainingMs = maxOf(0L, endTimestampMs - currentTimeMs)
+        if (remainingMs <= 0) return "Contract Matured"
+        val days = remainingMs / (24 * 3600 * 1000L)
+        val hours = (remainingMs % (24 * 3600 * 1000L)) / (3600 * 1000L)
+        val mins = (remainingMs % (3600 * 1000L)) / (60 * 1000L)
+        return if (days > 0) "${days}d ${hours}h left" else if (hours > 0) "${hours}h ${mins}m left" else "${mins}m left"
+    }
 }
 
 

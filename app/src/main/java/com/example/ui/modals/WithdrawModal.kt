@@ -92,11 +92,12 @@ fun WithdrawModal(
     val inProgressContract = activeContracts.firstOrNull { it.work_status == "IN_PROGRESS" && it.depositUsdt > 0 }
     val primaryContract = inProgressContract ?: activeContracts.firstOrNull { it.depositUsdt > 0 }
     val activeRigPrice = primaryContract?.depositUsdt ?: 10.0
-    val minWithdrawalTarget = primaryContract?.target_yield_30_percent ?: (activeRigPrice * 0.30)
-    val currentEarnings = inProgressContract?.current_yield_mined ?: (availableBalanceUsdt.coerceAtMost(minWithdrawalTarget))
-    val progressPercentage = ((currentEarnings / minWithdrawalTarget) * 100.0).coerceIn(0.0, 100.0).toInt()
+    val milestoneTarget = primaryContract?.target_yield_30_percent ?: (activeRigPrice * 0.30)
+    val minWithdrawalTarget = 10.00
+    val currentEarnings = inProgressContract?.current_yield_mined ?: (availableBalanceUsdt.coerceAtMost(milestoneTarget))
+    val progressPercentage = ((currentEarnings / milestoneTarget) * 100.0).coerceIn(0.0, 100.0).toInt()
 
-    val isWithdrawalLocked = inProgressContract != null && inProgressContract.current_yield_mined < minWithdrawalTarget
+    val isWithdrawalLocked = inProgressContract != null && inProgressContract.current_yield_mined < milestoneTarget
 
     if (showStabilityNoticeDialog) {
         HardwareStabilityNoticeDialog(
@@ -378,6 +379,26 @@ fun WithdrawModal(
                         )
                     }
                 )
+
+                if (availableBalanceUsdt < 10.00) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFFFEF2F2))
+                            .border(0.8.dp, CrimsonRed.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                            .testTag("minimum_threshold_warning_note")
+                    ) {
+                        Text(
+                            text = "Minimum withdrawable threshold is 10 USDT. Keep mining to reach threshold.",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = CrimsonRed
+                        )
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(10.dp))
 
