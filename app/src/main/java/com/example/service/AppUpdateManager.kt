@@ -65,7 +65,7 @@ object AppUpdateManager {
     var firebaseUpdateNodeUrl: String = "https://hashgrid-institutional-default-rtdb.firebaseio.com/app_config/update.json"
     var remoteVersionUrl: String = "https://raw.githubusercontent.com/hashgrid-network/hashgridapptestproject/main/version.json"
     var githubReleasesApiUrl: String = "https://api.github.com/repos/hashgrid-network/hashgridapptestproject/releases/latest"
-    const val OFFICIAL_RELEASES_PAGE_URL: String = "https://github.com/hashgrid-network/hashgridapptestproject/releases"
+    const val OFFICIAL_RELEASES_PAGE_URL: String = "https://github.com/hashgrid-network/hashgridapptestproject/releases/download/latest/HashGrid-v1.0.apk"
 
     private val httpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()

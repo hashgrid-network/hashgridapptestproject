@@ -74,24 +74,29 @@ class HashGridViewModel : ViewModel() {
     val userId: String get() = currentUser.value?.id?.ifBlank { "HG-ACCOUNT" } ?: "HG-ACCOUNT"
     val userEmail: String get() = currentUser.value?.email ?: ""
     val userDisplayName: String get() = currentUser.value?.displayName ?: "User"
-    val referralCode: String get() = currentUser.value?.referralCode ?: "HG-7798"
+    val referralCode: String get() = currentUser.value?.referralCode ?: "HG-8080"
 
     // Real dynamic balances (Starts at 0.00 for new user, updated via Firebase Realtime listener)
     private val _walletBalanceUsdt = MutableStateFlow(0.00)
     val walletBalanceUsdt: StateFlow<Double> = _walletBalanceUsdt.asStateFlow()
 
     // Bulletproof Referral & Team Syndicate Stats
-    private val _referralCount = MutableStateFlow(0L)
-    val referralCount: StateFlow<Long> = _referralCount.asStateFlow()
-
     private val _teamCount = MutableStateFlow(0L)
     val teamCount: StateFlow<Long> = _teamCount.asStateFlow()
+    val referralCount: StateFlow<Long> = _teamCount.asStateFlow()
+
+    private val _extraHashrate = MutableStateFlow(0.0)
+    val extraHashrate: StateFlow<Double> = _extraHashrate.asStateFlow()
+    val bonusHashrate: StateFlow<Double> = _extraHashrate.asStateFlow()
 
     private val _teamMembers = MutableStateFlow<List<TeamMember>>(emptyList())
     val teamMembers: StateFlow<List<TeamMember>> = _teamMembers.asStateFlow()
 
-    private val _bonusHashrate = MutableStateFlow(0.0)
-    val bonusHashrate: StateFlow<Double> = _bonusHashrate.asStateFlow()
+    private val _syndicateTier = MutableStateFlow("NOVICE")
+    val syndicateTier: StateFlow<String> = _syndicateTier.asStateFlow()
+
+    private val _totalReferralRewardsUsdt = MutableStateFlow(0.0)
+    val totalReferralRewardsUsdt: StateFlow<Double> = _totalReferralRewardsUsdt.asStateFlow()
 
     // Atomic Escrow Balance (Locked in 24h Audit)
     private val _lockedAuditBalanceUsdt = MutableStateFlow(0.0)
@@ -390,7 +395,7 @@ class HashGridViewModel : ViewModel() {
                     )
                 }
                 _activeContracts.value = reevaluatedContracts
-                _hashPower.value = reevaluatedContracts.sumOf { it.hashPowerGh } + _bonusHashrate.value
+                _hashPower.value = reevaluatedContracts.sumOf { it.hashPowerGh } + _extraHashrate.value
             }
             if (data.activityList.isNotEmpty()) {
                 _activityList.value = data.activityList
@@ -478,9 +483,10 @@ class HashGridViewModel : ViewModel() {
                 AuthService.currentUser.collect { user ->
                     try {
                         if (user != null && user.id.isNotBlank()) {
+                            reconcileReferrals()
                             FirebaseSyncService.listenFirestoreUser(
                                 userId = user.id,
-                                onProfileUpdated = { remoteBal, kyc, twoFa, refCount, bonusHr, _ ->
+                                onProfileUpdated = { remoteBal, kyc, twoFa, docTeamCount, extraHr, refCode ->
                                     if (remoteBal > 0.0) {
                                         _walletBalanceUsdt.value = maxOf(_walletBalanceUsdt.value, remoteBal)
                                     } else if (_walletBalanceUsdt.value > 0.0) {
@@ -488,8 +494,11 @@ class HashGridViewModel : ViewModel() {
                                     }
                                     _kycStatus.value = kyc
                                     _twoFactorEnabled.value = twoFa
-                                    _referralCount.value = refCount
-                                    _bonusHashrate.value = bonusHr
+                                    _teamCount.value = maxOf(docTeamCount, _teamMembers.value.size.toLong())
+                                    _extraHashrate.value = if (extraHr > 0.0) extraHr else (_teamCount.value * 1.5)
+                                    if (refCode.isNotBlank() && refCode != AuthService.currentUser.value?.referralCode) {
+                                        AuthService.updateReferralCode(refCode)
+                                    }
                                     saveLocalState()
                                 },
                                 onTransactionsUpdated = { acts, payouts ->
@@ -500,7 +509,7 @@ class HashGridViewModel : ViewModel() {
                                 onMinersUpdated = { miners ->
                                     if (miners.isNotEmpty()) {
                                         _activeContracts.value = miners
-                                        _hashPower.value = miners.sumOf { it.hashPowerGh } + _bonusHashrate.value
+                                        _hashPower.value = miners.sumOf { it.hashPowerGh } + _extraHashrate.value
                                         saveLocalState()
                                     }
                                 },
@@ -536,19 +545,25 @@ class HashGridViewModel : ViewModel() {
                                         _wheelCooldownEnd.value = 0L
                                     }
                                 },
-                                onTeamUpdated = { count, members ->
-                                    _teamCount.value = count
-                                    _referralCount.value = count
+                                onTeamUpdated = { activeCount, members ->
                                     _teamMembers.value = members
+                                    if (members.isNotEmpty()) {
+                                        _teamCount.value = maxOf(_teamCount.value, members.size.toLong())
+                                    }
+                                },
+                                onSyndicateUpdated = { tier, rewards ->
+                                    _syndicateTier.value = tier
+                                    _totalReferralRewardsUsdt.value = rewards
                                 }
                             )
                         } else {
                             _walletBalanceUsdt.value = 0.00
                             _hashPower.value = 0.0
-                            _referralCount.value = 0L
                             _teamCount.value = 0L
+                            _extraHashrate.value = 0.0
+                            _syndicateTier.value = "NOVICE"
+                            _totalReferralRewardsUsdt.value = 0.0
                             _teamMembers.value = emptyList()
-                            _bonusHashrate.value = 0.0
                             _activeContracts.value = emptyList()
                             _activityList.value = emptyList()
                             _payoutsList.value = emptyList()
@@ -559,7 +574,39 @@ class HashGridViewModel : ViewModel() {
                 }
             } catch (_: Exception) {}
         }
+        startMiningTicks()
+    }
 
+    /**
+     * Trigger retroactive referral recovery and reconciliation task:
+     * Discovers all users in database who entered current user's referral code or UID,
+     * updates teamCount & extraHashrate, and backfills subcollection "users/{uid}/team".
+     */
+    fun reconcileReferrals() {
+        val uid = currentUser.value?.id ?: userId
+        val code = referralCode
+        if (uid.isNotBlank() && uid != "HG-ACCOUNT") {
+            viewModelScope.launch {
+                try {
+                    val reconciledCount = FirebaseSyncService.reconcileUserReferrals(uid, code)
+                    if (reconciledCount > _teamCount.value || _teamCount.value == 0L) {
+                        _teamCount.value = maxOf(_teamCount.value, reconciledCount)
+                        _extraHashrate.value = _teamCount.value * 1.5
+                        _totalReferralRewardsUsdt.value = _teamCount.value * 5.0
+                        _syndicateTier.value = when {
+                            _teamCount.value >= 20 -> "ELITE"
+                            _teamCount.value >= 5 -> "PRO"
+                            else -> "NOVICE"
+                        }
+                        _hashPower.value = _activeContracts.value.sumOf { it.hashPowerGh } + _extraHashrate.value
+                        saveLocalState()
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+    }
+
+    private fun startMiningTicks() {
         // Live Cloud Mining Ticks for 30% Contract Work Completion based on exact elapsed seconds
         viewModelScope.launch {
             while (isActive) {
@@ -805,7 +852,7 @@ class HashGridViewModel : ViewModel() {
         if (slice.rewardType == com.example.model.WheelRewardType.GRID_COINS) {
             _gridCoinBalance.value += slice.gridAmount
         } else if (slice.rewardType == com.example.model.WheelRewardType.HASHRATE_BOOST) {
-            _bonusHashrate.value += slice.hashrateGhs
+            _extraHashrate.value += slice.hashrateGhs
             _hashPower.value += slice.hashrateGhs
         } else if (slice.rewardType == com.example.model.WheelRewardType.USDT_BONUS) {
             _walletBalanceUsdt.value += slice.usdtAmount

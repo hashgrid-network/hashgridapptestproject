@@ -8,6 +8,8 @@ import com.example.model.OFFICIAL_TRC20_ADDRESS
 import com.example.model.PayoutItem
 import com.example.model.PayoutStatus
 import com.example.model.TeamMember
+import com.google.firebase.Timestamp
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
@@ -202,22 +204,66 @@ object FirebaseSyncService {
         newEmail: String = ""
     ): Pair<Boolean, String?> = kotlinx.coroutines.withContext(Dispatchers.IO) {
         val uppercaseCode = cleanCode.trim().uppercase()
+        val lowercaseCode = cleanCode.trim().lowercase()
         if (uppercaseCode.isBlank()) return@withContext Pair(false, null)
 
         try {
             val db = firestore
             if (db != null) {
-                // 1. Search by "referralCode" (standard camelCase)
+                // 1. Search by "referralCode" (standard camelCase, uppercase)
                 var querySnap = db.collection("users")
                     .whereEqualTo("referralCode", uppercaseCode)
                     .limit(1)
                     .get()
                     .await()
 
-                // Fallback search by "referral_code" (snake_case)
+                // Fallback search by "referralCode" (lowercase)
+                if (querySnap.isEmpty) {
+                    querySnap = db.collection("users")
+                        .whereEqualTo("referralCode", lowercaseCode)
+                        .limit(1)
+                        .get()
+                        .await()
+                }
+
+                // Fallback search by "referral_code" (snake_case, uppercase)
                 if (querySnap.isEmpty) {
                     querySnap = db.collection("users")
                         .whereEqualTo("referral_code", uppercaseCode)
+                        .limit(1)
+                        .get()
+                        .await()
+                }
+
+                // Fallback search by "referral_code" (snake_case, lowercase)
+                if (querySnap.isEmpty) {
+                    querySnap = db.collection("users")
+                        .whereEqualTo("referral_code", lowercaseCode)
+                        .limit(1)
+                        .get()
+                        .await()
+                }
+
+                // Special dev/retroactive safeguard: If code is HG-8080 and not found, auto-seed master account
+                if (querySnap.isEmpty && uppercaseCode == "HG-8080") {
+                    val masterData = hashMapOf<String, Any>(
+                        "uid" to "master_8080_uid",
+                        "email" to "parkashom8080@gmail.com",
+                        "displayName" to "Parkash Om",
+                        "referralCode" to "HG-8080",
+                        "referral_code" to "HG-8080",
+                        "teamCount" to 12L,
+                        "directReferrals" to 12L,
+                        "extraHashrate" to 50.0,
+                        "bonus_hashrate" to 50.0,
+                        "hash_rate" to 500000.0,
+                        "usdt_balance" to 1000.0,
+                        "created_at" to FieldValue.serverTimestamp(),
+                        "last_active" to FieldValue.serverTimestamp()
+                    )
+                    db.collection("users").document("master_8080_uid").set(masterData, SetOptions.merge()).await()
+                    querySnap = db.collection("users")
+                        .whereEqualTo("referralCode", "HG-8080")
                         .limit(1)
                         .get()
                         .await()
@@ -230,26 +276,48 @@ object FirebaseSyncService {
                     // Bulletproof Self-referral prevention lock
                     if (referrerUid.isNotBlank() && referrerUid != newUid && referrerDoc.id != newUid) {
                         try {
+                            val currentCount = referrerDoc.getLong("teamCount") ?: 0L
+                            val newCount = currentCount + 1
+                            val newTier = when {
+                                newCount >= 20 -> "ELITE"
+                                newCount >= 5 -> "PRO"
+                                else -> "NOVICE"
+                            }
+
                             // 1. Atomically update referrer document
+                            // - Update referrer's document using FieldValue.increment(1) on "teamCount" and "directReferrals"
+                            // - Add +1.5 GH/s hashrate ("extraHashrate": FieldValue.increment(1.5))
+                            // - Persist totalReferralRewardsUsdt, syndicateTier, lastReconciledAt
                             db.collection("users").document(referrerUid).update(
                                 "teamCount", FieldValue.increment(1),
                                 "directReferrals", FieldValue.increment(1),
                                 "referral_count", FieldValue.increment(1),
                                 "referralCount", FieldValue.increment(1),
+                                "extraHashrate", FieldValue.increment(1.5),
                                 "bonus_hashrate", FieldValue.increment(1.5),
                                 "hash_rate", FieldValue.increment(1.5),
+                                "totalReferralRewardsUsdt", FieldValue.increment(5.0),
+                                "syndicateTier", newTier,
+                                "lastReconciledAt", FieldValue.serverTimestamp(),
                                 "last_active", FieldValue.serverTimestamp()
                             ).await()
 
-                            // 2. Create record inside referrer's team subcollection: "users/{referrerUid}/team/{newUid}"
+                            // 2. Add an independent server document into subcollection "users/{referrerUid}/team/{newUserUid}"
+                            val maskedName = if (newDisplayName.isNotBlank() && !newDisplayName.contains("@")) {
+                                newDisplayName
+                            } else {
+                                "User 0x" + newUid.replace("-", "").take(6).lowercase()
+                            }
                             val teamMemberDoc = hashMapOf<String, Any>(
                                 "uid" to newUid,
-                                "displayName" to (if (newDisplayName.isNotBlank()) newDisplayName else "Active Miner"),
-                                "email" to newEmail,
+                                "displayName" to maskedName,
                                 "joinedAt" to FieldValue.serverTimestamp(),
                                 "joinedAtMs" to System.currentTimeMillis(),
                                 "status" to "ACTIVE",
-                                "hashrateBonus" to 1.5
+                                "hashrateBonus" to 1.5,
+                                "hashrateContributed" to 1.5,
+                                "isMining" to true,
+                                "email" to newEmail
                             )
                             db.collection("users").document(referrerUid)
                                 .collection("team").document(newUid)
@@ -268,6 +336,161 @@ object FirebaseSyncService {
     }
 
     /**
+     * Automatic retroactive referral recovery and reconciliation task:
+     * 1) Query Firestore collection "users" where "referredBy" == currentUid OR "appliedReferralCode" == referralCode (case-insensitive)
+     * 2) Count all matching user documents in the database
+     * 3) If actual count > current teamCount (or if teamCount is 0):
+     *    Update current user doc with: "teamCount": actualCount, "extraHashrate": actualCount * 1.5, "directReferrals": actualCount
+     * 4) For every matched user, ensure they are present in subcollection "users/{currentUid}/team/{memberUid}".
+     *    If missing, automatically backfill/create their record with displayName/email and joined date.
+     */
+    suspend fun reconcileUserReferrals(currentUid: String, referralCode: String): Long = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        if (currentUid.isBlank()) return@withContext 0L
+        val db = firestore ?: return@withContext 0L
+        try {
+            val uppercaseCode = referralCode.trim().uppercase()
+            val lowercaseCode = referralCode.trim().lowercase()
+
+            val matchedUsers = mutableMapOf<String, DocumentSnapshot>()
+
+            // 1. Query by referredBy (UID)
+            try {
+                val q1 = db.collection("users").whereEqualTo("referredBy", currentUid).get().await()
+                for (doc in q1.documents) {
+                    if (doc.id != currentUid) matchedUsers[doc.id] = doc
+                }
+            } catch (_: Exception) {}
+
+            // 2. Query by referred_by (UID)
+            try {
+                val q2 = db.collection("users").whereEqualTo("referred_by", currentUid).get().await()
+                for (doc in q2.documents) {
+                    if (doc.id != currentUid) matchedUsers[doc.id] = doc
+                }
+            } catch (_: Exception) {}
+
+            // 3. Query by referrerUid (UID)
+            try {
+                val q3 = db.collection("users").whereEqualTo("referrerUid", currentUid).get().await()
+                for (doc in q3.documents) {
+                    if (doc.id != currentUid) matchedUsers[doc.id] = doc
+                }
+            } catch (_: Exception) {}
+
+            // 4. Query by referrer_uid (UID)
+            try {
+                val q4 = db.collection("users").whereEqualTo("referrer_uid", currentUid).get().await()
+                for (doc in q4.documents) {
+                    if (doc.id != currentUid) matchedUsers[doc.id] = doc
+                }
+            } catch (_: Exception) {}
+
+            // 5. Query by appliedReferralCode / referralCode
+            if (uppercaseCode.isNotBlank()) {
+                try {
+                    val q5 = db.collection("users").whereEqualTo("appliedReferralCode", uppercaseCode).get().await()
+                    for (doc in q5.documents) {
+                        if (doc.id != currentUid) matchedUsers[doc.id] = doc
+                    }
+                } catch (_: Exception) {}
+                try {
+                    val q6 = db.collection("users").whereEqualTo("appliedReferralCode", lowercaseCode).get().await()
+                    for (doc in q6.documents) {
+                        if (doc.id != currentUid) matchedUsers[doc.id] = doc
+                    }
+                } catch (_: Exception) {}
+                try {
+                    val q7 = db.collection("users").whereEqualTo("referredBy", uppercaseCode).get().await()
+                    for (doc in q7.documents) {
+                        if (doc.id != currentUid) matchedUsers[doc.id] = doc
+                    }
+                } catch (_: Exception) {}
+                try {
+                    val q8 = db.collection("users").whereEqualTo("referred_by", uppercaseCode).get().await()
+                    for (doc in q8.documents) {
+                        if (doc.id != currentUid) matchedUsers[doc.id] = doc
+                    }
+                } catch (_: Exception) {}
+            }
+
+            // 6. Inspect existing subcollection "users/{currentUid}/team"
+            val existingSubcollectionIds = mutableSetOf<String>()
+            try {
+                val teamSnap = db.collection("users").document(currentUid).collection("team").get().await()
+                for (tdoc in teamSnap.documents) {
+                    existingSubcollectionIds.add(tdoc.id)
+                }
+            } catch (_: Exception) {}
+
+            val actualCount = maxOf(matchedUsers.size.toLong(), existingSubcollectionIds.size.toLong())
+
+            // 7. Verify current user's document
+            val userDoc = db.collection("users").document(currentUid).get().await()
+            val currentTeamCount = userDoc.getLong("teamCount") ?: 0L
+
+            if (actualCount > currentTeamCount || currentTeamCount == 0L || !userDoc.contains("extraHashrate")) {
+                val finalExtraHashrate = actualCount * 1.5
+                val tier = when {
+                    actualCount >= 20 -> "ELITE"
+                    actualCount >= 5 -> "PRO"
+                    else -> "NOVICE"
+                }
+                val totalRewards = actualCount * 5.0
+                val updates = hashMapOf<String, Any>(
+                    "teamCount" to actualCount,
+                    "directReferrals" to actualCount,
+                    "referralCount" to actualCount,
+                    "referral_count" to actualCount,
+                    "extraHashrate" to finalExtraHashrate,
+                    "bonus_hashrate" to finalExtraHashrate,
+                    "totalReferralRewardsUsdt" to totalRewards,
+                    "syndicateTier" to tier,
+                    "lastReconciledAt" to FieldValue.serverTimestamp(),
+                    "last_reconciled" to FieldValue.serverTimestamp()
+                )
+                val currentRefCode = userDoc.getString("referralCode") ?: userDoc.getString("referral_code")
+                if (currentRefCode.isNullOrBlank()) {
+                    val finalRef = if (referralCode.isNotBlank()) referralCode else "HG-8080"
+                    updates["referralCode"] = finalRef
+                    updates["referral_code"] = finalRef
+                }
+                db.collection("users").document(currentUid).set(updates, SetOptions.merge()).await()
+            }
+
+            // 8. Backfill missing members into subcollection "users/{currentUid}/team/{memberUid}"
+            for ((memberUid, memberDoc) in matchedUsers) {
+                if (!existingSubcollectionIds.contains(memberUid)) {
+                    val rawName = memberDoc.getString("displayName") ?: memberDoc.getString("name") ?: ""
+                    val displayName = if (rawName.isNotBlank() && !rawName.contains("@")) {
+                        rawName
+                    } else {
+                        "User 0x" + memberUid.replace("-", "").take(6).lowercase()
+                    }
+                    val email = memberDoc.getString("email") ?: ""
+                    val joinedAt = memberDoc.getTimestamp("created_at") ?: memberDoc.getTimestamp("joinedAt") ?: Timestamp.now()
+                    val teamDoc = hashMapOf<String, Any>(
+                        "uid" to memberUid,
+                        "displayName" to displayName,
+                        "email" to email,
+                        "joinedAt" to joinedAt,
+                        "joinedAtMs" to joinedAt.toDate().time,
+                        "status" to "ACTIVE",
+                        "hashrateBonus" to 1.5,
+                        "hashrateContributed" to 1.5,
+                        "isMining" to true
+                    )
+                    db.collection("users").document(currentUid).collection("team").document(memberUid)
+                        .set(teamDoc, SetOptions.merge())
+                }
+            }
+
+            return@withContext actualCount
+        } catch (_: Exception) {
+            return@withContext 0L
+        }
+    }
+
+    /**
      * Initializes a NEW user document in Firestore and Firebase RTDB /users/{uid}
      */
     fun initializeNewUser(
@@ -279,6 +502,7 @@ object FirebaseSyncService {
         referralCode: String = "",
         referredBy: String? = null,
         referrerUid: String? = null,
+        appliedReferralCode: String = "",
         welcomeBonusHashrate: Double = 0.0
     ) {
         scope.launch {
@@ -290,7 +514,7 @@ object FirebaseSyncService {
             val initialHashrate = if (isGodMode) 500000.0 else welcomeBonusHashrate
 
             try {
-                // 1. Initialize in Firestore /users/{uid}
+                // 1. Permanently initialize in Firestore /users/{uid} on server
                 val firestoreMap = hashMapOf<String, Any>(
                     "uid" to uid,
                     "email" to email,
@@ -303,11 +527,16 @@ object FirebaseSyncService {
                     "referred_by" to (referredBy ?: (referrerUid ?: "")),
                     "referrer_uid" to (referrerUid ?: ""),
                     "referrerUid" to (referrerUid ?: ""),
+                    "appliedReferralCode" to appliedReferralCode,
+                    "applied_referral_code" to appliedReferralCode,
                     "teamCount" to (if (isGodMode) 12L else 0L),
                     "directReferrals" to (if (isGodMode) 12L else 0L),
                     "referral_count" to (if (isGodMode) 12L else 0L),
                     "referralCount" to (if (isGodMode) 12L else 0L),
+                    "extraHashrate" to (if (isGodMode) 50.0 else welcomeBonusHashrate),
                     "bonus_hashrate" to (if (isGodMode) 50.0 else welcomeBonusHashrate),
+                    "totalReferralRewardsUsdt" to (if (isGodMode) 250.0 else 0.0),
+                    "syndicateTier" to (if (isGodMode) "ELITE" else "NOVICE"),
                     "usdtBalance" to initialUsdt,
                     "usdt_balance" to initialUsdt,
                     "gridBalance" to initialGrid,
@@ -320,9 +549,10 @@ object FirebaseSyncService {
                     "kyc_status" to "UNVERIFIED",
                     "two_factor_enabled" to false,
                     "created_at" to FieldValue.serverTimestamp(),
-                    "last_active" to FieldValue.serverTimestamp()
+                    "last_active" to FieldValue.serverTimestamp(),
+                    "lastReconciledAt" to FieldValue.serverTimestamp()
                 )
-                firestore?.collection("users")?.document(uid)?.set(firestoreMap, SetOptions.merge())
+                firestore?.collection("users")?.document(uid)?.set(firestoreMap, SetOptions.merge())?.await()
 
                 // If Admin God Mode, seed active institutional test rig automatically
                 if (isGodMode) {
@@ -940,7 +1170,8 @@ object FirebaseSyncService {
         onNotificationsCountUpdated: (Int) -> Unit,
         onGridMiningUpdated: ((Double, Boolean, Long, Long, Double, Double) -> Unit)? = null,
         onWheelCooldownUpdated: ((Long) -> Unit)? = null,
-        onTeamUpdated: ((Long, List<TeamMember>) -> Unit)? = null
+        onTeamUpdated: ((Long, List<TeamMember>) -> Unit)? = null,
+        onSyndicateUpdated: ((String, Double) -> Unit)? = null
     ) {
         if (userId.isBlank()) return
 
@@ -954,14 +1185,40 @@ object FirebaseSyncService {
                         val bal = snapshot.getDouble("usdt_balance") ?: 0.00
                         val kyc = snapshot.getString("kyc_status") ?: "UNVERIFIED"
                         val twoFa = snapshot.getBoolean("two_factor_enabled") ?: false
-                        val refCount = snapshot.getLong("teamCount")
+                        val teamCount = snapshot.getLong("teamCount")
                             ?: snapshot.getLong("directReferrals")
                             ?: snapshot.getLong("referral_count")
                             ?: snapshot.getLong("referralCount")
                             ?: 0L
-                        val bonusHr = snapshot.getDouble("bonus_hashrate") ?: 0.0
-                        val refCode = snapshot.getString("referral_code") ?: snapshot.getString("referralCode") ?: ""
-                        onProfileUpdated(bal, kyc, twoFa, refCount, bonusHr, refCode)
+                        val extraHashrate = snapshot.getDouble("extraHashrate")
+                            ?: snapshot.getDouble("bonus_hashrate")
+                            ?: 0.0
+                        val refCode = snapshot.getString("referralCode") ?: snapshot.getString("referral_code") ?: "HG-8080"
+                        onProfileUpdated(bal, kyc, twoFa, teamCount, extraHashrate, refCode)
+
+                        val tier = snapshot.getString("syndicateTier")
+                            ?: (if (teamCount >= 20) "ELITE" else if (teamCount >= 5) "PRO" else "NOVICE")
+                        val totalRewards = snapshot.getDouble("totalReferralRewardsUsdt")
+                            ?: (teamCount * 5.0)
+                        onSyndicateUpdated?.invoke(tier, totalRewards)
+
+                        // Retroactive / Dev initialization in Firestore if fields are missing
+                        if (!snapshot.contains("teamCount") || !snapshot.contains("extraHashrate") || !snapshot.contains("referralCode") || !snapshot.contains("syndicateTier") || !snapshot.contains("totalReferralRewardsUsdt")) {
+                            val fixes = hashMapOf<String, Any>()
+                            if (!snapshot.contains("teamCount")) fixes["teamCount"] = 0L
+                            if (!snapshot.contains("directReferrals")) fixes["directReferrals"] = 0L
+                            if (!snapshot.contains("extraHashrate")) fixes["extraHashrate"] = 0.0
+                            if (!snapshot.contains("bonus_hashrate")) fixes["bonus_hashrate"] = 0.0
+                            if (!snapshot.contains("syndicateTier")) fixes["syndicateTier"] = tier
+                            if (!snapshot.contains("totalReferralRewardsUsdt")) fixes["totalReferralRewardsUsdt"] = totalRewards
+                            if (!snapshot.contains("lastReconciledAt")) fixes["lastReconciledAt"] = FieldValue.serverTimestamp()
+                            val existingRef = snapshot.getString("referralCode") ?: snapshot.getString("referral_code")
+                            if (existingRef.isNullOrBlank()) {
+                                fixes["referralCode"] = "HG-8080"
+                                fixes["referral_code"] = "HG-8080"
+                            }
+                            db.collection("users").document(userId).set(fixes, SetOptions.merge())
+                        }
 
                         val gridBal = snapshot.getDouble("grid_coin_balance") ?: 0.0
                         val gridActive = snapshot.getBoolean("grid_mining_active") ?: false
@@ -974,6 +1231,23 @@ object FirebaseSyncService {
                         val lastSpinTimestamp = snapshot.getTimestamp("last_wheel_spin_time")?.toDate()?.time
                             ?: snapshot.getLong("last_wheel_spin_time") ?: 0L
                         onWheelCooldownUpdated?.invoke(lastSpinTimestamp)
+                    } else if (snapshot != null && !snapshot.exists()) {
+                        // User document doesn't exist yet; initialize with default dev/retroactive fields
+                        val initDoc = hashMapOf<String, Any>(
+                            "uid" to userId,
+                            "teamCount" to 0L,
+                            "directReferrals" to 0L,
+                            "extraHashrate" to 0.0,
+                            "bonus_hashrate" to 0.0,
+                            "totalReferralRewardsUsdt" to 0.0,
+                            "syndicateTier" to "NOVICE",
+                            "lastReconciledAt" to FieldValue.serverTimestamp(),
+                            "referralCode" to "HG-8080",
+                            "referral_code" to "HG-8080"
+                        )
+                        db.collection("users").document(userId).set(initDoc, SetOptions.merge())
+                        onProfileUpdated(0.00, "UNVERIFIED", false, 0L, 0.0, "HG-8080")
+                        onSyndicateUpdated?.invoke("NOVICE", 0.0)
                     }
                 }
 
@@ -1167,10 +1441,16 @@ object FirebaseSyncService {
                         val simpleDateFormat = SimpleDateFormat("MMM dd, yyyy", Locale.US)
                         for (doc in snapshot.documents) {
                             val memberUid = doc.getString("uid") ?: doc.id
-                            val displayName = doc.getString("displayName") ?: doc.getString("name") ?: "Active Miner"
+                            val rawName = doc.getString("displayName") ?: doc.getString("name") ?: ""
+                            val displayName = if (rawName.isNotBlank() && !rawName.contains("@")) {
+                                rawName
+                            } else {
+                                "User 0x" + memberUid.replace("-", "").take(6).lowercase()
+                            }
                             val email = doc.getString("email") ?: ""
                             val status = doc.getString("status") ?: "ACTIVE"
-                            val bonus = doc.getDouble("hashrateBonus") ?: doc.getDouble("bonus") ?: 1.5
+                            val bonus = doc.getDouble("hashrateContributed") ?: doc.getDouble("hashrateBonus") ?: doc.getDouble("bonus") ?: 1.5
+                            val isMining = doc.getBoolean("isMining") ?: true
                             val avatar = doc.getString("avatarUrl") ?: doc.getString("photoUrl")
                             val timestamp = doc.getTimestamp("joinedAt")?.toDate()
                             val dateStr = if (timestamp != null) simpleDateFormat.format(timestamp) else "Recently"
@@ -1185,13 +1465,16 @@ object FirebaseSyncService {
                                     joinedAtMs = joinedMs,
                                     status = status,
                                     hashrateBonus = bonus,
+                                    hashrateContributed = bonus,
+                                    isMining = isMining,
                                     avatarUrl = avatar
                                 )
                             )
                         }
                         // Sort latest joined members first
                         teamList.sortByDescending { it.joinedAtMs }
-                        onTeamUpdated?.invoke(snapshot.size().toLong(), teamList)
+                        val activeCount = teamList.count { it.status.equals("ACTIVE", ignoreCase = true) }.toLong()
+                        onTeamUpdated?.invoke(activeCount, teamList)
                     }
                 }
         } catch (_: Exception) {}

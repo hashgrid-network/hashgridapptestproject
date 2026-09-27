@@ -85,7 +85,11 @@ import androidx.compose.material.icons.filled.ContentCopy
 fun GrowthScreen(
     referralCode: String,
     referralCount: Long = 0L,
+    teamCount: Long = referralCount,
     bonusHashrate: Double = 0.0,
+    extraHashrate: Double = bonusHashrate,
+    syndicateTier: String = "NOVICE",
+    totalReferralRewardsUsdt: Double = 0.0,
     teamMembers: List<TeamMember> = emptyList(),
     bountyTasks: List<BountyTask>,
     freeAdCooldownHours: Int,
@@ -98,6 +102,10 @@ fun GrowthScreen(
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
     var adSessionMessage by remember { mutableStateOf<String?>(null) }
+
+    val effectiveTeamCount = maxOf(teamCount, referralCount)
+    val effectiveExtraHashrate = maxOf(extraHashrate, bonusHashrate)
+    val displayRewards = if (totalReferralRewardsUsdt > 0.0) totalReferralRewardsUsdt else (effectiveTeamCount * 5.0).coerceAtLeast(0.0)
 
     Column(
         modifier = modifier
@@ -129,18 +137,35 @@ fun GrowthScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column {
-                        Text(
-                            text = "TOTAL REFERRAL REWARDS",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = SlateGray,
-                            letterSpacing = 1.sp
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "TOTAL REFERRAL REWARDS",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = SlateGray,
+                                letterSpacing = 1.sp
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(GoldLight)
+                                    .border(0.8.dp, GoldBorder, RoundedCornerShape(6.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = syndicateTier,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = GoldGradientEnd
+                                )
+                            }
+                        }
                         Spacer(modifier = Modifier.height(4.dp))
                         Row(verticalAlignment = Alignment.Bottom) {
                             Text(
-                                text = "$10,000.00",
-                                fontSize = 32.sp,
+                                text = String.format(Locale.US, "$%,.2f", displayRewards),
+                                fontSize = 28.sp,
                                 fontWeight = FontWeight.Black,
                                 color = ObsidianNavy,
                                 fontFamily = FontFamily.Monospace
@@ -148,15 +173,15 @@ fun GrowthScreen(
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
                                 text = "USDT",
-                                fontSize = 16.sp,
+                                fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = GoldGradientEnd,
-                                modifier = Modifier.padding(bottom = 4.dp)
+                                modifier = Modifier.padding(bottom = 3.dp)
                             )
                         }
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "Up to $10,000 USDT in community tier rewards & team commissions.",
+                            text = "Syndicate Tier: $syndicateTier • Permanent cloud commissions & referral earnings.",
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Medium,
                             color = MintDark
@@ -194,7 +219,7 @@ fun GrowthScreen(
                     ) {
                         Column {
                             Text("Total Friends Joined", fontSize = 10.sp, color = SlateGray)
-                            Text("$referralCount Joined", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = ObsidianNavy)
+                            Text("$effectiveTeamCount Joined", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = ObsidianNavy)
                         }
                     }
 
@@ -208,7 +233,7 @@ fun GrowthScreen(
                     ) {
                         Column {
                             Text("Extra Hashrate Earned", fontSize = 10.sp, color = SlateGray)
-                            Text("+${String.format(Locale.US, "%.1f", bonusHashrate)} GH/s", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = GoldGradientEnd)
+                            Text("+${String.format(Locale.US, "%.1f", effectiveExtraHashrate)} GH/s", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = GoldGradientEnd)
                         }
                     }
                 }
@@ -509,8 +534,10 @@ fun GrowthScreen(
                                     .background(MintGreen)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
+                            val activeDocsCount = teamMembers.count { it.status.equals("ACTIVE", ignoreCase = true) }
+                            val displayActiveCount = if (teamMembers.isNotEmpty()) activeDocsCount else effectiveTeamCount.toInt()
                             Text(
-                                text = "${maxOf(teamMembers.size.toLong(), referralCount)} ACTIVE",
+                                text = "$displayActiveCount ACTIVE",
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.Black,
                                 color = MintDark
@@ -594,8 +621,9 @@ fun GrowthScreen(
                                                 fontWeight = FontWeight.Bold,
                                                 color = ObsidianNavy
                                             )
+                                            val shortId = if (member.uid.isNotBlank()) "ID: " + member.uid.take(8) + " • " else ""
                                             Text(
-                                                text = "Joined: ${member.joinedAtStr}",
+                                                text = "${shortId}Joined: ${member.joinedAtStr}",
                                                 fontSize = 9.5.sp,
                                                 color = SlateGray
                                             )
@@ -609,8 +637,9 @@ fun GrowthScreen(
                                                 .background(Color(0xFFE8F5E9))
                                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                                         ) {
+                                            val contributed = if (member.hashrateContributed > 0.0) member.hashrateContributed else member.hashrateBonus
                                             Text(
-                                                text = "+${String.format(Locale.US, "%.1f", member.hashrateBonus)} GH/s",
+                                                text = "+${String.format(Locale.US, "%.1f", contributed)} GH/s",
                                                 fontSize = 9.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 color = MintDark
@@ -618,7 +647,7 @@ fun GrowthScreen(
                                         }
                                         Spacer(modifier = Modifier.height(2.dp))
                                         Text(
-                                            text = "● ${member.status}",
+                                            text = if (member.isMining) "● ACTIVE MINING" else "● ${member.status}",
                                             fontSize = 8.5.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = MintDark

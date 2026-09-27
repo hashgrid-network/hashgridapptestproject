@@ -60,6 +60,8 @@ data class TeamMember(
     val joinedAtMs: Long = 0L,
     val status: String = "ACTIVE",
     val hashrateBonus: Double = 1.5,
+    val hashrateContributed: Double = 1.5,
+    val isMining: Boolean = true,
     val avatarUrl: String? = null
 )
 
@@ -70,10 +72,14 @@ data class User(
     val referralCode: String = "",
     val referredBy: String? = null,
     val referrerUid: String? = null,
+    val appliedReferralCode: String? = null,
     val referralCount: Long = 0,
     val teamCount: Long = 0,
     val directReferrals: Long = 0,
     val bonusHashrate: Double = 0.0,
+    val extraHashrate: Double = 0.0,
+    val totalReferralRewardsUsdt: Double = 0.0,
+    val syndicateTier: String = "NOVICE",
     val displayName: String = "Institutional Miner",
     val photoUrl: String? = null,
     val isFlaggedDuplicate: Boolean = false,

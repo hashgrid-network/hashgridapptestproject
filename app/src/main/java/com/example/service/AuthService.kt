@@ -73,6 +73,12 @@ object AuthService {
         return "HG-$suffix"
     }
 
+    fun updateReferralCode(newCode: String) {
+        if (newCode.isNotBlank()) {
+            _currentUser.value = _currentUser.value?.copy(referralCode = newCode)
+        }
+    }
+
     /**
      * In-memory device session flag for Bulletproof 2FA verification.
      * Must be true before entering Dashboard.
@@ -341,6 +347,7 @@ object AuthService {
                     referralCode = assignedRefCode,
                     referredBy = verifiedReferrerUid ?: referredByCode,
                     referrerUid = verifiedReferrerUid,
+                    appliedReferralCode = cleanRef,
                     welcomeBonusHashrate = welcomeBonusHashrate
                 )
 

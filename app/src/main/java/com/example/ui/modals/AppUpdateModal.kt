@@ -262,7 +262,7 @@ fun AppUpdateModal(
                 Spacer(modifier = Modifier.height(18.dp))
 
                 // Dynamic Status & Action Area
-                val officialReleasesUrl = "https://github.com/hashgrid-network/hashgridapptestproject/releases"
+                val officialReleasesUrl = "https://github.com/hashgrid-network/hashgridapptestproject/releases/download/latest/HashGrid-v1.0.apk"
                 val openWebpage = {
                     try {
                         val webpageIntent = Intent(Intent.ACTION_VIEW, Uri.parse(officialReleasesUrl)).apply {

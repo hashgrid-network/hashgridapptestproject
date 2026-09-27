@@ -54,6 +54,7 @@ import com.example.ui.screens.AuthScreen
 import com.example.ui.screens.TotpSetupScreen
 import com.example.ui.screens.TwoFactorAuthScreen
 import com.example.ui.screens.GrowthScreen
+import com.example.ui.screens.NetworkScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.PlansScreen
 import com.example.ui.screens.WalletScreen
@@ -236,7 +237,11 @@ fun HashGridApp(
     val twoFactorEnabled by viewModel.twoFactorEnabled.collectAsStateWithLifecycle()
     val selectedLanguage by viewModel.selectedLanguage.collectAsStateWithLifecycle()
     val referralCount by viewModel.referralCount.collectAsStateWithLifecycle()
+    val teamCount by viewModel.teamCount.collectAsStateWithLifecycle()
     val bonusHashrate by viewModel.bonusHashrate.collectAsStateWithLifecycle()
+    val extraHashrate by viewModel.extraHashrate.collectAsStateWithLifecycle()
+    val syndicateTier by viewModel.syndicateTier.collectAsStateWithLifecycle()
+    val totalReferralRewardsUsdt by viewModel.totalReferralRewardsUsdt.collectAsStateWithLifecycle()
     val teamMembers by viewModel.teamMembers.collectAsStateWithLifecycle()
 
     // Gamification state
@@ -543,17 +548,20 @@ fun HashGridApp(
                                     viewModel.showWithdrawModal.value = true
                                 }
                             )
-                            3 -> GrowthScreen(
+                            3 -> NetworkScreen(
                                 referralCode = viewModel.referralCode,
-                                referralCount = referralCount,
-                                bonusHashrate = bonusHashrate,
+                                teamCount = teamCount,
+                                extraHashrate = extraHashrate,
+                                syndicateTier = syndicateTier,
+                                totalReferralRewardsUsdt = totalReferralRewardsUsdt,
                                 teamMembers = teamMembers,
                                 bountyTasks = bountyTasks,
                                 freeAdCooldownHours = viewModel.getFreeAdCooldownHoursRemaining(),
                                 onClaimFreeAdSession = { viewModel.claimFreeAdSession() },
                                 onOpenBountyModal = { task -> selectedBountyTask = task },
                                 onOpenCreatorMilestoneModal = { showCreatorMilestoneModal = true },
-                                onOpenSyndicateTerms = { viewModel.showSyndicateModal.value = true }
+                                onOpenSyndicateTerms = { viewModel.showSyndicateModal.value = true },
+                                onReconcile = { viewModel.reconcileReferrals() }
                             )
                             4 -> AccountScreen(
                                 userId = viewModel.userId,
