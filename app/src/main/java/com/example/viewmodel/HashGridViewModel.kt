@@ -74,7 +74,17 @@ class HashGridViewModel : ViewModel() {
     val userId: String get() = currentUser.value?.id?.ifBlank { "HG-ACCOUNT" } ?: "HG-ACCOUNT"
     val userEmail: String get() = currentUser.value?.email ?: ""
     val userDisplayName: String get() = currentUser.value?.displayName ?: "User"
-    val referralCode: String get() = currentUser.value?.referralCode ?: "HG-8080"
+    val referralCode: String
+        get() {
+            val user = currentUser.value
+            val isMaster = AuthService.isMasterAccount(user?.email, user?.id)
+            val code = user?.referralCode
+            return when {
+                isMaster -> "HG-8080"
+                !code.isNullOrBlank() && code != "HG-8080" -> code
+                else -> AuthService.generateReferralCode(user?.id ?: "")
+            }
+        }
 
     // Real dynamic balances (Starts at 0.00 for new user, updated via Firebase Realtime listener)
     private val _walletBalanceUsdt = MutableStateFlow(0.00)
@@ -589,8 +599,8 @@ class HashGridViewModel : ViewModel() {
             viewModelScope.launch {
                 try {
                     val reconciledCount = FirebaseSyncService.reconcileUserReferrals(uid, code)
-                    if (reconciledCount > _teamCount.value || _teamCount.value == 0L) {
-                        _teamCount.value = maxOf(_teamCount.value, reconciledCount)
+                    if (reconciledCount > _teamCount.value) {
+                        _teamCount.value = reconciledCount
                         _extraHashrate.value = _teamCount.value * 1.5
                         _totalReferralRewardsUsdt.value = _teamCount.value * 5.0
                         _syndicateTier.value = when {

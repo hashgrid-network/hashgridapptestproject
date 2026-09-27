@@ -67,14 +67,27 @@ object AuthService {
     private val _isLoggedIn = MutableStateFlow(false)
     val isLoggedIn: StateFlow<Boolean> = _isLoggedIn.asStateFlow()
 
-    fun generateReferralCode(uid: String): String {
-        val sanitized = uid.replace("-", "").filter { it.isLetterOrDigit() }.uppercase()
-        val suffix = if (sanitized.length >= 4) sanitized.takeLast(4) else (sanitized + "7798").take(4)
-        return "HG-$suffix"
+    fun isMasterAccount(email: String?, uid: String? = null): Boolean {
+        return email?.trim()?.equals("parkashom8080@gmail.com", ignoreCase = true) == true ||
+               uid == "master_8080_uid" || uid == "HG-808080"
+    }
+
+    /**
+     * Generates a unique referral code in the format HG-XXXX (4 uppercase alphanumeric characters).
+     * HG-8080 is strictly reserved for the master account.
+     */
+    fun generateReferralCode(uid: String = ""): String {
+        val allowedChars = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
+        var code: String
+        do {
+            val randomSuffix = (1..4).map { allowedChars.random() }.joinToString("")
+            code = "HG-$randomSuffix"
+        } while (code == "HG-8080")
+        return code
     }
 
     fun updateReferralCode(newCode: String) {
-        if (newCode.isNotBlank()) {
+        if (newCode.isNotBlank() && (newCode != "HG-8080" || isMasterAccount(_currentUser.value?.email, _currentUser.value?.id))) {
             _currentUser.value = _currentUser.value?.copy(referralCode = newCode)
         }
     }
@@ -130,7 +143,17 @@ object AuthService {
                 val email = firebaseUser.email ?: currentPrefs?.getString(KEY_USER_EMAIL, "") ?: ""
                 val name = firebaseUser.displayName ?: currentPrefs?.getString(KEY_USER_NAME, "Miner") ?: "Miner"
                 val photoUrl = firebaseUser.photoUrl?.toString() ?: currentPrefs?.getString(KEY_PHOTO_URL, null)
-                val refCode = currentPrefs?.getString(KEY_REFERRAL_CODE, generateReferralCode(uid)) ?: generateReferralCode(uid)
+                val isMaster = isMasterAccount(email, uid)
+                val storedCode = currentPrefs?.getString(KEY_REFERRAL_CODE, null)
+                val refCode = if (isMaster) {
+                    "HG-8080"
+                } else if (storedCode.isNullOrBlank() || storedCode == "HG-8080") {
+                    val newCode = generateReferralCode(uid)
+                    currentPrefs?.edit()?.putString(KEY_REFERRAL_CODE, newCode)?.apply()
+                    newCode
+                } else {
+                    storedCode
+                }
                 val accountId = "HG-" + uid.takeLast(6).uppercase()
 
                 val user = User(
@@ -152,11 +175,22 @@ object AuthService {
                 isSession2FAVerified = true
                 _isLoggedIn.value = true
             } else if (loggedIn && !savedUid.isNullOrBlank() && !savedEmail.isNullOrBlank()) {
+                val isMaster = isMasterAccount(savedEmail, savedUid)
+                val storedCode = currentPrefs?.getString(KEY_REFERRAL_CODE, null)
+                val refCode = if (isMaster) {
+                    "HG-8080"
+                } else if (storedCode.isNullOrBlank() || storedCode == "HG-8080") {
+                    val newCode = generateReferralCode(savedUid)
+                    currentPrefs?.edit()?.putString(KEY_REFERRAL_CODE, newCode)?.apply()
+                    newCode
+                } else {
+                    storedCode
+                }
                 val user = User(
                     id = savedUid,
                     email = savedEmail,
                     role = currentPrefs?.getString(KEY_USER_ROLE, "user") ?: "user",
-                    referralCode = currentPrefs?.getString(KEY_REFERRAL_CODE, "HG-7798") ?: "HG-7798",
+                    referralCode = refCode,
                     referredBy = currentPrefs?.getString(KEY_REFERRED_BY, null),
                     referrerUid = currentPrefs?.getString(KEY_REFERRER_UID, null),
                     referralCount = currentPrefs?.getLong(KEY_REFERRAL_COUNT, 0L) ?: 0L,
@@ -318,7 +352,8 @@ object AuthService {
             if (fbUser != null) {
                 val uid = fbUser.uid
                 val accountId = "HG-" + uid.takeLast(6).uppercase()
-                val assignedRefCode = generateReferralCode(uid)
+                val isMaster = isMasterAccount(cleanEmail, uid)
+                val assignedRefCode = if (isMaster) "HG-8080" else generateReferralCode(uid)
 
                 var referredByCode: String? = null
                 var verifiedReferrerUid: String? = null
@@ -338,6 +373,10 @@ object AuthService {
                     }
                 }
 
+                // New account initial state:
+                // - teamCount: 0 (subcollection team empty until user refers someone)
+                // - extraHashrate: +1.5 GH/s welcome bonus if joined via code, else 0.0
+                // - totalReferralRewardsUsdt: 0.0 (no instant cash on signup; commissions come strictly from 7% rig purchases)
                 FirebaseSyncService.initializeNewUser(
                     uid = uid,
                     email = cleanEmail,
@@ -424,35 +463,45 @@ object AuthService {
     }
 
     fun setSessionDirect(user: User, uid: String) {
+        val isMaster = isMasterAccount(user.email, uid)
+        val sanitizedRefCode = if (isMaster) {
+            "HG-8080"
+        } else if (user.referralCode == "HG-8080" || user.referralCode.isBlank()) {
+            generateReferralCode(uid)
+        } else {
+            user.referralCode
+        }
+        val safeUser = if (user.referralCode != sanitizedRefCode) user.copy(referralCode = sanitizedRefCode) else user
+
         try {
             prefs?.edit()
                 ?.putBoolean(KEY_IS_LOGGED_IN, true)
-                ?.putString(KEY_USER_ID, user.id)
-                ?.putString(KEY_USER_NAME, user.displayName)
-                ?.putString(KEY_USER_EMAIL, user.email)
-                ?.putString(KEY_USER_ROLE, user.role)
-                ?.putString(KEY_REFERRAL_CODE, user.referralCode)
-                ?.putString(KEY_REFERRED_BY, user.referredBy)
-                ?.putString(KEY_REFERRER_UID, user.referrerUid)
-                ?.putLong(KEY_REFERRAL_COUNT, user.referralCount)
-                ?.putFloat(KEY_BONUS_HASHRATE, user.bonusHashrate.toFloat())
-                ?.putString(KEY_PHOTO_URL, user.photoUrl)
-                ?.putBoolean(KEY_IS_FLAGGED_DUPLICATE, user.isFlaggedDuplicate)
+                ?.putString(KEY_USER_ID, safeUser.id)
+                ?.putString(KEY_USER_NAME, safeUser.displayName)
+                ?.putString(KEY_USER_EMAIL, safeUser.email)
+                ?.putString(KEY_USER_ROLE, safeUser.role)
+                ?.putString(KEY_REFERRAL_CODE, sanitizedRefCode)
+                ?.putString(KEY_REFERRED_BY, safeUser.referredBy)
+                ?.putString(KEY_REFERRER_UID, safeUser.referrerUid)
+                ?.putLong(KEY_REFERRAL_COUNT, safeUser.referralCount)
+                ?.putFloat(KEY_BONUS_HASHRATE, safeUser.bonusHashrate.toFloat())
+                ?.putString(KEY_PHOTO_URL, safeUser.photoUrl)
+                ?.putBoolean(KEY_IS_FLAGGED_DUPLICATE, safeUser.isFlaggedDuplicate)
                 ?.apply()
         } catch (_: Exception) {}
 
         appContext?.let { SessionManager.getInstance(it).markDeviceAsVerified(uid) }
         isSession2FAVerified = true
-        _currentUser.value = user
+        _currentUser.value = safeUser
         _isLoggedIn.value = true
 
         FirebaseSyncService.syncUserProfile(
             uid = uid,
-            email = user.email,
-            displayName = user.displayName,
-            referralCode = user.referralCode,
-            isFlaggedDuplicate = user.isFlaggedDuplicate,
-            photoUrl = user.photoUrl
+            email = safeUser.email,
+            displayName = safeUser.displayName,
+            referralCode = sanitizedRefCode,
+            isFlaggedDuplicate = safeUser.isFlaggedDuplicate,
+            photoUrl = safeUser.photoUrl
         )
     }
 
@@ -562,7 +611,7 @@ object AuthService {
                 put("id", if (isAdmin) "HG-808080" else "HG-" + UUID.randomUUID().toString().takeLast(6).uppercase())
                 put("name", if (isAdmin) "Parkash Om" else cleanEmail.substringBefore("@").replaceFirstChar { it.uppercase() })
                 put("role", "user")
-                put("referralCode", if (isAdmin) "HG-8080" else "HG-7798")
+                put("referralCode", if (isAdmin) "HG-8080" else generateReferralCode(uid))
                 put("deviceId", "device_reset")
                 put("isFlaggedDuplicate", false)
             }

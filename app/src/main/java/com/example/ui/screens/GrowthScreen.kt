@@ -103,8 +103,8 @@ fun GrowthScreen(
     val context = LocalContext.current
     var adSessionMessage by remember { mutableStateOf<String?>(null) }
 
-    val effectiveTeamCount = maxOf(teamCount, referralCount)
-    val effectiveExtraHashrate = maxOf(extraHashrate, bonusHashrate)
+    val effectiveTeamCount = teamCount
+    val effectiveExtraHashrate = extraHashrate
     val displayRewards = if (totalReferralRewardsUsdt > 0.0) totalReferralRewardsUsdt else (effectiveTeamCount * 5.0).coerceAtLeast(0.0)
 
     Column(
@@ -139,7 +139,7 @@ fun GrowthScreen(
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = "TOTAL REFERRAL REWARDS",
+                                text = "TOTAL AFFILIATE COMMISSIONS",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = SlateGray,
@@ -181,7 +181,7 @@ fun GrowthScreen(
                         }
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "Syndicate Tier: $syndicateTier • Permanent cloud commissions & referral earnings.",
+                            text = "7% instant USDT commission from team mining rig purchases.",
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Medium,
                             color = MintDark
@@ -331,7 +331,7 @@ fun GrowthScreen(
                 Spacer(modifier = Modifier.height(14.dp))
 
                 Text(
-                    text = "Friends who register with your link receive an instant +1.5 GH/s hashrate welcome gift. You earn +1.5 GH/s hashrate + 7.0% mining commissions.",
+                    text = "Friends who register with your link receive an instant +1.5 GH/s hashrate welcome boost. You earn +1.5 GH/s extra hashrate + 7.0% instant USDT commission whenever your friend buys a Mining Rig.",
                     fontSize = 10.sp,
                     color = SlateGray,
                     lineHeight = 14.sp
