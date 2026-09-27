@@ -63,8 +63,9 @@ object AppUpdateManager {
 
     // Configurable endpoints: Firebase Realtime Database '/app_config/update' first, then version.json & GitHub releases
     var firebaseUpdateNodeUrl: String = "https://hashgrid-institutional-default-rtdb.firebaseio.com/app_config/update.json"
-    var remoteVersionUrl: String = "https://raw.githubusercontent.com/goldbrownp-blip/hashgridapptestproject/main/version.json"
-    var githubReleasesApiUrl: String = "https://api.github.com/repos/goldbrownp-blip/hashgridapptestproject/releases/latest"
+    var remoteVersionUrl: String = "https://raw.githubusercontent.com/hashgrid-network/hashgridapptestproject/main/version.json"
+    var githubReleasesApiUrl: String = "https://api.github.com/repos/hashgrid-network/hashgridapptestproject/releases/latest"
+    const val OFFICIAL_RELEASES_PAGE_URL: String = "https://github.com/hashgrid-network/hashgridapptestproject/releases"
 
     private val httpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
@@ -440,6 +441,17 @@ object AppUpdateManager {
             context.startActivity(installIntent)
         } catch (e: Exception) {
             Toast.makeText(context, "Install failed: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    fun openReleasesPage(context: Context) {
+        try {
+            val webpageIntent = Intent(Intent.ACTION_VIEW, Uri.parse(OFFICIAL_RELEASES_PAGE_URL)).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(webpageIntent)
+        } catch (e: Exception) {
+            Toast.makeText(context, "Unable to open releases page: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
         }
     }
 

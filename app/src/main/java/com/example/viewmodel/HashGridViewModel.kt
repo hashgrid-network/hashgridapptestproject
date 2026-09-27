@@ -16,6 +16,7 @@ import com.example.model.MiningPlan
 import com.example.model.PayoutItem
 import com.example.model.PayoutStatus
 import com.example.model.PriceDirection
+import com.example.model.TeamMember
 import com.example.model.TokenConfig
 import com.example.model.User
 import com.example.service.AppUpdateInfo
@@ -79,9 +80,15 @@ class HashGridViewModel : ViewModel() {
     private val _walletBalanceUsdt = MutableStateFlow(0.00)
     val walletBalanceUsdt: StateFlow<Double> = _walletBalanceUsdt.asStateFlow()
 
-    // Bulletproof Referral Stats
+    // Bulletproof Referral & Team Syndicate Stats
     private val _referralCount = MutableStateFlow(0L)
     val referralCount: StateFlow<Long> = _referralCount.asStateFlow()
+
+    private val _teamCount = MutableStateFlow(0L)
+    val teamCount: StateFlow<Long> = _teamCount.asStateFlow()
+
+    private val _teamMembers = MutableStateFlow<List<TeamMember>>(emptyList())
+    val teamMembers: StateFlow<List<TeamMember>> = _teamMembers.asStateFlow()
 
     private val _bonusHashrate = MutableStateFlow(0.0)
     val bonusHashrate: StateFlow<Double> = _bonusHashrate.asStateFlow()
@@ -528,12 +535,19 @@ class HashGridViewModel : ViewModel() {
                                         _canSpinToday.value = true
                                         _wheelCooldownEnd.value = 0L
                                     }
+                                },
+                                onTeamUpdated = { count, members ->
+                                    _teamCount.value = count
+                                    _referralCount.value = count
+                                    _teamMembers.value = members
                                 }
                             )
                         } else {
                             _walletBalanceUsdt.value = 0.00
                             _hashPower.value = 0.0
                             _referralCount.value = 0L
+                            _teamCount.value = 0L
+                            _teamMembers.value = emptyList()
                             _bonusHashrate.value = 0.0
                             _activeContracts.value = emptyList()
                             _activityList.value = emptyList()
@@ -1271,10 +1285,12 @@ class HashGridViewModel : ViewModel() {
     }
 
     fun startAppUpdate(context: Context, info: AppUpdateInfo) {
+        AppUpdateManager.openReleasesPage(context)
         AppUpdateManager.startDownload(context, info)
     }
 
     fun installAppUpdate(context: Context, apkFile: File) {
+        AppUpdateManager.openReleasesPage(context)
         AppUpdateManager.triggerInstall(context, apkFile)
     }
 

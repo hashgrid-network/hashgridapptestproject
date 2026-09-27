@@ -237,6 +237,7 @@ fun HashGridApp(
     val selectedLanguage by viewModel.selectedLanguage.collectAsStateWithLifecycle()
     val referralCount by viewModel.referralCount.collectAsStateWithLifecycle()
     val bonusHashrate by viewModel.bonusHashrate.collectAsStateWithLifecycle()
+    val teamMembers by viewModel.teamMembers.collectAsStateWithLifecycle()
 
     // Gamification state
     val canSpinToday by viewModel.canSpinToday.collectAsStateWithLifecycle()
@@ -546,6 +547,7 @@ fun HashGridApp(
                                 referralCode = viewModel.referralCode,
                                 referralCount = referralCount,
                                 bonusHashrate = bonusHashrate,
+                                teamMembers = teamMembers,
                                 bountyTasks = bountyTasks,
                                 freeAdCooldownHours = viewModel.getFreeAdCooldownHoursRemaining(),
                                 onClaimFreeAdSession = { viewModel.claimFreeAdSession() },

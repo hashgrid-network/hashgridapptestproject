@@ -52,6 +52,17 @@ data class LiveTickerItem(
     val lastTickTime: Long = System.currentTimeMillis()
 )
 
+data class TeamMember(
+    val uid: String = "",
+    val displayName: String = "Active Miner",
+    val email: String = "",
+    val joinedAtStr: String = "Recently",
+    val joinedAtMs: Long = 0L,
+    val status: String = "ACTIVE",
+    val hashrateBonus: Double = 1.5,
+    val avatarUrl: String? = null
+)
+
 data class User(
     val id: String = "",
     val email: String = "",
@@ -60,6 +71,8 @@ data class User(
     val referredBy: String? = null,
     val referrerUid: String? = null,
     val referralCount: Long = 0,
+    val teamCount: Long = 0,
+    val directReferrals: Long = 0,
     val bonusHashrate: Double = 0.0,
     val displayName: String = "Institutional Miner",
     val photoUrl: String? = null,

@@ -319,7 +319,12 @@ object AuthService {
                 var welcomeBonusHashrate = 0.0
 
                 if (cleanRef.isNotBlank() && !cleanRef.equals(assignedRefCode, ignoreCase = true)) {
-                    val (isValidReferral, referrerUid) = FirebaseSyncService.validateAndApplyReferral(cleanRef, uid)
+                    val (isValidReferral, referrerUid) = FirebaseSyncService.validateAndApplyReferral(
+                        cleanCode = cleanRef,
+                        newUid = uid,
+                        newDisplayName = cleanName,
+                        newEmail = cleanEmail
+                    )
                     if (isValidReferral && !referrerUid.isNullOrBlank() && referrerUid != uid) {
                         referredByCode = cleanRef
                         verifiedReferrerUid = referrerUid
@@ -334,7 +339,7 @@ object AuthService {
                     photoUrl = null,
                     accountId = accountId,
                     referralCode = assignedRefCode,
-                    referredBy = referredByCode,
+                    referredBy = verifiedReferrerUid ?: referredByCode,
                     referrerUid = verifiedReferrerUid,
                     welcomeBonusHashrate = welcomeBonusHashrate
                 )

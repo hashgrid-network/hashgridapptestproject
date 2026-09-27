@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HashGold Network - 9:16 Mobile Story Poster</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      background-color: #121214;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 16px;
+      color: #121214;
+    }
+
+    /* Container for 9:16 Mobile Poster Ratio */
+    .poster-canvas-wrapper {
+      position: relative;
+      width: 100%;
+      max-width: 440px;
+      aspect-ratio: 9 / 16;
+      background: radial-gradient(circle at 50% 15%, #FFFFFF 0%, #FAF9F6 50%, #F3EFEA 100%);
+      border-radius: 36px;
+      overflow: hidden;
+      box-shadow: 0 30px 90px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(212, 175, 55, 0.3);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 32px 24px;
+    }
+
+    /* Ambient Lighting Layer */
+    .ambient-gold-glow {
+      position: absolute;
+      top: 25%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 320px;
+      height: 320px;
+      background: radial-gradient(circle, rgba(229, 184, 66, 0.18) 0%, rgba(212, 175, 55, 0.05) 50%, transparent 75%);
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    /* Top Genesis Badge */
+    .top-header {
+      position: relative;
+      z-index: 2;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+    }
+
+    .badge-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #E6F8F0;
+      border: 1px solid rgba(0, 168, 107, 0.3);
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.8px;
+      color: #00A86B;
+      box-shadow: 0 4px 12px rgba(0, 168, 107, 0.12);
+      margin-bottom: 12px;
+    }
+
+    .badge-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #00A86B;
+      box-shadow: 0 0 8px #00A86B;
+      animation: pulseDot 1.5s infinite;
+    }
+
+    @keyframes pulseDot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+
+    .main-title {
+      font-size: 26px;
+      font-weight: 900;
+      letter-spacing: -0.6px;
+      line-height: 1.15;
+      color: #121214;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+
+    .main-title span {
+      background: linear-gradient(135deg, #B8860B 0%, #D4AF37 50%, #F3D078 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .sub-headline {
+      font-size: 12px;
+      font-weight: 600;
+      color: #64748B;
+      letter-spacing: 0.3px;
+    }
+
+    /* Central 3D Device & Reactor Mockup */
+    .device-stage {
+      position: relative;
+      z-index: 2;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      margin: 12px 0;
+    }
+
+    .floating-phone {
+      width: 190px;
+      height: 245px;
+      background: #121214;
+      border-radius: 28px;
+      border: 3.5px solid #E5B842;
+      box-shadow: 0 20px 50px rgba(18, 18, 20, 0.25), inset 0 0 20px rgba(0,0,0,0.8);
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 14px 10px;
+    }
+
+    .phone-screen-header {
+      width: 100%;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    .phone-chip {
+      background: rgba(255, 255, 255, 0.08);
+      border: 0.8px solid rgba(212, 175, 55, 0.4);
+      padding: 3px 8px;
+      border-radius: 12px;
+      font-size: 7.5px;
+      font-weight: 800;
+      color: #F3D078;
+    }
+
+    .phone-status {
+      font-size: 8px;
+      font-weight: 800;
+      color: #00E676;
+    }
+
+    /* 3D Quantum Reactor Core inside phone */
+    .phone-reactor-core {
+      width: 120px;
+      height: 120px;
+      border-radius: 50%;
+      background: radial-gradient(circle, #1E293B 0%, #0F172A 70%, #020617 100%);
+      border: 3px solid #D4AF37;
+      box-shadow: 0 0 30px rgba(212, 175, 55, 0.4), inset 0 0 15px rgba(0,0,0,0.9);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+
+    .reactor-pulse-ring {
+      position: absolute;
+      width: 136px;
+      height: 136px;
+      border-radius: 50%;
+      border: 1.5px dashed rgba(229, 184, 66, 0.6);
+      animation: spinClockwise 12s linear infinite;
+    }
+
+    @keyframes spinClockwise {
+      100% { transform: rotate(360deg); }
+    }
+
+    .reactor-bolt {
+      font-size: 24px;
+      filter: drop-shadow(0 0 10px #D4AF37);
+      margin-bottom: 2px;
+    }
+
+    .reactor-title {
+      font-size: 9px;
+      font-weight: 900;
+      letter-spacing: 0.8px;
+      color: #FFFFFF;
+    }
+
+    .reactor-speed {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 7.5px;
+      font-weight: 800;
+      color: #38BDF8;
+    }
+
+    /* Floating 3D Coins Around Phone */
+    .coin-3d {
+      position: absolute;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 900;
+      box-shadow: 0 14px 28px rgba(0,0,0,0.22);
+      animation: floatCoin 4s ease-in-out infinite alternate;
+    }
+
+    .coin-hgld-left {
+      top: 15px;
+      left: 10px;
+      width: 52px;
+      height: 52px;
+      background: linear-gradient(135deg, #FFF4B8 0%, #D4AF37 50%, #996515 100%);
+      border: 2px solid #FFF8D6;
+      color: #121214;
+      font-size: 10px;
+      transform: rotate(-12deg);
+    }
+
+    .coin-usdt-right {
+      bottom: 25px;
+      right: 12px;
+      width: 48px;
+      height: 48px;
+      background: linear-gradient(135deg, #00E676 0%, #00897B 100%);
+      border: 2px solid #A7F3D0;
+      color: #FFFFFF;
+      font-size: 9.5px;
+      transform: rotate(15deg);
+      animation-delay: -2s;
+    }
+
+    @keyframes floatCoin {
+      0% { transform: translateY(0) rotate(0deg); }
+      100% { transform: translateY(-10px) rotate(8deg); }
+    }
+
+    /* 3 Floating Feature Tiles */
+    .features-list {
+      position: relative;
+      z-index: 2;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .feature-tile {
+      background: #FFFFFF;
+      border: 1px solid rgba(212, 175, 55, 0.35);
+      border-radius: 14px;
+      padding: 9px 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      box-shadow: 0 4px 14px rgba(18, 18, 20, 0.04);
+      transition: transform 0.2s ease;
+    }
+
+    .tile-icon {
+      font-size: 16px;
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      background: #FAF9F6;
+      border: 0.8px solid rgba(212, 175, 55, 0.25);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .tile-text {
+      font-size: 11px;
+      font-weight: 700;
+      color: #1E293B;
+      letter-spacing: -0.1px;
+    }
+
+    /* Bottom Call-To-Action Obsidian Card */
+    .cta-container {
+      position: relative;
+      z-index: 2;
+    }
+
+    .cta-card {
+      background: #121214;
+      border-radius: 20px;
+      border: 1.2px solid rgba(212, 175, 55, 0.45);
+      padding: 12px 14px;
+      box-shadow: 0 16px 36px rgba(18, 18, 20, 0.28);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .download-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      background: linear-gradient(135deg, #F3D078 0%, #D4AF37 50%, #B8860B 100%);
+      color: #121214;
+      font-size: 12.5px;
+      font-weight: 900;
+      letter-spacing: 0.4px;
+      padding: 12px 16px;
+      border-radius: 14px;
+      text-decoration: none;
+      box-shadow: 0 6px 18px rgba(212, 175, 55, 0.35);
+      text-transform: uppercase;
+    }
+
+    .invite-code-pill {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(255, 255, 255, 0.05);
+      border: 0.8px dashed rgba(212, 175, 55, 0.4);
+      padding: 6px 12px;
+      border-radius: 10px;
+      font-size: 9.5px;
+      color: #CBD5E1;
+    }
+
+    .invite-code-pill b {
+      font-family: 'JetBrains Mono', monospace;
+      color: #F3D078;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+    }
+
+    /* Outer Action Bar */
+    .action-controls {
+      margin-top: 18px;
+      display: flex;
+      gap: 12px;
+    }
+
+    .action-btn {
+      background: #232328;
+      border: 1px solid rgba(212, 175, 55, 0.4);
+      color: #FAF9F6;
+      padding: 10px 18px;
+      border-radius: 12px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+    }
+
+    .action-btn:hover {
+      background: #D4AF37;
+      color: #121214;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 9:16 Story Poster Frame -->
+  <div class="poster-canvas-wrapper" id="poster">
+    <div class="ambient-gold-glow"></div>
+
+    <!-- 1. Top Genesis Tag & Typography -->
+    <div class="top-header">
+      <div class="badge-pill">
+        <span class="badge-dot"></span>
+        GENESIS PHASE 1 • FREE MOBILE MINING
+      </div>
+      <h1 class="main-title">MINE FREE <span>$HGLD</span> COINS DAILY</h1>
+      <p class="sub-headline">Pre-Launch Native Reserve • DEX Listing Claimable</p>
+    </div>
+
+    <!-- 2. Device Stage with 3D Quantum Reactor & Floating Coins -->
+    <div class="device-stage">
+      <!-- Left Floating $HGLD Coin -->
+      <div class="coin-3d coin-hgld-left">
+        <span>$HGLD</span>
+      </div>
+
+      <!-- Smartphone Mockup -->
+      <div class="floating-phone">
+        <div class="phone-screen-header">
+          <div class="phone-chip">HASHGOLD v1.0</div>
+          <div class="phone-status">● LIVE</div>
+        </div>
+
+        <div class="phone-reactor-core">
+          <div class="reactor-pulse-ring"></div>
+          <div class="reactor-bolt">⚡</div>
+          <div class="reactor-title">QUANTUM CORE</div>
+          <div class="reactor-speed">15.0 GH/s ACTIVE</div>
+        </div>
+      </div>
+
+      <!-- Right Floating USDT Coin -->
+      <div class="coin-3d coin-usdt-right">
+        <span>USDT</span>
+      </div>
+    </div>
+
+    <!-- 3. Floating 3 Feature Tiles -->
+    <div class="features-list">
+      <div class="feature-tile">
+        <div class="tile-icon">⚡</div>
+        <div class="tile-text">0% Battery Drain (100% Cloud Architecture)</div>
+      </div>
+      <div class="feature-tile">
+        <div class="tile-icon">🪙</div>
+        <div class="tile-text">Free Daily $HGLD + USDT Yields</div>
+      </div>
+      <div class="feature-tile">
+        <div class="tile-icon">🎡</div>
+        <div class="tile-text">Daily Lucky Spin & Win Wheel</div>
+      </div>
+    </div>
+
+    <!-- 4. Bottom Obsidian CTA Card -->
+    <div class="cta-container">
+      <div class="cta-card">
+        <a href="https://github.com/goldbrownp-ai/cloud_miner/releases/download/latest/HashGrid-v1.0.apk" class="download-btn" target="_blank">
+          ⬇ Download HashGold APK (v1.0)
+        </a>
+        <div class="invite-code-pill">
+          <span>Invitation Access Code:</span>
+          <b>HG-808080</b>
+          <span style="color: #00E676; font-size: 8.5px;">✓ AUTO-APPLIED</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom Interactive Helper -->
+  <div class="action-controls">
+    <button class="action-btn" onclick="window.print()">🖨️ Print / Save as PDF</button>
+    <a class="action-btn" href="index.html">← Back to App Landing</a>
+  </div>
+
+</body>
+</html>

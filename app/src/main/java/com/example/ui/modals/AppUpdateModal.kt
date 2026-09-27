@@ -1,5 +1,8 @@
 package com.example.ui.modals
 
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -259,6 +262,18 @@ fun AppUpdateModal(
                 Spacer(modifier = Modifier.height(18.dp))
 
                 // Dynamic Status & Action Area
+                val officialReleasesUrl = "https://github.com/hashgrid-network/hashgridapptestproject/releases"
+                val openWebpage = {
+                    try {
+                        val webpageIntent = Intent(Intent.ACTION_VIEW, Uri.parse(officialReleasesUrl)).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        context.startActivity(webpageIntent)
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "Opening download webpage...", Toast.LENGTH_SHORT).show()
+                    }
+                }
+
                 when (status) {
                     is UpdateStatus.Downloading -> {
                         Column(modifier = Modifier.fillMaxWidth()) {
@@ -315,7 +330,7 @@ fun AppUpdateModal(
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "APK Download Complete! Ready to Install.",
+                                    text = "Latest HashGrid Release Available",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = MintDark
@@ -323,7 +338,10 @@ fun AppUpdateModal(
                             }
 
                             Button(
-                                onClick = { onInstallNow(status.apkFile) },
+                                onClick = {
+                                    openWebpage()
+                                    onInstallNow(status.apkFile)
+                                },
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(48.dp)
@@ -347,9 +365,10 @@ fun AppUpdateModal(
                                         )
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Text(
-                                            text = "Install Update Now",
+                                            text = "UPDATE",
                                             fontSize = 13.sp,
                                             fontWeight = FontWeight.Black,
+                                            letterSpacing = 1.sp,
                                             color = ObsidianNavy
                                         )
                                     }
@@ -383,7 +402,10 @@ fun AppUpdateModal(
                             }
 
                             Button(
-                                onClick = { onUpdateNow(updateInfo) },
+                                onClick = {
+                                    openWebpage()
+                                    onUpdateNow(updateInfo)
+                                },
                                 modifier = Modifier
                                     .weight(if (isMandatory) 1f else 1.5f)
                                     .height(48.dp)
@@ -407,9 +429,10 @@ fun AppUpdateModal(
                                         )
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Text(
-                                            text = "Update Now",
+                                            text = "UPDATE",
                                             fontSize = 13.sp,
                                             fontWeight = FontWeight.Black,
+                                            letterSpacing = 1.sp,
                                             color = ObsidianNavy
                                         )
                                     }

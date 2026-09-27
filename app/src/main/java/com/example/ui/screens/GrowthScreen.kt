@@ -61,6 +61,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.BountyStatus
 import com.example.model.BountyTask
+import com.example.model.TeamMember
 import com.example.ui.theme.CanvasBackground
 import com.example.ui.theme.CardWhite
 import com.example.ui.theme.CrimsonRed
@@ -85,6 +86,7 @@ fun GrowthScreen(
     referralCode: String,
     referralCount: Long = 0L,
     bonusHashrate: Double = 0.0,
+    teamMembers: List<TeamMember> = emptyList(),
     bountyTasks: List<BountyTask>,
     freeAdCooldownHours: Int,
     onClaimFreeAdSession: () -> Pair<Boolean, String>,
@@ -442,8 +444,198 @@ fun GrowthScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
+        // ==========================================
+        // 3. REAL-TIME TEAM SYNDICATE DIRECTORY
+        // ==========================================
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(22.dp))
+                .border(1.dp, GoldBorder, RoundedCornerShape(22.dp))
+                .testTag("team_syndicate_directory_card"),
+            colors = CardDefaults.cardColors(containerColor = CardWhite),
+            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .background(GoldLight)
+                                .border(1.dp, GoldBorder, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("👥", fontSize = 16.sp)
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "TEAM SYNDICATE DIRECTORY",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 0.8.sp,
+                                color = ObsidianNavy
+                            )
+                            Text(
+                                text = "Real-Time Direct Referrals & Active Miners",
+                                fontSize = 10.sp,
+                                color = SlateGray
+                            )
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(Color(0xFFE8F5E9))
+                            .border(0.8.dp, MintGreen.copy(alpha = 0.6f), RoundedCornerShape(20.dp))
+                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(MintGreen)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "${maxOf(teamMembers.size.toLong(), referralCount)} ACTIVE",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Black,
+                                color = MintDark
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                if (teamMembers.isEmpty()) {
+                    // Empty State Card
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(Color(0xFFFAF7F2))
+                            .border(0.8.dp, GoldBorderSubtle, RoundedCornerShape(14.dp))
+                            .padding(18.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Text("🚀", fontSize = 28.sp)
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "No Syndicate Members Yet",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = ObsidianNavy
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Share your referral code $referralCode with friends. When they register, they appear here in real-time and both of you unlock +1.5 GH/s bonus!",
+                                fontSize = 10.5.sp,
+                                color = SlateGray,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                lineHeight = 14.sp
+                            )
+                        }
+                    }
+                } else {
+                    // Live List of Team Members
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        teamMembers.forEach { member ->
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(Color(0xFFFAF7F2))
+                                    .border(0.8.dp, GoldBorderSubtle, RoundedCornerShape(12.dp))
+                                    .padding(horizontal = 12.dp, vertical = 10.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(34.dp)
+                                                .clip(CircleShape)
+                                                .background(ObsidianNavy),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = member.displayName.take(1).uppercase().ifBlank { "M" },
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Black,
+                                                color = GoldGradientMid
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Column {
+                                            Text(
+                                                text = member.displayName,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = ObsidianNavy
+                                            )
+                                            Text(
+                                                text = "Joined: ${member.joinedAtStr}",
+                                                fontSize = 9.5.sp,
+                                                color = SlateGray
+                                            )
+                                        }
+                                    }
+
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(Color(0xFFE8F5E9))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(
+                                                text = "+${String.format(Locale.US, "%.1f", member.hashrateBonus)} GH/s",
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MintDark
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = "● ${member.status}",
+                                            fontSize = 8.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MintDark
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
         // =========================================================================
-        // 3. EXCLUSIVE 50,000+ VIEWS CREATOR MEGA REWARD SHOWCASE CARD
+        // 4. EXCLUSIVE 50,000+ VIEWS CREATOR MEGA REWARD SHOWCASE CARD
         // =========================================================================
         Card(
             modifier = Modifier
