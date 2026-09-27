@@ -1,5 +1,7 @@
 package com.example.ui.screens
 
+import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -232,7 +234,7 @@ fun HomeScreen(
                         }
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            text = "Install HashGrid App for instant mining alerts & biometric login.",
+                            text = "New HashGrid Update Available! Tap to install the latest features & live syndicate tracking.",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = ObsidianNavy,
@@ -243,13 +245,21 @@ fun HomeScreen(
                     Spacer(modifier = Modifier.width(8.dp))
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        // Golden pill "Install App" button
+                        // Golden pill "UPDATE" button
                         Button(
-                            onClick = { showInstallModal = true },
+                            onClick = {
+                                val updateUrl = "https://hashgrid-1009452697125.asia-southeast1.run.app/"
+                                try {
+                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(updateUrl)).apply {
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    }
+                                    context.startActivity(intent)
+                                } catch (_: Exception) {}
+                            },
                             modifier = Modifier
                                 .height(32.dp)
                                 .clip(RoundedCornerShape(16.dp))
-                                .testTag("install_app_button"),
+                                .testTag("update_app_button"),
                             colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
                             contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 0.dp)
                         ) {
@@ -261,7 +271,7 @@ fun HomeScreen(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    text = "Install App",
+                                    text = "UPDATE",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = ObsidianNavy
