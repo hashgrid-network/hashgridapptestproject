@@ -1,9 +1,9 @@
 {
-  "versionCode": 2,
-  "versionName": "1.0.5",
-  "apkUrl": "https://github.com/hashgrid-network/hashgrid-web/releases/download/v1.0.5/hashgrid-v1.0.5.apk",
+  "versionCode": 4,
+  "versionName": "1.0.6",
+  "apkUrl": "https://github.com/hashgrid-network/hashgrid-web/releases/download/v1.0.6/hashgrid-v1.0.6.apk",
   "downloadUrl": "https://hashgrid.online/",
-  "releaseNotes": "Performance improvements, automated NOWpayments 15s polling, Firebase real-time balance sync, and in-app update.",
+  "releaseNotes": "Live running balance fix, auto offline mining accrual, and direct referral boost.",
   "minSupportedVersionCode": 1,
   "isMandatory": false
 }
