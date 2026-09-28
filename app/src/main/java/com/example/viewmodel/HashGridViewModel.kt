@@ -1,6 +1,7 @@
 package com.example.viewmodel
 
 import android.content.Context
+import android.content.Intent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.model.ActiveContract
@@ -29,9 +30,9 @@ import com.example.service.FirebaseTaskClaim
 import com.example.service.FirebaseUser
 import com.example.service.FirebaseWithdrawal
 import com.example.service.GeminiSupportService
-import com.example.service.UpdateStatus
 import com.example.service.LocalPersistenceManager
 import com.example.service.PersistentUserData
+import com.example.service.UpdateStatus
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -286,7 +287,6 @@ class HashGridViewModel : ViewModel() {
     )
     val bountyTasks: StateFlow<List<BountyTask>> = _bountyTasks.asStateFlow()
 
-
     private val _creatorSubmissions = MutableStateFlow<List<CreatorMilestoneSubmission>>(emptyList())
     val creatorSubmissions: StateFlow<List<CreatorMilestoneSubmission>> = _creatorSubmissions.asStateFlow()
 
@@ -320,7 +320,7 @@ class HashGridViewModel : ViewModel() {
     val isAiTyping: StateFlow<Boolean> = _isAiTyping.asStateFlow()
 
     // Mining Session countdown
-    private val _miningSessionEndTimestamp = MutableStateFlow(System.currentTimeMillis() + (14L * 3600 * 1000 + 22L * 60 * 1000))
+    private val _miningSessionEndTimestamp = MutableStateFlow(System.currentTimeMillis() + (24L * 3600 * 1000))
     val miningSessionEndTimestamp: StateFlow<Long> = _miningSessionEndTimestamp.asStateFlow()
 
     // GRID Native Tokenomics State
@@ -346,98 +346,114 @@ class HashGridViewModel : ViewModel() {
 
     val showMiningSheetModal = MutableStateFlow(false)
     private var appContext: Context? = null
-    fun initPersistence(context: Context) {
-        appContext = context.applicationContext
-        val uid = userId
-        if (uid.isNotBlank()) {
-            val data = LocalPersistenceManager.loadUserData(context.applicationContext, uid)
-            if (data.walletBalanceUsdt > 0.0) {
-                _walletBalanceUsdt.value = data.walletBalanceUsdt
-            }
-            val now = System.currentTimeMillis()
-            _isGridMiningActive.value = data.isGridMiningActive
-            if (data.miningSessionEndTimestamp > 0) {
-                _miningSessionEndTimestamp.value = data.miningSessionEndTimestamp
-            }
 
-            // Compute elapsed GRID token accrual on App Open / Resume
-            var currentGrid = if (data.gridCoinBalance > 0.0) data.gridCoinBalance else 24.8500
-            if (data.isGridMiningActive && data.lastSavedTimestamp > 0 && data.lastSavedTimestamp < now) {
-                val activeEnd = _miningSessionEndTimestamp.value
-                val effectiveEnd = now.coerceAtMost(activeEnd)
-                if (effectiveEnd > data.lastSavedTimestamp) {
-                    val elapsedSec = (effectiveEnd - data.lastSavedTimestamp) / 1000.0
-                    val rate = _effectiveGridRate.value
-                    val secAccrual = rate / 3600.0
-                    currentGrid += (elapsedSec * secAccrual)
-                }
-                if (now >= activeEnd) {
-                    _isGridMiningActive.value = false
-                }
-            }
-            _gridCoinBalance.value = currentGrid
-            if (data.activeContracts.isNotEmpty()) {
-                val now = System.currentTimeMillis()
-                val reevaluatedContracts = data.activeContracts.map { contract ->
-                    val matchingPlan = marketplacePlans.find { it.minDepositUsdt == contract.depositUsdt }
-                        ?: marketplacePlans.firstOrNull()
-                    val newDailyYield = matchingPlan?.dailyYieldUsdtEst ?: contract.dailyYieldUsdt
-                    val newHashPower = matchingPlan?.hashPowerGh ?: contract.hashPowerGh
-                    val startMs = if (contract.startTimestampMs > 0 && contract.startTimestampMs <= now) contract.startTimestampMs else now
-                    val elapsedSec = ((now - startMs) / 1000.0).coerceAtLeast(0.0)
-                    val calculatedAccrued = elapsedSec * (newDailyYield / 86400.0)
-                    val target30Pct = if (contract.depositUsdt > 0) contract.depositUsdt * 0.30 else 3.0
-                    val isCompleted = calculatedAccrued >= target30Pct
-                    val finalAccrued = if (isCompleted) target30Pct else calculatedAccrued
-                    val progressPct = if (target30Pct > 0) ((finalAccrued / target30Pct) * 100.0).coerceIn(0.0, 100.0) else 100.0
-                    val status = if (isCompleted) "COMPLETED" else "IN_PROGRESS"
-
-                    contract.copy(
-                        dailyYieldUsdt = newDailyYield,
-                        hashPowerGh = newHashPower,
-                        startTimestampMs = startMs,
-                        accruedProfitUsdt = finalAccrued,
-                        current_yield_mined = finalAccrued,
-                        task_progress_pct = progressPct,
-                        work_status = status,
-                        unlocked_for_withdrawal = isCompleted,
-                        totalDays = matchingPlan?.termDays ?: 30
-                    )
-                }
-                _activeContracts.value = reevaluatedContracts
-                _hashPower.value = reevaluatedContracts.sumOf { it.hashPowerGh } + _extraHashrate.value
-            }
-            if (data.activityList.isNotEmpty()) {
-                _activityList.value = data.activityList
-            }
-            if (data.payoutsList.isNotEmpty()) {
-                _payoutsList.value = data.payoutsList
-            }
-            _canSpinToday.value = data.canSpinToday
-            _wheelCooldownEnd.value = data.wheelCooldownEnd
+    private fun applyLoadedData(data: PersistentUserData) {
+        if (data.walletBalanceUsdt > 0.0) {
+            _walletBalanceUsdt.value = maxOf(_walletBalanceUsdt.value, data.walletBalanceUsdt)
         }
+        val now = System.currentTimeMillis()
+        if (data.miningSessionEndTimestamp > 0) {
+            _miningSessionEndTimestamp.value = data.miningSessionEndTimestamp
+        }
+        val isStillActive = if (data.miningSessionEndTimestamp > 0) now < data.miningSessionEndTimestamp else data.isGridMiningActive
+        _isGridMiningActive.value = isStillActive
+
+        // Compute elapsed GRID token accrual on App Open / Resume (Offline mining catch-up)
+        var currentGrid = if (data.gridCoinBalance > 0.0) maxOf(_gridCoinBalance.value, data.gridCoinBalance) else _gridCoinBalance.value
+        if (isStillActive && data.lastSavedTimestamp > 0 && data.lastSavedTimestamp < now) {
+            val activeEnd = _miningSessionEndTimestamp.value
+            val effectiveEnd = now.coerceAtMost(activeEnd)
+            if (effectiveEnd > data.lastSavedTimestamp) {
+                val elapsedSec = (effectiveEnd - data.lastSavedTimestamp) / 1000.0
+                val rate = if (_effectiveGridRate.value > 0.0) _effectiveGridRate.value else 1.30
+                val secAccrual = rate / 3600.0
+                currentGrid += (elapsedSec * secAccrual)
+            }
+            if (now >= activeEnd) {
+                _isGridMiningActive.value = false
+            }
+        }
+        _gridCoinBalance.value = currentGrid
+
+        if (data.activeContracts.isNotEmpty()) {
+            val reevaluatedContracts = data.activeContracts.map { contract ->
+                val matchingPlan = marketplacePlans.find { it.minDepositUsdt == contract.depositUsdt }
+                    ?: marketplacePlans.firstOrNull()
+                val newDailyYield = matchingPlan?.dailyYieldUsdtEst ?: contract.dailyYieldUsdt
+                val newHashPower = matchingPlan?.hashPowerGh ?: contract.hashPowerGh
+                val startMs = if (contract.startTimestampMs > 0 && contract.startTimestampMs <= now) contract.startTimestampMs else now
+                val elapsedSec = ((now - startMs) / 1000.0).coerceAtLeast(0.0)
+                val calculatedAccrued = elapsedSec * (newDailyYield / 86400.0)
+                val target30Pct = if (contract.depositUsdt > 0) contract.depositUsdt * 0.30 else 3.0
+                val isCompleted = calculatedAccrued >= target30Pct
+                val finalAccrued = if (isCompleted) target30Pct else calculatedAccrued
+                val progressPct = if (target30Pct > 0) ((finalAccrued / target30Pct) * 100.0).coerceIn(0.0, 100.0) else 100.0
+                val status = if (isCompleted) "COMPLETED" else "IN_PROGRESS"
+
+                contract.copy(
+                    dailyYieldUsdt = newDailyYield,
+                    hashPowerGh = newHashPower,
+                    startTimestampMs = startMs,
+                    accruedProfitUsdt = finalAccrued,
+                    current_yield_mined = finalAccrued,
+                    task_progress_pct = progressPct,
+                    work_status = status,
+                    unlocked_for_withdrawal = isCompleted,
+                    totalDays = matchingPlan?.termDays ?: 30
+                )
+            }
+            _activeContracts.value = reevaluatedContracts
+            _hashPower.value = reevaluatedContracts.sumOf { it.hashPowerGh } + _extraHashrate.value
+        }
+        if (data.activityList.isNotEmpty()) {
+            _activityList.value = data.activityList
+        }
+        if (data.payoutsList.isNotEmpty()) {
+            _payoutsList.value = data.payoutsList
+        }
+        _canSpinToday.value = data.canSpinToday
+        _wheelCooldownEnd.value = data.wheelCooldownEnd
     }
 
-
+    fun initPersistence(context: Context) {
+        appContext = context.applicationContext
+        val ctx = context.applicationContext
+        val uid = userId
+        val data = if (uid.isNotBlank() && uid != "HG-ACCOUNT") {
+            LocalPersistenceManager.loadUserData(ctx, uid)
+        } else {
+            val fallback = LocalPersistenceManager.loadUserData(ctx, "LAST_ACTIVE_USER")
+            if (fallback.gridCoinBalance > 0.0 || fallback.walletBalanceUsdt > 0.0) {
+                fallback
+            } else {
+                LocalPersistenceManager.loadUserData(ctx, "HG-ACCOUNT")
+            }
+        }
+        applyLoadedData(data)
+    }
 
     fun saveLocalState() {
         val ctx = appContext ?: return
         val uid = userId
         if (uid.isNotBlank()) {
+            val now = System.currentTimeMillis()
             val data = PersistentUserData(
                 walletBalanceUsdt = _walletBalanceUsdt.value,
                 gridCoinBalance = _gridCoinBalance.value,
                 isGridMiningActive = _isGridMiningActive.value,
                 miningSessionEndTimestamp = _miningSessionEndTimestamp.value,
-                sessionStartTimeMillis = System.currentTimeMillis(),
+                sessionStartTimeMillis = now,
                 activeContracts = _activeContracts.value,
                 activityList = _activityList.value,
                 payoutsList = _payoutsList.value,
                 canSpinToday = _canSpinToday.value,
                 wheelCooldownEnd = _wheelCooldownEnd.value,
-                lastSavedTimestamp = System.currentTimeMillis()
+                lastSavedTimestamp = now
             )
             LocalPersistenceManager.saveUserData(ctx, uid, data)
+            if (uid != "HG-ACCOUNT") {
+                LocalPersistenceManager.saveUserData(ctx, "LAST_ACTIVE_USER", data)
+            }
         }
     }
 
@@ -448,25 +464,42 @@ class HashGridViewModel : ViewModel() {
             e.printStackTrace()
         }
 
-        // Live second-by-second fractional GRID token accumulator with anti-cheat guard
+        // Live second-by-second fractional GRID token accumulator with continuous auto-save
         viewModelScope.launch {
+            var tickCount = 0L
             while (isActive) {
                 delay(1000L)
+                tickCount++
                 if (_isGridMiningActive.value) {
                     val now = System.currentTimeMillis()
                     if (now < _miningSessionEndTimestamp.value) {
                         val rate = _effectiveGridRate.value
                         val secAccrual = rate / 3600.0
                         _gridCoinBalance.value += secAccrual
-                        saveLocalState()
+
+                        // Continuous local storage save every 2 seconds
+                        if (tickCount % 2L == 0L) {
+                            saveLocalState()
+                        }
+
+                        // Sync to Firebase Cloud every 10 seconds so balance persists across devices
+                        if (tickCount % 10L == 0L && userId.isNotBlank() && userId != "HG-ACCOUNT") {
+                            FirebaseSyncService.updateGridCoinBalance(
+                                userId,
+                                _gridCoinBalance.value,
+                                true
+                            )
+                        }
                     } else {
                         _isGridMiningActive.value = false
                         saveLocalState()
-                        FirebaseSyncService.updateGridCoinBalance(
-                            userId,
-                            _gridCoinBalance.value,
-                            false
-                        )
+                        if (userId.isNotBlank() && userId != "HG-ACCOUNT") {
+                            FirebaseSyncService.updateGridCoinBalance(
+                                userId,
+                                _gridCoinBalance.value,
+                                false
+                            )
+                        }
                     }
                 }
             }
@@ -493,6 +526,15 @@ class HashGridViewModel : ViewModel() {
                 AuthService.currentUser.collect { user ->
                     try {
                         if (user != null && user.id.isNotBlank()) {
+                            appContext?.let { ctx ->
+                                val localUserData = LocalPersistenceManager.loadUserData(ctx, user.id)
+                                if (localUserData.gridCoinBalance > 0.0 || localUserData.walletBalanceUsdt > 0.0) {
+                                    applyLoadedData(localUserData)
+                                } else {
+                                    saveLocalState()
+                                }
+                            }
+
                             reconcileReferrals()
                             FirebaseSyncService.listenFirestoreUser(
                                 userId = user.id,
@@ -530,9 +572,13 @@ class HashGridViewModel : ViewModel() {
                                     if (remoteGridBal > 0.0) {
                                         _gridCoinBalance.value = maxOf(_gridCoinBalance.value, remoteGridBal)
                                     }
-                                    _isGridMiningActive.value = remoteActive || _isGridMiningActive.value
-                                    if (remoteEnd > 0L) {
+                                    val now = System.currentTimeMillis()
+                                    if (remoteEnd > now) {
                                         _miningSessionEndTimestamp.value = remoteEnd
+                                        _isGridMiningActive.value = true
+                                    } else if (remoteEnd > 0L) {
+                                        _miningSessionEndTimestamp.value = remoteEnd
+                                        _isGridMiningActive.value = remoteActive
                                     }
                                     if (remoteBase > 0.0) {
                                         _baseGridRate.value = remoteBase
@@ -587,11 +633,6 @@ class HashGridViewModel : ViewModel() {
         startMiningTicks()
     }
 
-    /**
-     * Trigger retroactive referral recovery and reconciliation task:
-     * Discovers all users in database who entered current user's referral code or UID,
-     * updates teamCount & extraHashrate, and backfills subcollection "users/{uid}/team".
-     */
     fun reconcileReferrals() {
         val uid = currentUser.value?.id ?: userId
         val code = referralCode
@@ -617,7 +658,6 @@ class HashGridViewModel : ViewModel() {
     }
 
     private fun startMiningTicks() {
-        // Live Cloud Mining Ticks for 30% Contract Work Completion based on exact elapsed seconds
         viewModelScope.launch {
             while (isActive) {
                 delay(1000L)
@@ -652,6 +692,8 @@ class HashGridViewModel : ViewModel() {
                                         isCredit = true
                                     )
                                     _activityList.value = listOf(newAct) + _activityList.value
+                                    saveLocalState()
+                                    FirebaseSyncService.updateWalletBalance(userId, _walletBalanceUsdt.value)
                                 }
 
                                 FirebaseSyncService.updateGridContractWorkStatus(
@@ -677,13 +719,13 @@ class HashGridViewModel : ViewModel() {
                         }
                         if (hasChanges) {
                             _activeContracts.value = updatedList
+                            saveLocalState()
                         }
                     }
                 } catch (_: Exception) {}
             }
         }
     }
-
 
     fun setTab(index: Int) {
         _currentTab.value = index
@@ -732,14 +774,16 @@ class HashGridViewModel : ViewModel() {
         val currentServerTime = FirebaseSyncService.getAuthoritativeServerTime()
         val sessionEnd = currentServerTime + TokenConfig.SESSION_DURATION_MS
         _miningSessionEndTimestamp.value = sessionEnd
+        saveLocalState()
 
         FirebaseSyncService.startGridMiningSession(
             userId = userId,
             baseRate = base,
             teamBonusRate = teamBonus
         ) { success, _, end ->
-            if (success) {
+            if (success && end > 0L) {
                 _miningSessionEndTimestamp.value = end
+                saveLocalState()
             }
         }
     }
@@ -786,6 +830,7 @@ class HashGridViewModel : ViewModel() {
             isCredit = true
         )
         _activityList.value = listOf(newAct) + _activityList.value
+        saveLocalState()
         return Pair(true, "Free 4-Hour Ad Node activated! +50 GH/s hashrate credited.")
     }
 
@@ -830,8 +875,8 @@ class HashGridViewModel : ViewModel() {
             isCredit = false
         )
         _activityList.value = listOf(newAct) + _activityList.value
+        saveLocalState()
 
-        // Sync miner & transaction document to Firestore
         FirebaseSyncService.purchaseMiningPlan(userId, plan) {}
         return true
     }
@@ -845,9 +890,9 @@ class HashGridViewModel : ViewModel() {
         _activeContracts.value = _activeContracts.value.map {
             if (it.id == contractId) it.copy(isRestakeEnabled = !it.isRestakeEnabled) else it
         }
+        saveLocalState()
     }
 
-    // --- Lucky Wheel Spin ---
     fun selectNextWheelSlice(): com.example.model.WheelSlice {
         return com.example.model.WheelConfig.selectWeightedWinningSlice()
     }
@@ -881,8 +926,8 @@ class HashGridViewModel : ViewModel() {
             isCredit = true
         )
         _activityList.value = listOf(newAct) + _activityList.value
+        saveLocalState()
 
-        // Sync Firestore transaction atomically
         FirebaseSyncService.claimLuckyWheelReward(userId, slice)
     }
 
@@ -893,7 +938,6 @@ class HashGridViewModel : ViewModel() {
         onResult(slice.gridAmount, slice.label)
     }
 
-    // --- Deposit & Withdraw ---
     fun submitDeposit(amountUsdt: Double, network: String, txHash: String, depositAddress: String) {
         FirebaseSyncService.submitDepositTxId(
             userId = userId,
@@ -914,6 +958,7 @@ class HashGridViewModel : ViewModel() {
                     isCredit = true
                 )
                 _activityList.value = listOf(newAct) + _activityList.value
+                saveLocalState()
             }
         }
     }
@@ -941,6 +986,7 @@ class HashGridViewModel : ViewModel() {
             isCredit = true
         )
         _activityList.value = listOf(newAct) + _activityList.value
+        saveLocalState()
         return true
     }
 
@@ -996,7 +1042,6 @@ class HashGridViewModel : ViewModel() {
         return null
     }
 
-    // --- Admin God Mode Functions ---
     fun injectUsdt(amount: Double) {
         if (amount <= 0) return
         val newBal = _walletBalanceUsdt.value + amount
@@ -1115,8 +1160,6 @@ class HashGridViewModel : ViewModel() {
         saveLocalState()
     }
 
-    // --- BOUNTY SUBMISSIONS & ANTI-FRAUD LOGIC ---
-
     fun submitYouTubeBounty(videoUrl: String, channelName: String): String? {
         val cleanUrl = videoUrl.trim()
         val cleanChannel = channelName.trim()
@@ -1128,7 +1171,6 @@ class HashGridViewModel : ViewModel() {
             return "Please enter your YouTube video URL."
         }
 
-        // Auto-validation: Validate YouTube URL format
         val isYoutubeFormat = cleanUrl.contains("youtube.com/watch?v=", ignoreCase = true) ||
                 cleanUrl.contains("youtu.be/", ignoreCase = true) ||
                 cleanUrl.contains("youtube.com/shorts/", ignoreCase = true)
@@ -1137,7 +1179,6 @@ class HashGridViewModel : ViewModel() {
             return "Invalid YouTube URL format. Must be youtube.com/watch?v= or youtu.be/"
         }
 
-        // Anti-Fraud Database Constraint: Prevent duplicate submissions
         if (_submittedYoutubeUrls.contains(cleanUrl.lowercase())) {
             return "This exact YouTube video has already been submitted across the database."
         }
@@ -1145,7 +1186,6 @@ class HashGridViewModel : ViewModel() {
 
         val claimId = "claim_yt_${System.currentTimeMillis()}"
 
-        // Update local task state
         _bountyTasks.value = _bountyTasks.value.map {
             if (it.type == BountyType.YOUTUBE) {
                 it.copy(
@@ -1156,7 +1196,6 @@ class HashGridViewModel : ViewModel() {
             } else it
         }
 
-        // Sync to Firebase
         FirebaseSyncService.submitTaskClaim(
             FirebaseTaskClaim(
                 claimId = claimId,
@@ -1264,7 +1303,6 @@ class HashGridViewModel : ViewModel() {
         return null
     }
 
-    // --- AI Support Chat ---
     fun sendChatMessage(query: String) {
         if (query.isBlank()) return
         val userMsg = ChatMessage(
@@ -1287,7 +1325,6 @@ class HashGridViewModel : ViewModel() {
         }
     }
 
-    // --- Authentication Actions ---
     fun signInWithGoogle(
         context: Context,
         idToken: String,
@@ -1336,7 +1373,6 @@ class HashGridViewModel : ViewModel() {
         }
     }
 
-
     fun checkEmailVerificationAndActivate(context: Context, appliedCode: String?, onResult: (Result<User>) -> Unit) {
         viewModelScope.launch {
             val result = AuthService.checkEmailVerifiedAndActivate(context, appliedCode)
@@ -1377,7 +1413,6 @@ class HashGridViewModel : ViewModel() {
         _payoutsList.value = emptyList()
     }
 
-    // --- App Update Actions ---
     fun checkForUpdates(context: Context? = null) {
         AppUpdateManager.checkForUpdates(context, isManualCheck = true)
     }
