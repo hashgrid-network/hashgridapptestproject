@@ -755,6 +755,71 @@ object FirebaseSyncService {
         }
     }
 
+    fun purchaseRigForWallet(
+        walletAddress: String,
+        userId: String,
+        rig: com.example.model.MiningRig
+    ) {
+        scope.launch {
+            try {
+                val db = firestore ?: return@launch
+                val maxCap = rig.maxPayoutCap
+                val ratePerSec = rig.ratePerSecond
+                val rigDocMap = hashMapOf<String, Any>(
+                    "rig_id" to rig.rig_id,
+                    "id" to rig.rig_id,
+                    "model_name" to rig.model_name,
+                    "cost_usdt" to rig.cost_usdt,
+                    "max_payout_cap" to maxCap,
+                    "earned_amount" to rig.earned_amount,
+                    "rate_per_second" to ratePerSec,
+                    "status" to rig.status,
+                    "purchased_at" to FieldValue.serverTimestamp(),
+                    "last_synced_at" to System.currentTimeMillis(),
+                    "hashrate_ths" to rig.hashrate_ths,
+                    "crypto_symbol" to rig.crypto_symbol
+                )
+
+                if (walletAddress.isNotBlank()) {
+                    db.collection("wallets").document(walletAddress).collection("rigs").document(rig.rig_id).set(rigDocMap, SetOptions.merge())
+                }
+                if (userId.isNotBlank()) {
+                    db.collection("users").document(userId).collection("rigs").document(rig.rig_id).set(rigDocMap, SetOptions.merge())
+                    db.collection("users").document(userId).collection("miners").document(rig.rig_id).set(rigDocMap, SetOptions.merge())
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
+    fun syncBatchRigs(
+        walletAddress: String,
+        userId: String,
+        updatedRigs: List<com.example.model.MiningRig>
+    ) {
+        scope.launch {
+            try {
+                val db = firestore ?: return@launch
+                val batch = db.batch()
+                for (rig in updatedRigs) {
+                    val rigMap = hashMapOf<String, Any>(
+                        "earned_amount" to rig.earned_amount,
+                        "status" to rig.status,
+                        "last_synced_at" to rig.last_synced_at
+                    )
+                    if (walletAddress.isNotBlank()) {
+                        val ref = db.collection("wallets").document(walletAddress).collection("rigs").document(rig.rig_id)
+                        batch.set(ref, rigMap, SetOptions.merge())
+                    }
+                    if (userId.isNotBlank()) {
+                        val userRef = db.collection("users").document(userId).collection("miners").document(rig.rig_id)
+                        batch.set(userRef, rigMap, SetOptions.merge())
+                    }
+                }
+                batch.commit()
+            } catch (_: Exception) {}
+        }
+    }
+
     fun updateKycStatus(
         userId: String,
         fullName: String,
@@ -1676,4 +1741,139 @@ object FirebaseSyncService {
             } catch (_: Exception) {}
         }
     }
+
+    /**
+     * PILLAR 4: Firestore Atomic Transaction & Anti-Replay Lock for USDT Dual-Network Deposits
+     */
+    suspend fun verifyAndProcessDepositAtomic(
+        walletAddress: String,
+        userId: String,
+        txId: String,
+        amountUsdt: Double,
+        network: String
+    ): Pair<Boolean, String> = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        val cleanTxId = sanitizeTxHash(txId)
+        if (cleanTxId.isBlank()) {
+            return@withContext Pair(false, "Invalid or empty Transaction Hash / Payment ID.")
+        }
+        if (amountUsdt <= 0.0) {
+            return@withContext Pair(false, "Invalid deposit amount specified.")
+        }
+        val db = firestore ?: return@withContext Pair(false, "Firestore database instance not available.")
+
+        val targetWallet = if (walletAddress.isNotBlank()) walletAddress else userId
+        if (targetWallet.isBlank()) {
+            return@withContext Pair(false, "Target wallet address or User ID missing.")
+        }
+
+        try {
+            val ledgerRef = db.collection("processed_deposits").document(cleanTxId)
+            val walletRef = db.collection("wallets").document(targetWallet)
+            val walletDepRef = walletRef.collection("deposits").document(cleanTxId)
+            val userRef = if (userId.isNotBlank()) db.collection("users").document(userId) else null
+            val userTxRef = if (userId.isNotBlank()) db.collection("users").document(userId).collection("transactions").document(cleanTxId) else null
+
+            val resultMessage = db.runTransaction { transaction ->
+                // 1. Anti-Replay Check
+                val ledgerSnap = transaction.get(ledgerRef)
+                if (ledgerSnap.exists() && ledgerSnap.getSafeString("status") == "COMPLETED") {
+                    throw IllegalStateException("Transaction already processed and credited.")
+                }
+
+                val nowMs = System.currentTimeMillis()
+                val nowStr = getCurrentTimestamp()
+
+                // 2. Global Anti-Replay Ledger Entry
+                val ledgerData = hashMapOf<String, Any>(
+                    "tx_id" to cleanTxId,
+                    "wallet_address" to targetWallet,
+                    "amount_usdt" to amountUsdt,
+                    "network" to network,
+                    "processed_at" to FieldValue.serverTimestamp(),
+                    "status" to "COMPLETED"
+                )
+                transaction.set(ledgerRef, ledgerData, SetOptions.merge())
+
+                // 3. Atomically update wallets/{wallet_address}
+                val walletUpdates = hashMapOf<String, Any>(
+                    "wallet_address" to targetWallet,
+                    "usdt_balance" to FieldValue.increment(amountUsdt),
+                    "usdtBalance" to FieldValue.increment(amountUsdt),
+                    "availableBalance" to FieldValue.increment(amountUsdt),
+                    "last_synced_at" to nowMs
+                )
+                transaction.set(walletRef, walletUpdates, SetOptions.merge())
+
+                // 4. Record deposit entry in wallets/{wallet_address}/deposits/{payment_or_tx_id}
+                val depositEntry = hashMapOf<String, Any>(
+                    "deposit_id" to cleanTxId,
+                    "amount_usdt" to amountUsdt,
+                    "network" to network,
+                    "status" to "COMPLETED",
+                    "timestamp" to FieldValue.serverTimestamp()
+                )
+                transaction.set(walletDepRef, depositEntry, SetOptions.merge())
+
+                // 5. Dual-sync user document & user transaction sub-collection if userId provided
+                if (userRef != null) {
+                    val userUpdates = hashMapOf<String, Any>(
+                        "usdt_balance" to FieldValue.increment(amountUsdt),
+                        "usdtBalance" to FieldValue.increment(amountUsdt),
+                        "availableBalance" to FieldValue.increment(amountUsdt),
+                        "last_active" to FieldValue.serverTimestamp()
+                    )
+                    transaction.set(userRef, userUpdates, SetOptions.merge())
+                }
+
+                if (userTxRef != null) {
+                    val userTxDoc = hashMapOf<String, Any>(
+                        "id" to cleanTxId,
+                        "title" to "+$${String.format(Locale.US, "%.2f", amountUsdt)} USDT",
+                        "subtitle" to "Verified Deposit ($network)",
+                        "btcAmountStr" to "",
+                        "usdtAmount" to amountUsdt,
+                        "amount" to amountUsdt,
+                        "network" to network,
+                        "currency" to "USDT",
+                        "isCredit" to true,
+                        "type" to "DEPOSIT",
+                        "status" to "COMPLETED",
+                        "timestamp" to FieldValue.serverTimestamp(),
+                        "dateStr" to nowStr
+                    )
+                    transaction.set(userTxRef, userTxDoc, SetOptions.merge())
+                }
+
+                "SUCCESS"
+            }.await()
+
+            if (resultMessage == "SUCCESS") {
+                pushDeposit(FirebaseDeposit(
+                    paymentId = cleanTxId,
+                    userId = targetWallet,
+                    amount = amountUsdt,
+                    currency = "USDT",
+                    network = network,
+                    txHash = cleanTxId,
+                    status = "COMPLETED",
+                    timestamp = getCurrentTimestamp()
+                ))
+                Pair(true, "Deposit of $${String.format(Locale.US, "%.2f", amountUsdt)} USDT confirmed & credited!")
+            } else {
+                Pair(false, "Deposit transaction failed.")
+            }
+        } catch (e: Exception) {
+            val msg = e.message ?: "Transaction error"
+            if (msg.contains("already processed", ignoreCase = true)) {
+                Pair(false, "Transaction already processed and credited.")
+            } else {
+                Pair(false, "Verification error: $msg")
+            }
+        }
+    }
+
+    fun sanitizeTxHash(input: String): String {
+        return input.trim().replace("\r", "").replace("\n", "").replace(" ", "")
+    }
 }
+

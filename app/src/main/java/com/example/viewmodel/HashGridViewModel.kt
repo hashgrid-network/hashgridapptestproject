@@ -164,77 +164,75 @@ class HashGridViewModel : ViewModel() {
     // --- In-App Auto Update State ---
     val updateStatus: StateFlow<UpdateStatus> = AppUpdateManager.updateStatus
 
-    // --- Marketplace Plans (Sustainable 10% - 15% Monthly Yield) ---
+    // --- Marketplace Plans (Hardware Rig Tiers with Capacity & Monthly Performance) ---
     val marketplacePlans = listOf(
         MiningPlan(
-            id = "plan_starter_rig",
-            name = "Starter Grid Rig (10 TH/s)",
-            subtitle = "Dedicated ASIC Instant Yield Node",
+            id = "plan_starter_node",
+            name = "Starter Node",
+            subtitle = "Dedicated Entry Hardware",
             cryptoSymbol = "USDT",
             iconCrypto = "⚡",
             minDepositUsdt = 10.0,
-            hashPowerGh = 10000.0, // 10 TH/s
-            monthlyYieldPercent = 11.5,
+            hashPowerGh = 2.0,
+            monthlyYieldPercent = 15.0,
             termDays = 30,
-            dailyYieldUsdtEst = 0.038,
-            hardwareType = "Antminer Micro 10 TH/s Liquid Rig",
-            tag = "Starter $10"
+            dailyYieldUsdtEst = 0.05,
+            ratePerSecond = 0.0000005787,
+            hardwareType = "Antminer Micro Hydro Node",
+            tag = "Bronze Node",
+            badge = "Bronze Node",
+            estMonthlyAmountStr = "~$1.50 / Month"
         ),
         MiningPlan(
-            id = "plan_kas_25",
-            name = "Kaspa Micro Array (25 TH/s)",
-            subtitle = "KHeavyHash ASIC Liquid Array",
-            cryptoSymbol = "KAS",
-            iconCrypto = "⚡",
+            id = "plan_pro_miner_node",
+            name = "Pro Miner Node",
+            subtitle = "High Efficiency Micro Array",
+            cryptoSymbol = "USDT",
+            iconCrypto = "⚙️",
             minDepositUsdt = 25.0,
-            hashPowerGh = 25000.0,
-            monthlyYieldPercent = 12.5,
+            hashPowerGh = 6.0,
+            monthlyYieldPercent = 16.0,
             termDays = 30,
-            dailyYieldUsdtEst = 0.104,
+            dailyYieldUsdtEst = 0.133333,
+            ratePerSecond = 0.0000015432,
             hardwareType = "IceRiver KS0 Ultra Liquid",
-            tag = "Entry $25"
+            tag = "Silver Node",
+            badge = "Silver Node",
+            estMonthlyAmountStr = "~$4.00 / Month"
         ),
         MiningPlan(
-            id = "plan_asic_50",
-            name = "Antminer Dual Node (50 TH/s)",
-            subtitle = "SHA-256 Dual Sub-Zero Rig",
-            cryptoSymbol = "BTC",
-            iconCrypto = "⛏️",
-            minDepositUsdt = 50.0,
-            hashPowerGh = 50000.0,
-            monthlyYieldPercent = 14.0,
-            termDays = 30,
-            dailyYieldUsdtEst = 0.233,
-            hardwareType = "Antminer Dual S19 Pro Hydro",
-            tag = "Standard $50"
-        ),
-        MiningPlan(
-            id = "plan_btc_100",
-            name = "Prime BTC Hydro (100 TH/s)",
-            subtitle = "Sub-Zero Hydro Immersion Node",
-            cryptoSymbol = "BTC",
-            iconCrypto = "₿",
+            id = "plan_quantum_rig_node",
+            name = "Quantum Rig Node",
+            subtitle = "Sub-Zero Liquid-Cooled Cluster",
+            cryptoSymbol = "USDT",
+            iconCrypto = "💎",
             minDepositUsdt = 100.0,
-            hashPowerGh = 100000.0,
-            monthlyYieldPercent = 15.0,
+            hashPowerGh = 30.0,
+            monthlyYieldPercent = 18.0,
             termDays = 30,
-            dailyYieldUsdtEst = 0.500,
+            dailyYieldUsdtEst = 0.60,
+            ratePerSecond = 0.0000069444,
             hardwareType = "Antminer S21 Hydro (Sub-Zero)",
-            tag = "Popular $100"
+            tag = "Gold Cyber Node",
+            badge = "Gold Cyber Node",
+            estMonthlyAmountStr = "~$18.00 / Month"
         ),
         MiningPlan(
-            id = "plan_institutional_500",
-            name = "Institutional Cluster (500 TH/s)",
-            subtitle = "Direct Volcano Sub-Zero Connection",
-            cryptoSymbol = "BTC",
-            iconCrypto = "🌋",
+            id = "plan_titan_enterprise_node",
+            name = "Titan Enterprise Node",
+            subtitle = "Direct Industrial Volcano Connection",
+            cryptoSymbol = "USDT",
+            iconCrypto = "🚀",
             minDepositUsdt = 500.0,
-            hashPowerGh = 500000.0,
-            monthlyYieldPercent = 15.0,
+            hashPowerGh = 180.0,
+            monthlyYieldPercent = 20.0,
             termDays = 30,
-            dailyYieldUsdtEst = 2.500,
+            dailyYieldUsdtEst = 3.333333,
+            ratePerSecond = 0.0000385802,
             hardwareType = "Dedicated Whatsminer M63S Immersion Array",
-            tag = "Enterprise $500"
+            tag = "Diamond Node",
+            badge = "Diamond Node",
+            estMonthlyAmountStr = "~$100.00 / Month"
         )
     )
 
@@ -659,67 +657,85 @@ class HashGridViewModel : ViewModel() {
 
     private fun startMiningTicks() {
         viewModelScope.launch {
+            var syncTick = 0L
             while (isActive) {
                 delay(1000L)
+                syncTick++
                 try {
                     val currentList = _activeContracts.value
-                    if (currentList.isNotEmpty() && currentList.any { it.work_status == "IN_PROGRESS" && it.depositUsdt > 0 }) {
+                    if (currentList.isNotEmpty() && currentList.any { !it.isExpired && it.depositUsdt > 0 }) {
                         val now = System.currentTimeMillis()
                         var hasChanges = false
-                        val updatedList = currentList.map { contract ->
-                            if (contract.work_status == "IN_PROGRESS" && contract.depositUsdt > 0) {
-                                hasChanges = true
-                                val matchingPlan = marketplacePlans.find { it.minDepositUsdt == contract.depositUsdt }
-                                val dailyYield = matchingPlan?.dailyYieldUsdtEst ?: contract.dailyYieldUsdt.takeIf { it > 0 } ?: 2.50
-                                val startMs = if (contract.startTimestampMs > 0 && contract.startTimestampMs <= now) contract.startTimestampMs else now
-                                val elapsedSec = ((now - startMs) / 1000.0).coerceAtLeast(0.0)
-                                val calculatedYield = elapsedSec * (dailyYield / 86400.0)
-                                val target30Pct = contract.target_yield_30_percent
-                                val isCompleted = calculatedYield >= target30Pct
-                                val finalYield = if (isCompleted) target30Pct else calculatedYield
-                                val progress = if (target30Pct > 0) ((finalYield / target30Pct) * 100.0).coerceIn(0.0, 100.0) else 100.0
-                                val status = if (isCompleted) "COMPLETED" else "IN_PROGRESS"
+                        var batchYieldAccrued = 0.0
 
-                                if (isCompleted && contract.work_status != "COMPLETED") {
-                                    _walletBalanceUsdt.value += target30Pct
-                                    val newAct = ActivityItem(
-                                        id = "act_${System.currentTimeMillis()}",
-                                        title = "+$${String.format(Locale.US, "%.2f", target30Pct)} USDT",
-                                        subtitle = "${contract.planName} 30% Mining Task Completed! Unlocked for Withdrawal",
-                                        btcAmountStr = "Task Finished",
-                                        usdtAmount = target30Pct,
-                                        timestampStr = "Just now",
-                                        isCredit = true
-                                    )
-                                    _activityList.value = listOf(newAct) + _activityList.value
-                                    saveLocalState()
-                                    FirebaseSyncService.updateWalletBalance(userId, _walletBalanceUsdt.value)
+                        val updatedList = currentList.map { contract ->
+                            if (!contract.isExpired && contract.depositUsdt > 0) {
+                                hasChanges = true
+                                val lastSync = if (contract.last_synced_at > 0) contract.last_synced_at else now - 1000L
+                                val deltaSec = ((now - lastSync) / 1000.0).coerceAtLeast(0.0)
+
+                                val rate = if (contract.rate_per_second > 0) contract.rate_per_second
+                                           else if (contract.dailyYieldUsdt > 0) contract.dailyYieldUsdt / 86400.0
+                                           else (contract.depositUsdt * 0.005) / 86400.0
+
+                                val potentialYield = deltaSec * rate
+                                val currentEarned = contract.earned_amount
+                                val maxCap = contract.maxPayoutCap
+                                val remainingCap = (maxCap - currentEarned).coerceAtLeast(0.0)
+
+                                val actualYield: Double
+                                val newEarned: Double
+                                val newStatus: String
+                                val newWorkStatus: String
+
+                                if (potentialYield >= remainingCap && remainingCap > 0) {
+                                    actualYield = remainingCap
+                                    newEarned = maxCap
+                                    newStatus = "EXPIRED"
+                                    newWorkStatus = "EXPIRED"
+                                } else if (remainingCap <= 0) {
+                                    actualYield = 0.0
+                                    newEarned = maxCap
+                                    newStatus = "EXPIRED"
+                                    newWorkStatus = "EXPIRED"
+                                } else {
+                                    actualYield = potentialYield
+                                    newEarned = currentEarned + actualYield
+                                    newStatus = "ACTIVE"
+                                    newWorkStatus = if (newEarned >= contract.target_yield_30_percent) "COMPLETED" else "IN_PROGRESS"
                                 }
 
-                                FirebaseSyncService.updateGridContractWorkStatus(
-                                    userId = userId,
-                                    contractId = contract.id,
-                                    currentYieldMined = finalYield,
-                                    taskProgressPct = progress,
-                                    workStatus = status,
-                                    unlockedForWithdrawal = isCompleted
-                                )
+                                batchYieldAccrued += actualYield
 
                                 contract.copy(
-                                    dailyYieldUsdt = dailyYield,
-                                    current_yield_mined = finalYield,
-                                    accruedProfitUsdt = finalYield,
-                                    task_progress_pct = progress,
-                                    work_status = status,
-                                    unlocked_for_withdrawal = isCompleted
+                                    earned_amount = newEarned,
+                                    accruedProfitUsdt = newEarned,
+                                    current_yield_mined = newEarned,
+                                    task_progress_pct = if (maxCap > 0) ((newEarned / maxCap) * 100.0).coerceIn(0.0, 100.0) else 100.0,
+                                    status = newStatus,
+                                    work_status = newWorkStatus,
+                                    unlocked_for_withdrawal = newEarned >= contract.target_yield_30_percent || newStatus == "EXPIRED",
+                                    last_synced_at = now
                                 )
                             } else {
                                 contract
                             }
                         }
+
                         if (hasChanges) {
                             _activeContracts.value = updatedList
-                            saveLocalState()
+                            if (batchYieldAccrued > 0.0) {
+                                _walletBalanceUsdt.value += batchYieldAccrued
+                            }
+                            if (syncTick % 3L == 0L) {
+                                saveLocalState()
+                            }
+                            if (syncTick % 10L == 0L) {
+                                val walletAddress = appContext?.let { AuthService.getOrCreateWalletAddress(it) } ?: ""
+                                val activeRigs = updatedList.map { it.toMiningRig() }
+                                FirebaseSyncService.syncBatchRigs(walletAddress, userId, activeRigs)
+                                FirebaseSyncService.updateWalletBalance(userId, _walletBalanceUsdt.value)
+                            }
                         }
                     }
                 } catch (_: Exception) {}
@@ -841,10 +857,15 @@ class HashGridViewModel : ViewModel() {
         _walletBalanceUsdt.value -= plan.minDepositUsdt
         _hashPower.value += plan.hashPowerGh
 
-        val minerId = "miner_${UUID.randomUUID().toString().take(6)}"
+        val rigId = "RIG-${plan.minDepositUsdt.toInt()}-${UUID.randomUUID().toString().take(6).uppercase()}"
         val targetYield30 = plan.minDepositUsdt * 0.30
+        val maxCap = plan.minDepositUsdt * 2.0
+        val dailyYield = plan.dailyYieldUsdtEst
+        val ratePerSec = dailyYield / 86400.0
+        val now = System.currentTimeMillis()
+
         val newContract = ActiveContract(
-            id = minerId,
+            id = rigId,
             planName = plan.name,
             cryptoSymbol = plan.cryptoSymbol,
             depositUsdt = plan.minDepositUsdt,
@@ -852,24 +873,36 @@ class HashGridViewModel : ViewModel() {
             elapsedDays = 0,
             totalDays = plan.termDays,
             accruedProfitUsdt = 0.0,
-            dailyYieldUsdt = plan.dailyYieldUsdtEst,
+            dailyYieldUsdt = dailyYield,
             isRestakeEnabled = false,
             startDateStr = "Today",
-            maturityDateStr = "In ${plan.termDays} Days",
+            maturityDateStr = "2X Cap: $${String.format(Locale.US, "%.2f", maxCap)}",
+            startTimestampMs = now,
+            endTimestampMs = now + (plan.termDays * 24L * 3600 * 1000),
+            costUsdt = plan.minDepositUsdt,
+            hashrateThs = if (plan.hashPowerGh >= 1000) plan.hashPowerGh / 1000.0 else plan.hashPowerGh,
+            isActive = true,
             plan_cost = plan.minDepositUsdt,
             target_yield_30_percent = targetYield30,
             current_yield_mined = 0.0,
             task_progress_pct = 0.0,
             work_status = if (plan.minDepositUsdt > 0) "IN_PROGRESS" else "COMPLETED",
-            unlocked_for_withdrawal = (plan.minDepositUsdt <= 0)
+            unlocked_for_withdrawal = (plan.minDepositUsdt <= 0),
+            rig_id = rigId,
+            max_payout_cap = maxCap,
+            earned_amount = 0.0,
+            rate_per_second = ratePerSec,
+            status = "ACTIVE",
+            purchased_at = now,
+            last_synced_at = now
         )
         _activeContracts.value = listOf(newContract) + _activeContracts.value
 
         val newAct = ActivityItem(
             id = "act_${System.currentTimeMillis()}",
             title = "-${String.format(Locale.US, "%.2f", plan.minDepositUsdt)} USDT",
-            subtitle = "Activated ${plan.name} (${plan.hashPowerGh.toInt()} GH/s)",
-            btcAmountStr = "Contract Deployed",
+            subtitle = "Deployed Rig ${plan.name} ($rigId)",
+            btcAmountStr = "2X Cap: $${String.format(Locale.US, "%.2f", maxCap)}",
             usdtAmount = plan.minDepositUsdt,
             timestampStr = "Just now",
             isCredit = false
@@ -877,12 +910,14 @@ class HashGridViewModel : ViewModel() {
         _activityList.value = listOf(newAct) + _activityList.value
         saveLocalState()
 
+        val walletAddress = appContext?.let { AuthService.getOrCreateWalletAddress(it) } ?: ""
         FirebaseSyncService.purchaseMiningPlan(userId, plan) {}
+        FirebaseSyncService.purchaseRigForWallet(walletAddress, userId, newContract.toMiningRig())
         return true
     }
 
     fun deployStarterRig(): Boolean {
-        val starterPlan = marketplacePlans.find { it.id == "plan_starter_rig" } ?: return false
+        val starterPlan = marketplacePlans.find { it.id == "plan_starter_node" || it.minDepositUsdt == 10.0 } ?: return false
         return activatePlan(starterPlan)
     }
 
@@ -936,6 +971,39 @@ class HashGridViewModel : ViewModel() {
         val slice = selectNextWheelSlice()
         onWheelSpinCompleted(slice)
         onResult(slice.gridAmount, slice.label)
+    }
+
+    fun verifyTxIdDeposit(
+        txHash: String,
+        amountUsdt: Double,
+        network: String,
+        onResult: (Boolean, String) -> Unit
+    ) {
+        viewModelScope.launch {
+            val walletAddress = appContext?.let { AuthService.getOrCreateWalletAddress(it) } ?: userId
+            val (success, message) = FirebaseSyncService.verifyAndProcessDepositAtomic(
+                walletAddress = walletAddress,
+                userId = userId,
+                txId = txHash,
+                amountUsdt = amountUsdt,
+                network = network
+            )
+            if (success) {
+                _walletBalanceUsdt.value += amountUsdt
+                val newAct = ActivityItem(
+                    id = FirebaseSyncService.sanitizeTxHash(txHash),
+                    title = "+$${String.format(Locale.US, "%.2f", amountUsdt)} USDT",
+                    subtitle = "Verified Deposit ($network)",
+                    btcAmountStr = "",
+                    usdtAmount = amountUsdt,
+                    timestampStr = "Just now",
+                    isCredit = true
+                )
+                _activityList.value = listOf(newAct) + _activityList.value
+                saveLocalState()
+            }
+            onResult(success, message)
+        }
     }
 
     fun submitDeposit(amountUsdt: Double, network: String, txHash: String, depositAddress: String) {
@@ -1335,7 +1403,7 @@ class HashGridViewModel : ViewModel() {
             val result = AuthService.signInWithGoogleCredential(context, idToken, referralCode)
             result.onSuccess { user ->
                 onDirectAuthSuccess(user)
-                FirebaseSyncService.reconcileUserReferrals(AuthService.firebaseAuth?.currentUser?.uid ?: user.id, user.referralCode)
+                FirebaseSyncService.reconcileUserReferrals(user.id, user.referralCode)
             }
             onResult(result)
         }
@@ -1378,7 +1446,7 @@ class HashGridViewModel : ViewModel() {
             val result = AuthService.checkEmailVerifiedAndActivate(context, appliedCode)
             result.onSuccess { user ->
                 onDirectAuthSuccess(user)
-                FirebaseSyncService.reconcileUserReferrals(AuthService.firebaseAuth?.currentUser?.uid ?: user.id, user.referralCode)
+                FirebaseSyncService.reconcileUserReferrals(user.id, user.referralCode)
             }
             onResult(result)
         }

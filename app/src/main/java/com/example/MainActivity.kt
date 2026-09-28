@@ -174,42 +174,20 @@ fun HashGridApp(
     val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
     val sessionManager = remember { SessionManager.getInstance(context) }
     val initialWorkflowState = remember {
-        val fbAuth = AuthService.firebaseAuth
-        val fbUser = try { fbAuth?.currentUser } catch (_: Exception) { null }
+        val walletAddress = AuthService.getOrCreateWalletAddress(context)
         val savedUser = AuthService.currentUser.value
-        val uid = fbUser?.uid ?: savedUser?.id
-        val isVerified = sessionManager.isDeviceVerified(uid)
-
-        if (fbUser != null || !uid.isNullOrBlank()) {
-            if (isVerified && uid != null) {
-                // CASE 1: (currentUser != null && isVerified == true)
-                // Skip all Login, SignUp, and 2FA screens completely.
-                // Set start destination directly to "dashboard" (Instant entry for daily mining).
-                AuthService.isSession2FAVerified = true
-                val accountId = savedUser?.id ?: ("HG-" + uid.takeLast(6).uppercase())
-                val refCode = savedUser?.referralCode ?: ("HG-" + uid.takeLast(4).uppercase())
-                val verifiedUser = savedUser ?: User(
-                    id = accountId,
-                    email = fbUser?.email ?: savedUser?.email ?: "",
-                    role = "user",
-                    referralCode = refCode,
-                    displayName = fbUser?.displayName ?: savedUser?.displayName ?: "Miner"
-                )
-                viewModel.onDirectAuthSuccess(verifiedUser)
-                AuthWorkflowState.AuthScreenView
-            } else if (uid != null) {
-                // CASE 2: (currentUser != null && isVerified == false)
-                // Check Firestore if 'totp_enabled == true'
-                AuthWorkflowState.SplashSecurityCheck(
-                    uid = uid,
-                    email = fbUser?.email ?: savedUser?.email ?: "",
-                    displayName = fbUser?.displayName ?: savedUser?.displayName ?: "Miner"
-                )
-            } else {
-                AuthWorkflowState.AuthScreenView
-            }
+        if (savedUser != null || AuthService.hasSavedPin(context)) {
+            AuthService.isSession2FAVerified = true
+            val verifiedUser = savedUser ?: User(
+                id = walletAddress,
+                email = "$walletAddress@hashgrid.io",
+                role = "user",
+                referralCode = AuthService.generateReferralCode(walletAddress),
+                displayName = "Wallet ${walletAddress.takeLast(6)}"
+            )
+            viewModel.onDirectAuthSuccess(verifiedUser)
+            AuthWorkflowState.AuthScreenView
         } else {
-            // CASE 3: (currentUser == null)
             AuthWorkflowState.AuthScreenView
         }
     }

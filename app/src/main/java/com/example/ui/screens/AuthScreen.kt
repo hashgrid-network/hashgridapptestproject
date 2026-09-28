@@ -1,5 +1,8 @@
 package com.example.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -24,7 +27,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Backspace
-import androidx.compose.material.icons.filled.ElectricBolt
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Shield
@@ -32,7 +35,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -59,7 +61,6 @@ import com.example.ui.theme.GoldBorder
 import com.example.ui.theme.GoldBorderSubtle
 import com.example.ui.theme.GoldBrush
 import com.example.ui.theme.GoldLight
-import com.example.ui.theme.MintGreen
 import com.example.ui.theme.ObsidianNavy
 import com.example.ui.theme.SlateNavy
 import kotlinx.coroutines.launch
@@ -69,6 +70,8 @@ enum class PinMode {
     CONFIRM_PIN,
     UNLOCK_PIN
 }
+
+val Web3Cyan = Color(0xFF00F2FE)
 
 @Composable
 fun AuthScreen(
@@ -85,6 +88,7 @@ fun AuthScreen(
     val haptic = LocalHapticFeedback.current
     val coroutineScope = rememberCoroutineScope()
 
+    val walletAddress = remember { AuthService.getOrCreateWalletAddress(context) }
     val hasSavedPin = remember { AuthService.hasSavedPin(context) }
     var pinMode by remember { mutableStateOf(if (hasSavedPin) PinMode.UNLOCK_PIN else PinMode.SET_PIN) }
 
@@ -112,13 +116,13 @@ fun AuthScreen(
                     if (newBuffer == initialPin) {
                         isLoading = true
                         coroutineScope.launch {
-                            val res = AuthService.initializeAnonymousUserWithPin(context, newBuffer)
+                            val res = AuthService.createWalletWithPin(context, newBuffer)
                             isLoading = false
                             res.onSuccess { user ->
                                 onAuthSuccess(user)
                             }.onFailure { err ->
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                errorMessage = err.localizedMessage ?: "Failed to initialize wallet session"
+                                errorMessage = err.localizedMessage ?: "Failed to initialize Web3 Wallet"
                                 pinBuffer = ""
                                 initialPin = ""
                                 pinMode = PinMode.SET_PIN
@@ -168,6 +172,13 @@ fun AuthScreen(
         }
     }
 
+    fun copyWalletAddress() {
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clip = ClipData.newPlainText("Wallet Address", walletAddress)
+        clipboard.setPrimaryClip(clip)
+        Toast.makeText(context, "Wallet address copied to clipboard!", Toast.LENGTH_SHORT).show()
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -185,7 +196,7 @@ fun AuthScreen(
             // Header Section
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.padding(top = 28.dp)
+                modifier = Modifier.padding(top = 20.dp)
             ) {
                 Box(
                     modifier = Modifier
@@ -204,14 +215,14 @@ fun AuthScreen(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Shield,
-                            contentDescription = "Security Shield",
-                            tint = GoldLight,
+                            contentDescription = "Web3 Security Shield",
+                            tint = Web3Cyan,
                             modifier = Modifier.size(36.dp)
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
                 Text(
                     text = "HASHGRID",
@@ -223,24 +234,60 @@ fun AuthScreen(
                 )
 
                 Text(
-                    text = "QUANTUM MINING NETWORK",
-                    color = Color.Gray,
+                    text = "NON-CUSTODIAL WEB3 WALLET",
+                    color = Web3Cyan,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 2.sp,
                     textAlign = TextAlign.Center
                 )
 
-                Spacer(modifier = Modifier.height(32.dp))
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Wallet Address Badge
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(Color(0xFF0F172A))
+                        .border(1.dp, Color(0xFF1E293B), RoundedCornerShape(20.dp))
+                        .clickable { copyWalletAddress() }
+                        .padding(horizontal = 14.dp, vertical = 6.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(Web3Cyan)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = walletAddress,
+                        color = CardWhite,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        letterSpacing = 1.sp
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Icon(
+                        imageVector = Icons.Default.ContentCopy,
+                        contentDescription = "Copy Wallet Address",
+                        tint = Color.Gray,
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
 
                 Text(
                     text = when (pinMode) {
-                        PinMode.SET_PIN -> "Set Your 4-Digit PIN"
+                        PinMode.SET_PIN -> "Create 4-Digit PIN to Secure Your Wallet"
                         PinMode.CONFIRM_PIN -> "Confirm Your 4-Digit PIN"
-                        PinMode.UNLOCK_PIN -> "Enter Your 4-Digit PIN"
+                        PinMode.UNLOCK_PIN -> "Enter Your 4-Digit PIN to Unlock"
                     },
                     color = CardWhite,
-                    fontSize = 20.sp,
+                    fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center
                 )
@@ -249,16 +296,16 @@ fun AuthScreen(
 
                 Text(
                     text = when (pinMode) {
-                        PinMode.SET_PIN -> "Create a 4-digit key for non-custodial wallet access"
-                        PinMode.CONFIRM_PIN -> "Re-enter your 4-digit PIN to confirm key"
-                        PinMode.UNLOCK_PIN -> "Unlock non-custodial quantum mining node"
+                        PinMode.SET_PIN -> "Create a 4-digit security PIN to access your decentralized wallet"
+                        PinMode.CONFIRM_PIN -> "Re-enter your 4-digit PIN to confirm key creation"
+                        PinMode.UNLOCK_PIN -> "Unlock your non-custodial quantum mining node"
                     },
                     color = Color.LightGray,
-                    fontSize = 13.sp,
+                    fontSize = 12.sp,
                     textAlign = TextAlign.Center
                 )
 
-                Spacer(modifier = Modifier.height(28.dp))
+                Spacer(modifier = Modifier.height(24.dp))
 
                 // 4 Indicator Dots
                 Row(
@@ -271,17 +318,17 @@ fun AuthScreen(
                             modifier = Modifier
                                 .size(18.dp)
                                 .clip(CircleShape)
-                                .background(if (isFilled) GoldLight else Color(0xFF1E293B))
+                                .background(if (isFilled) Web3Cyan else Color(0xFF1E293B))
                                 .border(
                                     width = 1.5.dp,
-                                    color = if (isFilled) GoldBorder else Color(0xFF334155),
+                                    color = if (isFilled) Web3Cyan else Color(0xFF334155),
                                     shape = CircleShape
                                 )
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
                 // Error / Loading Message
                 Box(
@@ -292,13 +339,13 @@ fun AuthScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(16.dp),
-                                color = GoldLight,
+                                color = Web3Cyan,
                                 strokeWidth = 2.dp
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Authenticating Anonymous Session...",
-                                color = GoldLight,
+                                text = "Syncing Non-Custodial Wallet Node...",
+                                color = Web3Cyan,
                                 fontSize = 12.sp
                             )
                         }
@@ -317,10 +364,10 @@ fun AuthScreen(
             // 0-9 Numeric Keypad Grid
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 16.dp)
+                    .padding(bottom = 12.dp)
             ) {
                 val keypadRows = listOf(
                     listOf("1", "2", "3"),
@@ -339,7 +386,7 @@ fun AuthScreen(
                                 "RESET" -> {
                                     Box(
                                         modifier = Modifier
-                                            .size(70.dp)
+                                            .size(68.dp)
                                             .clip(CircleShape)
                                             .clickable(enabled = !isLoading) { handleReset() },
                                         contentAlignment = Alignment.Center
@@ -355,7 +402,7 @@ fun AuthScreen(
                                 "DEL" -> {
                                     Box(
                                         modifier = Modifier
-                                            .size(70.dp)
+                                            .size(68.dp)
                                             .clip(CircleShape)
                                             .clickable(enabled = !isLoading) { handleBackspace() },
                                         contentAlignment = Alignment.Center
@@ -363,7 +410,7 @@ fun AuthScreen(
                                         Icon(
                                             imageVector = Icons.AutoMirrored.Filled.Backspace,
                                             contentDescription = "Delete Digit",
-                                            tint = GoldLight,
+                                            tint = Web3Cyan,
                                             modifier = Modifier.size(24.dp)
                                         )
                                     }
@@ -371,7 +418,7 @@ fun AuthScreen(
                                 else -> {
                                     Box(
                                         modifier = Modifier
-                                            .size(70.dp)
+                                            .size(68.dp)
                                             .clip(CircleShape)
                                             .background(SlateNavy)
                                             .border(1.dp, GoldBorderSubtle, CircleShape)

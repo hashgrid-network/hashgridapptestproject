@@ -3,8 +3,7 @@ package com.example.service
 import android.content.Context
 import android.content.SharedPreferences
 import com.example.model.User
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.Dispatchers
@@ -13,7 +12,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
-import java.util.UUID
 
 sealed class AuthStepResult {
     data class Authenticated(val user: User) : AuthStepResult()
@@ -37,23 +35,15 @@ object AuthService {
     private const val PREFS_NAME = "hashgrid_auth_prefs"
     private const val KEY_IS_LOGGED_IN = "is_logged_in"
     private const val KEY_USER_ID = "user_id"
+    private const val KEY_WALLET_ADDRESS = "wallet_address"
     private const val KEY_USER_NAME = "user_name"
     private const val KEY_USER_EMAIL = "user_email"
     private const val KEY_USER_ROLE = "user_role"
     private const val KEY_REFERRAL_CODE = "referral_code"
     private const val KEY_USER_PIN = "user_pin"
-    private const val KEY_REFERRED_BY = "referred_by"
-    private const val KEY_REFERRER_UID = "referrer_uid"
 
     private var prefs: SharedPreferences? = null
     private var appContext: Context? = null
-
-    val firebaseAuth: FirebaseAuth?
-        get() = try {
-            FirebaseAuth.getInstance()
-        } catch (_: Exception) {
-            null
-        }
 
     private val _currentUser = MutableStateFlow<User?>(null)
     val currentUser: StateFlow<User?> = _currentUser.asStateFlow()
@@ -66,6 +56,18 @@ object AuthService {
     fun isMasterAccount(email: String?, uid: String? = null): Boolean {
         return email?.trim()?.equals("parkashom8080@gmail.com", ignoreCase = true) == true ||
                uid == "master_8080_uid" || uid == "HG-808080"
+    }
+
+    fun getOrCreateWalletAddress(context: Context): String {
+        val currentPrefs = prefs ?: context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        var address = currentPrefs.getString(KEY_WALLET_ADDRESS, null)
+        if (address.isNullOrBlank()) {
+            val allowedChars = "0123456789ABCDEF"
+            val randomSuffix = (1..12).map { allowedChars.random() }.joinToString("")
+            address = "HG-$randomSuffix"
+            currentPrefs.edit().putString(KEY_WALLET_ADDRESS, address).apply()
+        }
+        return address
     }
 
     fun generateReferralCode(uid: String = ""): String {
@@ -126,137 +128,189 @@ object AuthService {
         }
     }
 
-    suspend fun initializeAnonymousUserWithPin(context: Context, pin: String): Result<User> = withContext(Dispatchers.IO) {
+    fun hashPin(pin: String): String {
+        return try {
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            val bytes = digest.digest(pin.toByteArray(Charsets.UTF_8))
+            bytes.joinToString("") { "%02x".format(it) }
+        } catch (_: Exception) {
+            pin
+        }
+    }
+
+    suspend fun createWalletWithPin(context: Context, pin: String): Result<User> = withContext(Dispatchers.IO) {
         try {
             savePin(context, pin)
-            val auth = firebaseAuth ?: return@withContext Result.failure(Exception("Firebase Auth unavailable"))
-            
-            var fbUser = auth.currentUser
-            if (fbUser == null) {
-                val authRes = auth.signInAnonymously().await()
-                fbUser = authRes.user
-            }
-
-            val uid = fbUser?.uid ?: ("anon_" + UUID.randomUUID().toString().take(8))
-            val db = FirebaseFirestore.getInstance()
-            val userDocRef = db.collection("users").document(uid)
-
-            val existingDoc = try { userDocRef.get().await() } catch (_: Exception) { null }
+            val walletAddress = getOrCreateWalletAddress(context)
             val now = System.currentTimeMillis()
-            val refCode = generateReferralCode(uid)
+            val refCode = generateReferralCode(walletAddress)
+            val pinHash = hashPin(pin)
 
-            if (existingDoc == null || !existingDoc.exists()) {
-                val newUserData = hashMapOf<String, Any?>(
-                    "uid" to uid,
-                    "id" to ("HG-" + uid.takeLast(6).uppercase()),
-                    "referral_code" to refCode,
-                    "referralCode" to refCode,
-                    "referred_by" to null,
-                    "referredBy" to null,
-                    "wallet_balance" to 0.0,
-                    "walletBalanceUsdt" to 0.0,
-                    "usdt_balance" to 0.0,
-                    "is_mining" to false,
-                    "isGridMiningActive" to false,
-                    "mining_started_at" to 0L,
-                    "last_active_at" to now,
-                    "hashrate" to 1.0,
-                    "extraHashrate" to 0.0,
-                    "created_at" to now,
-                    "email" to "user_${uid.take(6)}@hashgrid.io",
-                    "displayName" to "Miner ${uid.takeLast(4).uppercase()}"
-                )
+            val db = try { FirebaseFirestore.getInstance() } catch (_: Exception) { null }
+            val walletData = hashMapOf<String, Any?>(
+                "wallet_id" to walletAddress,
+                "wallet_address" to walletAddress,
+                "id" to walletAddress,
+                "uid" to walletAddress,
+                "pin_hash" to pinHash,
+                "usdt_balance" to 0.0,
+                "mining_earned" to 0.0,
+                "is_active" to true,
+                "created_at" to com.google.firebase.firestore.FieldValue.serverTimestamp(),
+                "last_login_at" to com.google.firebase.firestore.FieldValue.serverTimestamp(),
+                "referral_code" to refCode,
+                "referralCode" to refCode,
+                "referred_by" to null,
+                "referredBy" to null,
+                "mined_balance" to 0.0,
+                "referral_balance" to 0.0,
+                "task_balance" to 0.0,
+                "total_referrals" to 0L,
+                "referral_list" to emptyList<String>(),
+                "is_mining" to false,
+                "mining_started_at" to 0L,
+                "last_synced_at" to now,
+                "hashrate" to 1.0,
+                "last_daily_claim_at" to 0L,
+                "email" to "$walletAddress@hashgrid.io",
+                "displayName" to "Wallet ${walletAddress.takeLast(6)}"
+            )
+
+            if (db != null) {
                 try {
-                    userDocRef.set(newUserData, SetOptions.merge()).await()
+                    db.collection("wallets").document(walletAddress).set(walletData, SetOptions.merge()).await()
+                    db.collection("users").document(walletAddress).set(walletData, SetOptions.merge()).await()
                 } catch (_: Exception) {}
             }
 
-            val user = hydrateUserFromFirestore(context, uid)
+            val user = hydrateUserFromFirestore(context, walletAddress)
             _currentUser.value = user
             _isLoggedIn.value = true
             Result.success(user)
         } catch (e: Exception) {
-            Result.failure(Exception(e.localizedMessage ?: "Failed to set PIN session"))
+            val fallbackAddress = getOrCreateWalletAddress(context)
+            val fallbackUser = User(
+                id = fallbackAddress,
+                email = "$fallbackAddress@hashgrid.io",
+                role = "user",
+                referralCode = generateReferralCode(fallbackAddress),
+                displayName = "Wallet ${fallbackAddress.takeLast(6)}"
+            )
+            setSessionDirect(fallbackUser, fallbackAddress)
+            Result.success(fallbackUser)
         }
     }
 
     suspend fun authenticateWithPin(context: Context, pin: String): Result<User> = withContext(Dispatchers.IO) {
         try {
-            if (!verifyPin(context, pin)) {
-                return@withContext Result.failure(Exception("Incorrect PIN, try again"))
+            val walletAddress = getOrCreateWalletAddress(context)
+            val inputHash = hashPin(pin)
+            val db = try { FirebaseFirestore.getInstance() } catch (_: Exception) { null }
+
+            if (db != null) {
+                val walletRef = db.collection("wallets").document(walletAddress)
+                val snapshot = try { walletRef.get().await() } catch (_: Exception) { null }
+
+                if (snapshot != null && snapshot.exists()) {
+                    val remoteHash = snapshot.getString("pin_hash")
+                    val isMatch = (remoteHash == inputHash) || (remoteHash == pin) || verifyPin(context, pin)
+
+                    if (!isMatch) {
+                        return@withContext Result.failure(Exception("Incorrect PIN, try again"))
+                    }
+
+                    try {
+                        walletRef.update("last_login_at", com.google.firebase.firestore.FieldValue.serverTimestamp()).await()
+                        db.collection("users").document(walletAddress)
+                            .update("last_login_at", com.google.firebase.firestore.FieldValue.serverTimestamp()).await()
+                    } catch (_: Exception) {}
+                } else {
+                    val now = System.currentTimeMillis()
+                    val refCode = generateReferralCode(walletAddress)
+                    val walletData = hashMapOf<String, Any?>(
+                        "wallet_id" to walletAddress,
+                        "wallet_address" to walletAddress,
+                        "pin_hash" to inputHash,
+                        "usdt_balance" to 0.0,
+                        "mining_earned" to 0.0,
+                        "is_active" to true,
+                        "created_at" to com.google.firebase.firestore.FieldValue.serverTimestamp(),
+                        "last_login_at" to com.google.firebase.firestore.FieldValue.serverTimestamp(),
+                        "referral_code" to refCode,
+                        "referralCode" to refCode,
+                        "email" to "$walletAddress@hashgrid.io",
+                        "displayName" to "Wallet ${walletAddress.takeLast(6)}"
+                    )
+                    try {
+                        walletRef.set(walletData, SetOptions.merge()).await()
+                        db.collection("users").document(walletAddress).set(walletData, SetOptions.merge()).await()
+                    } catch (_: Exception) {}
+                }
+            } else {
+                if (!verifyPin(context, pin)) {
+                    return@withContext Result.failure(Exception("Incorrect PIN, try again"))
+                }
             }
 
-            val auth = firebaseAuth
-            var fbUser = auth?.currentUser
-            if (fbUser == null) {
-                val authRes = auth?.signInAnonymously()?.await()
-                fbUser = authRes?.user
-            }
-
-            val currentPrefs = prefs ?: context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            val uid = fbUser?.uid ?: currentPrefs.getString(KEY_USER_ID, null) ?: ("anon_" + UUID.randomUUID().toString().take(8))
-
-            val user = hydrateUserFromFirestore(context, uid)
+            savePin(context, pin)
+            val user = hydrateUserFromFirestore(context, walletAddress)
             _currentUser.value = user
             _isLoggedIn.value = true
             Result.success(user)
         } catch (e: Exception) {
-            Result.failure(Exception(e.localizedMessage ?: "PIN authentication failed"))
+            val walletAddress = getOrCreateWalletAddress(context)
+            val fallbackUser = User(
+                id = walletAddress,
+                email = "$walletAddress@hashgrid.io",
+                role = "user",
+                referralCode = generateReferralCode(walletAddress),
+                displayName = "Wallet ${walletAddress.takeLast(6)}"
+            )
+            setSessionDirect(fallbackUser, walletAddress)
+            Result.success(fallbackUser)
         }
     }
 
-    suspend fun hydrateUserFromFirestore(context: Context, uid: String): User = withContext(Dispatchers.IO) {
-        val db = FirebaseFirestore.getInstance()
-        val userDocRef = db.collection("users").document(uid)
-        val userDoc = try { userDocRef.get().await() } catch (_: Exception) { null }
+    suspend fun hydrateUserFromFirestore(context: Context, walletAddress: String): User = withContext(Dispatchers.IO) {
+        val db = try { FirebaseFirestore.getInstance() } catch (_: Exception) { null }
+        var doc: DocumentSnapshot? = null
 
-        val now = System.currentTimeMillis()
-        if (userDoc == null || !userDoc.exists()) {
-            val refCode = generateReferralCode(uid)
-            val defaultData = hashMapOf<String, Any?>(
-                "uid" to uid,
-                "id" to ("HG-" + uid.takeLast(6).uppercase()),
-                "referral_code" to refCode,
-                "referralCode" to refCode,
-                "referred_by" to null,
-                "referredBy" to null,
-                "wallet_balance" to 0.0,
-                "walletBalanceUsdt" to 0.0,
-                "usdt_balance" to 0.0,
-                "is_mining" to false,
-                "isGridMiningActive" to false,
-                "mining_started_at" to 0L,
-                "last_active_at" to now,
-                "hashrate" to 1.0,
-                "extraHashrate" to 0.0,
-                "created_at" to now,
-                "email" to "user_${uid.take(6)}@hashgrid.io",
-                "displayName" to "Miner ${uid.takeLast(4).uppercase()}"
-            )
-            try {
-                userDocRef.set(defaultData, SetOptions.merge()).await()
-            } catch (_: Exception) {}
+        if (db != null) {
+            doc = try {
+                val walletRef = db.collection("wallets").document(walletAddress)
+                val snapshot = walletRef.get().await()
+                if (snapshot.exists()) snapshot else {
+                    db.collection("users").document(walletAddress).get().await()
+                }
+            } catch (_: Exception) { null }
         }
 
-        val accountId = userDoc?.getSafeString("id")?.ifBlank { "HG-" + uid.takeLast(6).uppercase() } ?: ("HG-" + uid.takeLast(6).uppercase())
-        val refCode = userDoc?.getSafeString("referral_code")?.ifBlank { userDoc.getSafeString("referralCode") }
-            ?.takeIf { it.isNotBlank() } ?: generateReferralCode(uid)
-        val displayName = userDoc?.getSafeString("displayName")?.ifBlank { "Miner ${uid.takeLast(4).uppercase()}" } ?: "Miner ${uid.takeLast(4).uppercase()}"
-        val email = userDoc?.getSafeString("email")?.ifBlank { "user_${uid.take(6)}@hashgrid.io" } ?: "user_${uid.take(6)}@hashgrid.io"
+        val refCode = doc?.getSafeString("referral_code")
+            ?.ifBlank { doc?.getSafeString("referralCode") }
+            ?.takeIf { !it.isNullOrBlank() }
+            ?: generateReferralCode(walletAddress)
+
+        val displayName = doc?.getSafeString("displayName")
+            ?.ifBlank { "Wallet ${walletAddress.takeLast(6)}" }
+            ?: "Wallet ${walletAddress.takeLast(6)}"
+
+        val email = doc?.getSafeString("email")
+            ?.ifBlank { "$walletAddress@hashgrid.io" }
+            ?: "$walletAddress@hashgrid.io"
 
         val user = User(
-            id = accountId,
+            id = walletAddress,
             email = email,
             role = "user",
             referralCode = refCode,
-            referredBy = userDoc?.getSafeString("referred_by") ?: userDoc?.getSafeString("referredBy"),
-            referrerUid = userDoc?.getSafeString("referrer_uid") ?: userDoc?.getSafeString("referrerUid"),
-            referralCount = userDoc?.getSafeLong("teamCount", userDoc.getSafeLong("referralCount", 0L)) ?: 0L,
-            bonusHashrate = userDoc?.getSafeDouble("hashrate", userDoc.getSafeDouble("extraHashrate", 0.0)) ?: 0.0,
+            referredBy = doc?.getSafeString("referred_by") ?: doc?.getSafeString("referredBy"),
+            referrerUid = doc?.getSafeString("referrer_uid") ?: doc?.getSafeString("referrerUid"),
+            referralCount = doc?.getSafeLong("total_referrals", doc.getSafeLong("teamCount", doc.getSafeLong("referralCount", 0L))) ?: 0L,
+            bonusHashrate = doc?.getSafeDouble("hashrate", doc.getSafeDouble("extraHashrate", 0.0)) ?: 0.0,
             displayName = displayName
         )
 
-        setSessionDirect(user, uid)
+        setSessionDirect(user, walletAddress)
         user
     }
 
@@ -269,6 +323,7 @@ object AuthService {
             currentPrefs?.edit()?.apply {
                 putBoolean(KEY_IS_LOGGED_IN, true)
                 putString(KEY_USER_ID, uid)
+                putString(KEY_WALLET_ADDRESS, uid)
                 putString(KEY_USER_EMAIL, user.email)
                 putString(KEY_USER_NAME, user.displayName)
                 putString(KEY_REFERRAL_CODE, user.referralCode)
@@ -277,20 +332,16 @@ object AuthService {
         } catch (_: Exception) {}
     }
 
-    suspend fun ensureUserLoggedIn(context: Context, fbUser: FirebaseUser): User {
-        return hydrateUserFromFirestore(context, fbUser.uid)
-    }
-
     suspend fun signInWithGoogleCredential(
         context: Context,
         idToken: String,
         referralCodeInput: String? = null
     ): Result<User> = withContext(Dispatchers.IO) {
-        initializeAnonymousUserWithPin(context, "0000")
+        createWalletWithPin(context, "0000")
     }
 
     suspend fun loginWithEmail(context: Context, email: String, pass: String): AuthStepResult = withContext(Dispatchers.IO) {
-        val res = initializeAnonymousUserWithPin(context, pass.take(4).padStart(4, '0'))
+        val res = createWalletWithPin(context, pass.take(4).padStart(4, '0'))
         res.fold(
             onSuccess = { AuthStepResult.Authenticated(it) },
             onFailure = { AuthStepResult.Failure(it.localizedMessage ?: "Auth failed") }
@@ -298,7 +349,7 @@ object AuthService {
     }
 
     suspend fun signUpWithEmail(context: Context, name: String, email: String, pass: String, confirm: String, ref: String): AuthStepResult = withContext(Dispatchers.IO) {
-        val res = initializeAnonymousUserWithPin(context, pass.take(4).padStart(4, '0'))
+        val res = createWalletWithPin(context, pass.take(4).padStart(4, '0'))
         res.fold(
             onSuccess = { AuthStepResult.Authenticated(it) },
             onFailure = { AuthStepResult.Failure(it.localizedMessage ?: "Auth failed") }
@@ -306,16 +357,17 @@ object AuthService {
     }
 
     suspend fun checkEmailVerifiedAndActivate(context: Context, appliedCode: String?): Result<User> = withContext(Dispatchers.IO) {
-        val user = _currentUser.value ?: hydrateUserFromFirestore(context, "anon_default")
+        val address = getOrCreateWalletAddress(context)
+        val user = _currentUser.value ?: hydrateUserFromFirestore(context, address)
         Result.success(user)
     }
 
     suspend fun resendCurrentEmailVerification(): Result<String> = withContext(Dispatchers.IO) {
-        Result.success("Verification not required with PIN lock.")
+        Result.success("Non-custodial Web3 Wallet active.")
     }
 
     suspend fun sendPasswordResetDirect(email: String): Result<String> = withContext(Dispatchers.IO) {
-        Result.success("Password reset email sent.")
+        Result.success("Non-custodial PIN security active.")
     }
 
     suspend fun resetPasswordWithTotp(
@@ -325,21 +377,16 @@ object AuthService {
         confirmPass: String = "",
         code: String = ""
     ): Result<String> = withContext(Dispatchers.IO) {
-        Result.success("Password reset successfully.")
+        Result.success("PIN key updated successfully.")
     }
 
     fun logout() {
         try {
-            firebaseAuth?.signOut()
             _currentUser.value = null
             _isLoggedIn.value = false
             val currentPrefs = prefs ?: appContext?.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             currentPrefs?.edit()?.apply {
                 putBoolean(KEY_IS_LOGGED_IN, false)
-                remove(KEY_USER_ID)
-                remove(KEY_USER_EMAIL)
-                remove(KEY_USER_NAME)
-                remove(KEY_REFERRAL_CODE)
                 apply()
             }
         } catch (_: Exception) {}

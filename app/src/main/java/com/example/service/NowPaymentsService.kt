@@ -352,44 +352,13 @@ object NowPaymentsService {
     ) {
         scope.launch {
             try {
-                val db = FirebaseFirestore.getInstance()
-                val nowStr = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
-
-                // 1. Atomically increment /users/{uid}.usdt_balance
-                db.collection("users").document(userId)
-                    .update("usdt_balance", FieldValue.increment(netAmountUsdt))
-
-                // 2. Add entry to /users/{uid}/transactions
-                val txDoc = hashMapOf<String, Any>(
-                    "id" to paymentId,
-                    "title" to "+$${String.format(Locale.US, "%.2f", netAmountUsdt)} USDT",
-                    "subtitle" to "NOWPayments Auto-Deposit ($network)",
-                    "btcAmountStr" to "",
-                    "usdtAmount" to netAmountUsdt,
-                    "amount" to netAmountUsdt,
-                    "network" to network,
-                    "currency" to "USDT",
-                    "payment_id" to paymentId,
-                    "isCredit" to true,
-                    "type" to "DEPOSIT",
-                    "status" to "COMPLETED",
-                    "timestamp" to FieldValue.serverTimestamp(),
-                    "dateStr" to nowStr
+                FirebaseSyncService.verifyAndProcessDepositAtomic(
+                    walletAddress = userId,
+                    userId = userId,
+                    txId = paymentId,
+                    amountUsdt = netAmountUsdt,
+                    network = network
                 )
-                db.collection("users").document(userId).collection("transactions").document(paymentId).set(txDoc)
-
-                // 3. Mark in global /deposits
-                val depDoc = hashMapOf<String, Any>(
-                    "paymentId" to paymentId,
-                    "userId" to userId,
-                    "amount" to netAmountUsdt,
-                    "currency" to "USDT",
-                    "network" to network,
-                    "status" to "completed",
-                    "verifiedVia" to "NOWPAYMENTS_AUTOMATION",
-                    "timestamp" to FieldValue.serverTimestamp()
-                )
-                db.collection("deposits").document(paymentId).set(depDoc)
             } catch (e: Exception) {
                 e.printStackTrace()
             }
