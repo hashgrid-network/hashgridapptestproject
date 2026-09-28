@@ -38,6 +38,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
@@ -65,8 +66,12 @@ class HashGridViewModel : ViewModel() {
     private val _kasPrice = MutableStateFlow(0.1428)
     val kasPrice: StateFlow<Double> = _kasPrice.asStateFlow()
 
-    private val _hashPower = MutableStateFlow(0.0)
+    private val _baseHashrate = MutableStateFlow(100.0)
+    val baseHashrate: StateFlow<Double> = _baseHashrate.asStateFlow()
+
+    private val _hashPower = MutableStateFlow(100.0)
     val hashPower: StateFlow<Double> = _hashPower.asStateFlow()
+    val effectiveHashrate: StateFlow<Double> = _hashPower.asStateFlow()
 
     // --- User Profile & Auth State ---
     val currentUser: StateFlow<User?> = AuthService.currentUser
@@ -116,20 +121,43 @@ class HashGridViewModel : ViewModel() {
     val taskSubmissions: StateFlow<List<com.example.model.TaskSubmissionItem>> = _taskSubmissions.asStateFlow()
 
 
-    // Pi-style Free Mining Boost Telemetry (+0.10 GH/s per active referred miner)
+    // Pi-style Free Mining Boost Telemetry (Dynamic +300 GH/s per active referred miner in 24h cycle)
     val activeReferredMinersCount: StateFlow<Int> = _teamMembers.map { members ->
-        members.count { it.isMining || it.status.equals("ACTIVE", ignoreCase = true) }
+        val now = System.currentTimeMillis()
+        members.count { member ->
+            val normStart = if (member.miningStartedAt in 1_000_000_000L..99_999_999_999L) member.miningStartedAt * 1000L else member.miningStartedAt
+            member.isMining && normStart > 0L && (now - normStart in 0 until (24L * 3600 * 1000L))
+        }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, 0)
 
     val piTeamBoostGhs: StateFlow<Double> = activeReferredMinersCount.map { activeCount ->
-        activeCount * 0.10
+        activeCount * 300.0
     }.stateIn(viewModelScope, SharingStarted.Eagerly, 0.0)
 
-    val piTeamBoostDisplayStr: StateFlow<String> = activeReferredMinersCount.map { activeCount ->
-        val boost = activeCount * 0.10
-        val total = _teamMembers.value.size
-        "⚡ Team Boost: +${String.format(Locale.US, "%.2f", boost)} GH/s ($activeCount / $total Active Miners)"
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, "⚡ Team Boost: +0.00 GH/s (0 / 0 Active Miners)")
+    val piTeamBoostDisplayStr: StateFlow<String> = combine(activeReferredMinersCount, _teamMembers) { activeCount, members ->
+        val boost = activeCount * 300.0
+        val total = members.size
+        if (activeCount > 0) {
+            "⚡ Team Boost: +${String.format(Locale.US, "%.2f", boost)} GH/s ($activeCount / $total Active Miners Mining Now)"
+        } else {
+            "Team Boost: +0.00 GH/s (0 / $total Active Miners Mining Now)"
+        }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, "Team Boost: +0.00 GH/s (0 / 0 Active Miners Mining Now)")
+
+    fun recalculateEffectiveHashrate() {
+        val now = System.currentTimeMillis()
+        val activeMiners = _teamMembers.value.count { member ->
+            val normStart = if (member.miningStartedAt in 1_000_000_000L..99_999_999_999L) member.miningStartedAt * 1000L else member.miningStartedAt
+            member.isMining && normStart > 0L && (now - normStart in 0 until (24L * 3600 * 1000L))
+        }
+        val dynamicReferralBoost = activeMiners * 300.0
+        val rigHashrate = _activeContracts.value.filter { !it.isExpired }.sumOf { it.hashPowerGh }
+        val effective = _baseHashrate.value + dynamicReferralBoost + rigHashrate
+
+        _extraHashrate.value = dynamicReferralBoost
+        _hashPower.value = effective
+        _activeReferralsMiningNow.value = activeMiners
+    }
 
     // Atomic Escrow Balance (Locked in 24h Audit)
     private val _lockedAuditBalanceUsdt = MutableStateFlow(0.0)
@@ -361,14 +389,14 @@ class HashGridViewModel : ViewModel() {
     private val _globalMinersCount = MutableStateFlow(842L)
     val globalMinersCount: StateFlow<Long> = _globalMinersCount.asStateFlow()
 
-    private val _activeReferralsMiningNow = MutableStateFlow(3)
+    private val _activeReferralsMiningNow = MutableStateFlow(0)
     val activeReferralsMiningNow: StateFlow<Int> = _activeReferralsMiningNow.asStateFlow()
 
     private val _baseGridRate = MutableStateFlow(TokenConfig.BASE_RATE_PER_HOUR)
     val baseGridRate: StateFlow<Double> = _baseGridRate.asStateFlow()
 
     private val _effectiveGridRate = MutableStateFlow(
-        TokenConfig.calculateEffectiveRate(TokenConfig.BASE_RATE_PER_HOUR, 3)
+        TokenConfig.calculateEffectiveRate(TokenConfig.BASE_RATE_PER_HOUR, 0)
     )
     val effectiveGridRate: StateFlow<Double> = _effectiveGridRate.asStateFlow()
 
@@ -431,7 +459,7 @@ class HashGridViewModel : ViewModel() {
                 )
             }
             _activeContracts.value = reevaluatedContracts
-            _hashPower.value = reevaluatedContracts.sumOf { it.hashPowerGh } + _extraHashrate.value
+            recalculateEffectiveHashrate()
         }
         if (data.activityList.isNotEmpty()) {
             _activityList.value = data.activityList
@@ -587,7 +615,10 @@ class HashGridViewModel : ViewModel() {
                                     _kycStatus.value = kyc
                                     _twoFactorEnabled.value = twoFa
                                     _teamCount.value = maxOf(docTeamCount, _teamMembers.value.size.toLong())
-                                    _extraHashrate.value = if (extraHr > 0.0) extraHr else (_teamCount.value * 1.5)
+                                    if (extraHr > 0.0) {
+                                        _baseHashrate.value = maxOf(_baseHashrate.value, extraHr)
+                                    }
+                                    recalculateEffectiveHashrate()
                                     if (refCode.isNotBlank() && refCode != AuthService.currentUser.value?.referralCode) {
                                         AuthService.updateReferralCode(refCode)
                                     }
@@ -601,7 +632,7 @@ class HashGridViewModel : ViewModel() {
                                 onMinersUpdated = { miners ->
                                     if (miners.isNotEmpty()) {
                                         _activeContracts.value = miners
-                                        _hashPower.value = miners.sumOf { it.hashPowerGh } + _extraHashrate.value
+                                        recalculateEffectiveHashrate()
                                         saveLocalState()
                                     }
                                 },
@@ -646,6 +677,7 @@ class HashGridViewModel : ViewModel() {
                                     if (members.isNotEmpty()) {
                                         _teamCount.value = maxOf(_teamCount.value, members.size.toLong())
                                     }
+                                    recalculateEffectiveHashrate()
                                 },
                                 onSyndicateUpdated = { tier, rewards ->
                                     _syndicateTier.value = tier
@@ -654,7 +686,8 @@ class HashGridViewModel : ViewModel() {
                             )
                         } else {
                             _walletBalanceUsdt.value = 0.00
-                            _hashPower.value = 0.0
+                            _baseHashrate.value = 100.0
+                            _hashPower.value = 100.0
                             _teamCount.value = 0L
                             _extraHashrate.value = 0.0
                             _syndicateTier.value = "NOVICE"
@@ -682,14 +715,13 @@ class HashGridViewModel : ViewModel() {
                     val reconciledCount = FirebaseSyncService.reconcileUserReferrals(uid, code)
                     if (reconciledCount > _teamCount.value) {
                         _teamCount.value = reconciledCount
-                        _extraHashrate.value = _teamCount.value * 300.0
                         _totalReferralRewardsUsdt.value = _referralRewards.value.sumOf { it.commissionUsdt }
                         _syndicateTier.value = when {
                             _teamCount.value >= 20 -> "ELITE"
                             _teamCount.value >= 5 -> "PRO"
                             else -> "NOVICE"
                         }
-                        _hashPower.value = _activeContracts.value.sumOf { it.hashPowerGh } + _extraHashrate.value
+                        recalculateEffectiveHashrate()
                         saveLocalState()
                     }
                 } catch (_: Exception) {}
@@ -703,6 +735,7 @@ class HashGridViewModel : ViewModel() {
             while (isActive) {
                 delay(1000L)
                 syncTick++
+                recalculateEffectiveHashrate()
                 try {
                     val currentList = _activeContracts.value
                     if (currentList.isNotEmpty() && currentList.any { !it.isExpired && it.depositUsdt > 0 }) {
@@ -816,6 +849,10 @@ class HashGridViewModel : ViewModel() {
         _selectedLanguage.value = lang
     }
 
+    fun onStartMiningClick() {
+        activateGridMiningSession()
+    }
+
     fun extendMiningSession() {
         activateGridMiningSession()
     }
@@ -834,7 +871,10 @@ class HashGridViewModel : ViewModel() {
         _miningSessionEndTimestamp.value = sessionEnd
         saveLocalState()
 
-        FirebaseSyncService.startGridMiningSession(
+        val walletAddress = appContext?.let { AuthService.getOrCreateWalletAddress(it) } ?: userId
+
+        FirebaseSyncService.onStartMiningClick(
+            walletId = walletAddress,
             userId = userId,
             baseRate = base,
             teamBonusRate = teamBonus
@@ -860,7 +900,6 @@ class HashGridViewModel : ViewModel() {
             return Pair(false, "Device cooldown active: $remaining hours remaining before next free session.")
         }
         _lastFreeAdSessionTimestamp.value = System.currentTimeMillis()
-        _hashPower.value += 50.0
 
         val newContract = ActiveContract(
             id = "c_${UUID.randomUUID().toString().take(6)}",
@@ -877,6 +916,7 @@ class HashGridViewModel : ViewModel() {
             maturityDateStr = "Tomorrow"
         )
         _activeContracts.value = listOf(newContract) + _activeContracts.value
+        recalculateEffectiveHashrate()
 
         val newAct = ActivityItem(
             id = "act_${System.currentTimeMillis()}",
@@ -897,7 +937,6 @@ class HashGridViewModel : ViewModel() {
             return false
         }
         _walletBalanceUsdt.value -= plan.minDepositUsdt
-        _hashPower.value += plan.hashPowerGh
 
         val rigId = "RIG-${plan.minDepositUsdt.toInt()}-${UUID.randomUUID().toString().take(6).uppercase()}"
         val targetYield30 = plan.minDepositUsdt * 0.30
@@ -939,6 +978,7 @@ class HashGridViewModel : ViewModel() {
             last_synced_at = now
         )
         _activeContracts.value = listOf(newContract) + _activeContracts.value
+        recalculateEffectiveHashrate()
 
         val newAct = ActivityItem(
             id = "act_${System.currentTimeMillis()}",
@@ -952,8 +992,8 @@ class HashGridViewModel : ViewModel() {
         _activityList.value = listOf(newAct) + _activityList.value
         saveLocalState()
 
-        val walletAddress = appContext?.let { AuthService.getOrCreateWalletAddress(it) } ?: ""
-        FirebaseSyncService.purchaseMiningPlan(userId, plan) {}
+        val walletAddress = appContext?.let { AuthService.getOrCreateWalletAddress(it) } ?: userId
+        FirebaseSyncService.purchaseMiningPlan(userId, plan, walletAddress) {}
         FirebaseSyncService.purchaseRigForWallet(walletAddress, userId, newContract.toMiningRig())
         return true
     }
@@ -984,8 +1024,8 @@ class HashGridViewModel : ViewModel() {
         if (slice.rewardType == com.example.model.WheelRewardType.GRID_COINS) {
             _gridCoinBalance.value += slice.gridAmount
         } else if (slice.rewardType == com.example.model.WheelRewardType.HASHRATE_BOOST) {
-            _extraHashrate.value += slice.hashrateGhs
-            _hashPower.value += slice.hashrateGhs
+            _baseHashrate.value += slice.hashrateGhs
+            recalculateEffectiveHashrate()
         } else if (slice.rewardType == com.example.model.WheelRewardType.USDT_BONUS) {
             _walletBalanceUsdt.value += slice.usdtAmount
         }

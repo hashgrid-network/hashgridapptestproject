@@ -61,13 +61,23 @@ data class TeamMember(
     val joinedAtStr: String = "Recently",
     val joinedAtMs: Long = 0L,
     val status: String = "Free Miner", // "Free Miner" or "Active Rig Node"
-    val hashrateBonus: Double = 300.0,
-    val hashrateContributed: Double = 300.0,
-    val speedBoostContributed: Double = 300.0,
+    val hashrateBonus: Double = 0.0,
+    val hashrateContributed: Double = 0.0,
+    val speedBoostContributed: Double = 0.0,
     val commissionPaidUsdt: Double = 0.0,
-    val isMining: Boolean = true,
+    val isMining: Boolean = false,
+    val miningStartedAt: Long = 0L,
     val avatarUrl: String? = null
 ) {
+    val isCurrentlyActive: Boolean
+        get() {
+            if (!isMining) return false
+            if (miningStartedAt <= 0L) return false
+            val normStart = if (miningStartedAt in 1_000_000_000L..99_999_999_999L) miningStartedAt * 1000L else miningStartedAt
+            val elapsed = System.currentTimeMillis() - normStart
+            return elapsed in 0 until (24L * 3600 * 1000L)
+        }
+
     val maskedId: String
         get() {
             val clean = uid.trim()

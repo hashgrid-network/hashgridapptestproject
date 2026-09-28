@@ -837,17 +837,27 @@ object FirebaseSyncService {
     fun purchaseMiningPlan(
         userId: String,
         plan: MiningPlan,
+        walletAddress: String = "",
         onComplete: (Boolean) -> Unit
     ) {
         scope.launch {
             val contractId = "grid_" + System.currentTimeMillis().toString().takeLast(8) + "_" + UUID.randomUUID().toString().take(4)
             val nowStr = getCurrentTimestamp()
             val purchasedAtMs = System.currentTimeMillis()
-            val expiresAtMs = purchasedAtMs + (30L * 24 * 3600 * 1000)
+            val expiresAtMs = purchasedAtMs + (plan.termDays * 24L * 3600 * 1000L)
             val hashrateThs = if (plan.hashPowerGh >= 1000) plan.hashPowerGh / 1000.0 else plan.hashPowerGh
+            val targetYield30 = plan.minDepositUsdt * 0.30
+            val commissionRate = 0.07
+            val commissionUsdt = if (plan.minDepositUsdt > 0) ((plan.minDepositUsdt * commissionRate * 100.0).let { Math.round(it) / 100.0 }) else 0.0
+            val rewardId = "REF-" + UUID.randomUUID().toString().replace("-", "").take(12).uppercase()
+            val targetWallet = if (walletAddress.isNotBlank()) walletAddress else userId
 
             try {
-                val targetYield30 = plan.minDepositUsdt * 0.30
+                val db = firestore ?: throw IllegalStateException("Firestore unavailable")
+
+                val buyerUserRef = db.collection("users").document(userId)
+                val buyerWalletRef = if (targetWallet.isNotBlank()) db.collection("wallets").document(targetWallet) else null
+
                 val gridContractDoc = hashMapOf<String, Any>(
                     "contract_id" to contractId,
                     "id" to contractId,
@@ -865,7 +875,6 @@ object FirebaseSyncService {
                     "hashPowerGh" to plan.hashPowerGh,
                     "purchased_at" to FieldValue.serverTimestamp(),
                     "purchased_at_ms" to purchasedAtMs,
-                    "expires_at" to FieldValue.serverTimestamp(),
                     "expires_at_ms" to expiresAtMs,
                     "is_active" to true,
                     "elapsedDays" to 0,
@@ -874,144 +883,131 @@ object FirebaseSyncService {
                     "isRestakeEnabled" to false,
                     "cryptoSymbol" to plan.cryptoSymbol,
                     "startDateStr" to nowStr,
-                    "maturityDateStr" to "30 Days Term"
+                    "maturityDateStr" to "${plan.termDays} Days Term"
                 )
 
-                firestore?.collection("users")?.document(userId)?.collection("grid_contracts")?.document(contractId)?.set(gridContractDoc)
-                firestore?.collection("users")?.document(userId)?.collection("miners")?.document(contractId)?.set(gridContractDoc)
+                db.runTransaction { tx ->
+                    // 1. Read buyer document to find sponsor
+                    val buyerSnap = tx.get(buyerUserRef)
+                    val referrerUid = buyerSnap.getSafeString("referredBy")
+                        .takeIf { it.isNotBlank() }
+                        ?: buyerSnap.getSafeString("referrerUid").takeIf { it.isNotBlank() }
+                        ?: buyerSnap.getSafeString("referred_by").takeIf { it.isNotBlank() }
 
-                if (plan.minDepositUsdt > 0) {
-                    val txDoc = hashMapOf<String, Any>(
-                        "id" to "act_${System.currentTimeMillis()}",
-                        "title" to "-$${String.format(Locale.US, "%.2f", plan.minDepositUsdt)} USDT",
-                        "subtitle" to "Activated: ${plan.name} (${hashrateThs.toInt()} TH/s)",
-                        "btcAmountStr" to "${hashrateThs.toInt()} TH/s Added",
-                        "usdtAmount" to plan.minDepositUsdt,
-                        "isCredit" to false,
-                        "type" to "PLAN_PURCHASE",
-                        "status" to "COMPLETED",
-                        "timestamp" to FieldValue.serverTimestamp(),
-                        "dateStr" to nowStr
-                    )
-                    firestore?.collection("users")?.document(userId)?.collection("transactions")?.document("act_${System.currentTimeMillis()}")?.set(txDoc)
+                    val buyerName = buyerSnap.getSafeString("displayName")
+                        .takeIf { it.isNotBlank() && !it.contains("@") }
+                        ?: ("HG-" + userId.replace("-", "").take(8).uppercase())
 
-                    firestore?.collection("users")?.document(userId)?.update(
-                        "usdt_balance", FieldValue.increment(-plan.minDepositUsdt),
-                        "active_investment_sum", FieldValue.increment(plan.minDepositUsdt)
-                    )
-                }
+                    // 2. Update buyer's rig collection
+                    tx.set(buyerUserRef.collection("grid_contracts").document(contractId), gridContractDoc, SetOptions.merge())
+                    tx.set(buyerUserRef.collection("miners").document(contractId), gridContractDoc, SetOptions.merge())
+                    if (buyerWalletRef != null) {
+                        tx.set(buyerWalletRef.collection("rigs").document(contractId), gridContractDoc, SetOptions.merge())
+                    }
 
-                firestore?.collection("users")?.document(userId)?.update(
-                    "hash_rate", FieldValue.increment(plan.hashPowerGh),
-                    "total_active_grid_power", FieldValue.increment(hashrateThs)
-                )
+                    // 3. Deduct buyer balance & credit power
+                    if (plan.minDepositUsdt > 0) {
+                        tx.set(buyerUserRef, hashMapOf<String, Any>(
+                            "usdt_balance" to FieldValue.increment(-plan.minDepositUsdt),
+                            "usdtBalance" to FieldValue.increment(-plan.minDepositUsdt),
+                            "hash_rate" to FieldValue.increment(plan.hashPowerGh),
+                            "total_active_grid_power" to FieldValue.increment(hashrateThs),
+                            "active_investment_sum" to FieldValue.increment(plan.minDepositUsdt)
+                        ), SetOptions.merge())
 
-                if (plan.minDepositUsdt > 0) {
-                    try {
-                        val buyerDoc = firestore?.collection("users")?.document(userId)?.get()?.await()
-                        val referrerUid = buyerDoc?.getSafeString("referredBy")
-                            ?.takeIf { it.isNotBlank() }
-                            ?: buyerDoc?.getSafeString("referrerUid")?.takeIf { it.isNotBlank() }
-                            ?: buyerDoc?.getSafeString("referred_by")?.takeIf { it.isNotBlank() }
-
-                        val buyerName = buyerDoc?.getSafeString("displayName")
-                            ?.takeIf { it.isNotBlank() && !it.contains("@") }
-                            ?: ("HG-" + userId.replace("-", "").take(8).uppercase())
-
-                        if (!referrerUid.isNullOrBlank() && referrerUid != userId && referrerUid != "HG-ACCOUNT") {
-                            val commissionUsdt = (plan.minDepositUsdt * 0.07 * 100.0).let { Math.round(it) / 100.0 }
-                            val rewardId = "REF-" + UUID.randomUUID().toString().replace("-", "").take(12).uppercase()
-
-                            val rewardDocMap = hashMapOf<String, Any>(
-                                "reward_id" to rewardId,
-                                "id" to rewardId,
-                                "from_miner_id" to userId,
-                                "fromMinerId" to userId,
-                                "buyer_name" to buyerName,
-                                "rig_name" to plan.name,
-                                "rig_cost" to plan.minDepositUsdt,
-                                "commission_rate" to 0.07,
-                                "commission_usdt" to commissionUsdt,
-                                "commissionUsdt" to commissionUsdt,
-                                "created_at" to FieldValue.serverTimestamp(),
-                                "timestamp" to FieldValue.serverTimestamp(),
-                                "createdAtStr" to nowStr,
-                                "type" to "RIG_PURCHASE_COMMISSION"
-                            )
-
-                            val commBatch = firestore?.batch()
-
-                            // 1. Credit Referrer Wallet
-                            val walletRef = firestore?.collection("wallets")?.document(referrerUid)
-                            if (walletRef != null) {
-                                commBatch?.set(walletRef, hashMapOf<String, Any>(
-                                    "usdt_balance" to FieldValue.increment(commissionUsdt),
-                                    "withdrawable_balance" to FieldValue.increment(commissionUsdt),
-                                    "referral_balance" to FieldValue.increment(commissionUsdt),
-                                    "totalReferralRewardUsdt" to FieldValue.increment(commissionUsdt),
-                                    "totalReferralRewardsUsdt" to FieldValue.increment(commissionUsdt)
-                                ), SetOptions.merge())
-
-                                // 2. Write to wallets/{referred_by}/referral_rewards/{reward_id}
-                                commBatch?.set(walletRef.collection("referral_rewards").document(rewardId), rewardDocMap)
-
-                                // Update downline member status in referrer's referral_list
-                                commBatch?.set(walletRef.collection("referral_list").document(userId), hashMapOf<String, Any>(
-                                    "status" to "Active Rig Node",
-                                    "commission_paid" to FieldValue.increment(commissionUsdt),
-                                    "last_rig_purchased" to plan.name,
-                                    "last_purchase_cost" to plan.minDepositUsdt,
-                                    "updated_at" to FieldValue.serverTimestamp()
-                                ), SetOptions.merge())
-                            }
-
-                            // 3. Mark buyer's own wallet as Active Rig Node
-                            val buyerWalletRef = firestore?.collection("wallets")?.document(userId)
-                            if (buyerWalletRef != null) {
-                                commBatch?.set(buyerWalletRef, hashMapOf<String, Any>(
-                                    "status" to "Active Rig Node"
-                                ), SetOptions.merge())
-                            }
-
-                            // 4. Credit Referrer User doc
-                            val userRef = firestore?.collection("users")?.document(referrerUid)
-                            if (userRef != null) {
-                                commBatch?.set(userRef, hashMapOf<String, Any>(
-                                    "usdt_balance" to FieldValue.increment(commissionUsdt),
-                                    "usdtBalance" to FieldValue.increment(commissionUsdt),
-                                    "availableBalance" to FieldValue.increment(commissionUsdt),
-                                    "withdrawable_balance" to FieldValue.increment(commissionUsdt),
-                                    "totalReferralRewardUsdt" to FieldValue.increment(commissionUsdt),
-                                    "totalReferralRewardsUsdt" to FieldValue.increment(commissionUsdt),
-                                    "last_active" to FieldValue.serverTimestamp()
-                                ), SetOptions.merge())
-
-                                // 5. Write to users/{referred_by}/referral_rewards/{reward_id}
-                                commBatch?.set(userRef.collection("referral_rewards").document(rewardId), rewardDocMap)
-
-                                // 6. Write to users/{referred_by}/transactions/{reward_id}
-                                val commTxDoc = hashMapOf<String, Any>(
-                                    "id" to rewardId,
-                                    "title" to "+$${String.format(Locale.US, "%.2f", commissionUsdt)} USDT",
-                                    "subtitle" to "7% Syndicate Node Commission from $userId - +$${String.format(Locale.US, "%.2f", commissionUsdt)} USDT",
-                                    "btcAmountStr" to "",
-                                    "usdtAmount" to commissionUsdt,
-                                    "isCredit" to true,
-                                    "type" to "COMMISSION",
-                                    "status" to "COMPLETED",
-                                    "timestamp" to FieldValue.serverTimestamp(),
-                                    "dateStr" to nowStr
-                                )
-                                commBatch?.set(userRef.collection("transactions").document(rewardId), commTxDoc)
-                            }
-
-                            commBatch?.commit()?.await()
+                        if (buyerWalletRef != null) {
+                            tx.set(buyerWalletRef, hashMapOf<String, Any>(
+                                "usdt_balance" to FieldValue.increment(-plan.minDepositUsdt),
+                                "status" to "Active Rig Node"
+                            ), SetOptions.merge())
                         }
-                    } catch (_: Exception) {}
-                }
+
+                        val buyerTxRef = buyerUserRef.collection("transactions").document("act_$purchasedAtMs")
+                        tx.set(buyerTxRef, hashMapOf<String, Any>(
+                            "id" to "act_$purchasedAtMs",
+                            "title" to "-$${String.format(Locale.US, "%.2f", plan.minDepositUsdt)} USDT",
+                            "subtitle" to "Activated: ${plan.name} (${hashrateThs.toInt()} TH/s)",
+                            "btcAmountStr" to "${hashrateThs.toInt()} TH/s Added",
+                            "usdtAmount" to plan.minDepositUsdt,
+                            "isCredit" to false,
+                            "type" to "PLAN_PURCHASE",
+                            "status" to "COMPLETED",
+                            "timestamp" to FieldValue.serverTimestamp(),
+                            "dateStr" to nowStr
+                        ), SetOptions.merge())
+                    }
+
+                    // 4. Atomically increment sponsor's withdrawable_balance and totalAffiliateCommissions by exact 7%
+                    if (!referrerUid.isNullOrBlank() && referrerUid != userId && referrerUid != "HG-ACCOUNT" && commissionUsdt > 0) {
+                        val sponsorUserRef = db.collection("users").document(referrerUid)
+                        val sponsorWalletRef = db.collection("wallets").document(referrerUid)
+
+                        tx.set(sponsorWalletRef, hashMapOf<String, Any>(
+                            "usdt_balance" to FieldValue.increment(commissionUsdt),
+                            "withdrawable_balance" to FieldValue.increment(commissionUsdt),
+                            "totalAffiliateCommissions" to FieldValue.increment(commissionUsdt),
+                            "totalReferralRewardUsdt" to FieldValue.increment(commissionUsdt),
+                            "totalReferralRewardsUsdt" to FieldValue.increment(commissionUsdt),
+                            "last_active" to FieldValue.serverTimestamp()
+                        ), SetOptions.merge())
+
+                        tx.set(sponsorUserRef, hashMapOf<String, Any>(
+                            "usdt_balance" to FieldValue.increment(commissionUsdt),
+                            "usdtBalance" to FieldValue.increment(commissionUsdt),
+                            "availableBalance" to FieldValue.increment(commissionUsdt),
+                            "withdrawable_balance" to FieldValue.increment(commissionUsdt),
+                            "totalAffiliateCommissions" to FieldValue.increment(commissionUsdt),
+                            "totalReferralRewardsUsdt" to FieldValue.increment(commissionUsdt),
+                            "last_active" to FieldValue.serverTimestamp()
+                        ), SetOptions.merge())
+
+                        val commRewardDoc = hashMapOf<String, Any>(
+                            "reward_id" to rewardId,
+                            "id" to rewardId,
+                            "from_miner_id" to userId,
+                            "fromMinerId" to userId,
+                            "buyer_name" to buyerName,
+                            "rig_name" to plan.name,
+                            "rig_cost" to plan.minDepositUsdt,
+                            "commission_rate" to 0.07,
+                            "commission_usdt" to commissionUsdt,
+                            "commissionUsdt" to commissionUsdt,
+                            "created_at" to FieldValue.serverTimestamp(),
+                            "timestamp" to FieldValue.serverTimestamp(),
+                            "createdAtStr" to nowStr,
+                            "type" to "RIG_PURCHASE_COMMISSION"
+                        )
+                        tx.set(sponsorWalletRef.collection("referral_rewards").document(rewardId), commRewardDoc, SetOptions.merge())
+                        tx.set(sponsorUserRef.collection("referral_rewards").document(rewardId), commRewardDoc, SetOptions.merge())
+
+                        // Append to sponsor's transaction ledger
+                        val commTxDoc = hashMapOf<String, Any>(
+                            "id" to rewardId,
+                            "title" to "+$${String.format(Locale.US, "%.2f", commissionUsdt)} USDT",
+                            "subtitle" to "7% Affiliate Rig Commission from $buyerName ($${String.format(Locale.US, "%.2f", plan.minDepositUsdt)} Rig)",
+                            "btcAmountStr" to "",
+                            "usdtAmount" to commissionUsdt,
+                            "isCredit" to true,
+                            "type" to "COMMISSION",
+                            "status" to "COMPLETED",
+                            "timestamp" to FieldValue.serverTimestamp(),
+                            "dateStr" to nowStr
+                        )
+                        tx.set(sponsorUserRef.collection("transactions").document(rewardId), commTxDoc, SetOptions.merge())
+
+                        tx.set(sponsorWalletRef.collection("referral_list").document(userId), hashMapOf<String, Any>(
+                            "status" to "Active Rig Node",
+                            "commission_paid" to FieldValue.increment(commissionUsdt),
+                            "last_rig_purchased" to plan.name,
+                            "last_purchase_cost" to plan.minDepositUsdt,
+                            "updated_at" to FieldValue.serverTimestamp()
+                        ), SetOptions.merge())
+                    }
+                }.await()
 
                 onComplete(true)
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                e.printStackTrace()
                 onComplete(false)
             }
         }
@@ -1443,48 +1439,80 @@ object FirebaseSyncService {
         System.currentTimeMillis() + serverTimeOffsetMs
     }
 
-    fun startGridMiningSession(
-        userId: String,
+    fun onStartMiningClick(
+        walletId: String,
+        userId: String = "",
         baseRate: Double = com.example.model.TokenConfig.BASE_RATE_PER_HOUR,
         teamBonusRate: Double = 0.0,
         onComplete: ((Boolean, Long, Long) -> Unit)? = null
     ) {
         scope.launch {
             try {
+                val db = firestore ?: throw IllegalStateException("Firestore unavailable")
                 val currentServerTime = syncServerTimeOffset()
                 val sessionEnd = currentServerTime + com.example.model.TokenConfig.SESSION_DURATION_MS
+                val targetWallet = if (walletId.isNotBlank()) walletId else if (userId.isNotBlank()) userId else "HG-WALLET"
 
-                val updateMap = hashMapOf<String, Any>(
+                val directWalletUpdate = hashMapOf<String, Any>(
+                    "is_mining" to true,
+                    "mining_started_at" to FieldValue.serverTimestamp(),
+                    "last_active" to FieldValue.serverTimestamp(),
                     "grid_mining_active" to true,
-                    "session_start_server" to FieldValue.serverTimestamp(),
                     "grid_session_start" to currentServerTime,
                     "grid_session_end" to sessionEnd,
+                    "mining_session_end" to sessionEnd,
                     "applied_base_rate" to baseRate,
                     "active_team_bonus" to teamBonusRate
                 )
 
-                firestore?.collection("users")?.document(userId)?.set(updateMap, SetOptions.merge())?.await()
+                // 1. Immediately execute Firestore update on wallets/{walletId}
+                db.collection("wallets").document(targetWallet).set(directWalletUpdate, SetOptions.merge())
 
-                val safeKey = sanitizeKey(userId)
-                val patchJson = JSONObject().apply {
-                    put("grid_mining_active", true)
-                    put("grid_session_start", currentServerTime)
-                    put("grid_session_end", sessionEnd)
-                    put("applied_base_rate", baseRate)
-                    put("active_team_bonus", teamBonusRate)
+                // 2. Also immediately update users/{userId} if present
+                if (userId.isNotBlank()) {
+                    db.collection("users").document(userId).set(directWalletUpdate, SetOptions.merge())
                 }
-                val url = "$firebaseDatabaseUrl/users/$safeKey.json"
-                val body = patchJson.toString().toRequestBody(jsonMediaType)
-                val request = Request.Builder().url(url).patch(body).build()
-                httpClient.newCall(request).execute().close()
+
+                // 3. Realtime mirror
+                try {
+                    val safeKey = sanitizeKey(userId.ifBlank { targetWallet })
+                    val patchJson = JSONObject().apply {
+                        put("is_mining", true)
+                        put("grid_mining_active", true)
+                        put("mining_started_at", currentServerTime)
+                        put("grid_session_start", currentServerTime)
+                        put("grid_session_end", sessionEnd)
+                        put("applied_base_rate", baseRate)
+                        put("active_team_bonus", teamBonusRate)
+                    }
+                    val url = "$firebaseDatabaseUrl/users/$safeKey.json"
+                    val body = patchJson.toString().toRequestBody(jsonMediaType)
+                    val request = Request.Builder().url(url).patch(body).build()
+                    httpClient.newCall(request).execute().close()
+                } catch (_: Exception) {}
 
                 onComplete?.invoke(true, currentServerTime, sessionEnd)
-            } catch (_: Exception) {
+            } catch (e: Exception) {
                 val fallbackStart = System.currentTimeMillis()
                 val fallbackEnd = fallbackStart + com.example.model.TokenConfig.SESSION_DURATION_MS
                 onComplete?.invoke(false, fallbackStart, fallbackEnd)
             }
         }
+    }
+
+    fun startGridMiningSession(
+        userId: String,
+        baseRate: Double = com.example.model.TokenConfig.BASE_RATE_PER_HOUR,
+        teamBonusRate: Double = 0.0,
+        onComplete: ((Boolean, Long, Long) -> Unit)? = null
+    ) {
+        onStartMiningClick(
+            walletId = userId,
+            userId = userId,
+            baseRate = baseRate,
+            teamBonusRate = teamBonusRate,
+            onComplete = onComplete
+        )
     }
 
     fun updateGridCoinBalance(
@@ -1499,15 +1527,18 @@ object FirebaseSyncService {
                 val updateMap = hashMapOf<String, Any>(
                     "gridBalance" to cleanBal,
                     "grid_coin_balance" to cleanBal,
+                    "is_mining" to active,
                     "grid_mining_active" to active,
                     "last_claim_server" to FieldValue.serverTimestamp()
                 )
                 firestore?.collection("users")?.document(userId)?.set(updateMap, SetOptions.merge())?.await()
+                firestore?.collection("wallets")?.document(userId)?.set(updateMap, SetOptions.merge())?.await()
 
                 val safeKey = sanitizeKey(userId)
                 val patchJson = JSONObject().apply {
                     put("gridBalance", cleanBal)
                     put("grid_coin_balance", cleanBal)
+                    put("is_mining", active)
                     put("grid_mining_active", active)
                 }
                 val url = "$firebaseDatabaseUrl/users/$safeKey.json"
@@ -1960,17 +1991,39 @@ object FirebaseSyncService {
             val simpleDateFormat = SimpleDateFormat("MMM dd, yyyy", Locale.US)
 
             fun publishTeamList() {
+                val now = System.currentTimeMillis()
                 val fullList = downlineMap.values.map { member ->
                     val totalComm = commissionsMap[member.uid] ?: member.commissionPaidUsdt
                     val finalStatus = if (totalComm > 0.0 || member.status.contains("Rig", ignoreCase = true)) "Active Rig Node" else "Free Miner"
+                    val normStart = if (member.miningStartedAt in 1_000_000_000L..99_999_999_999L) member.miningStartedAt * 1000L else member.miningStartedAt
+                    val isCurrentlyActive = member.isMining && normStart > 0L && (now - normStart in 0 until (24L * 3600 * 1000L))
+                    val speedBoost = if (isCurrentlyActive) 300.0 else 0.0
                     member.copy(
                         status = finalStatus,
                         commissionPaidUsdt = totalComm,
-                        speedBoostContributed = 300.0
+                        isMining = isCurrentlyActive,
+                        miningStartedAt = normStart,
+                        speedBoostContributed = speedBoost,
+                        hashrateBonus = speedBoost,
+                        hashrateContributed = speedBoost
                     )
                 }.sortedByDescending { it.joinedAtMs }
 
-                val activeCount = fullList.count { it.isMining || it.status == "Active Rig Node" }.toLong()
+                val activeCount = fullList.count { it.isCurrentlyActive }.toLong()
+                val totalBonusHashrate = activeCount * 300.0
+
+                // Immediately update Firestore bonus_hashrate without delay
+                try {
+                    val bonusUpdate = hashMapOf<String, Any>(
+                        "bonus_hashrate" to totalBonusHashrate,
+                        "extraHashrate" to totalBonusHashrate,
+                        "active_referrals_mining" to activeCount,
+                        "teamCount" to maxOf(fullList.size.toLong(), downlineMap.size.toLong())
+                    )
+                    db.collection("users").document(userId).set(bonusUpdate, SetOptions.merge())
+                    db.collection("wallets").document(userId).set(bonusUpdate, SetOptions.merge())
+                } catch (_: Exception) {}
+
                 onTeamUpdated?.invoke(activeCount, fullList)
             }
 
@@ -1998,12 +2051,17 @@ object FirebaseSyncService {
                     if (error != null) return@addSnapshotListener
                     try {
                         if (snapshot != null) {
+                            val now = System.currentTimeMillis()
                             for (doc in snapshot.documents) {
                                 val memberUid = doc.id
                                 if (memberUid == userId) continue
                                 val statusStr = doc.getSafeString("status", "Free Miner")
                                 val commPaid = doc.getSafeDouble("commission_paid", 0.0)
-                                val isMining = doc.getSafeBoolean("is_mining", false)
+                                val isMining = doc.getSafeBoolean("is_mining", false) || doc.getSafeBoolean("grid_mining_active", false)
+                                val rawStart = doc.getSafeLong("mining_started_at", doc.getSafeLong("miningSessionStart", doc.getSafeLong("grid_session_start", 0L)))
+                                val miningStartedAt = if (rawStart in 1_000_000_000L..99_999_999_999L) rawStart * 1000L else rawStart
+                                val isCurrentlyActive = isMining && miningStartedAt > 0L && (now - miningStartedAt in 0 until (24L * 3600 * 1000L))
+                                val speedBoost = if (isCurrentlyActive) 300.0 else 0.0
                                 val timestampMs = doc.getSafeTimestampMs("created_at", System.currentTimeMillis())
                                 val dateStr = try { simpleDateFormat.format(Date(timestampMs)) } catch (_: Exception) { "Recently" }
 
@@ -2013,11 +2071,12 @@ object FirebaseSyncService {
                                     joinedAtStr = dateStr,
                                     joinedAtMs = timestampMs,
                                     status = if (statusStr.contains("Rig", ignoreCase = true) || commPaid > 0.0) "Active Rig Node" else "Free Miner",
-                                    hashrateBonus = 300.0,
-                                    hashrateContributed = 300.0,
-                                    speedBoostContributed = 300.0,
+                                    hashrateBonus = speedBoost,
+                                    hashrateContributed = speedBoost,
+                                    speedBoostContributed = speedBoost,
                                     commissionPaidUsdt = commPaid,
-                                    isMining = isMining
+                                    isMining = isCurrentlyActive,
+                                    miningStartedAt = miningStartedAt
                                 )
                             }
                             publishTeamList()
@@ -2032,13 +2091,18 @@ object FirebaseSyncService {
                 .addSnapshotListener { snapshot, _ ->
                     try {
                         if (snapshot != null) {
+                            val now = System.currentTimeMillis()
                             for (doc in snapshot.documents) {
                                 val memberUid = doc.id
                                 if (memberUid == userId) continue
                                 if (!downlineMap.containsKey(memberUid)) {
                                     val statusStr = doc.getSafeString("status", "Free Miner")
                                     val commPaid = doc.getSafeDouble("commission_paid", 0.0)
-                                    val isMining = doc.getSafeBoolean("is_mining", false)
+                                    val isMining = doc.getSafeBoolean("is_mining", false) || doc.getSafeBoolean("grid_mining_active", false)
+                                    val rawStart = doc.getSafeLong("mining_started_at", doc.getSafeLong("miningSessionStart", doc.getSafeLong("grid_session_start", 0L)))
+                                    val miningStartedAt = if (rawStart in 1_000_000_000L..99_999_999_999L) rawStart * 1000L else rawStart
+                                    val isCurrentlyActive = isMining && miningStartedAt > 0L && (now - miningStartedAt in 0 until (24L * 3600 * 1000L))
+                                    val speedBoost = if (isCurrentlyActive) 300.0 else 0.0
                                     val timestampMs = doc.getSafeTimestampMs("created_at", System.currentTimeMillis())
                                     val dateStr = try { simpleDateFormat.format(Date(timestampMs)) } catch (_: Exception) { "Recently" }
 
@@ -2048,11 +2112,12 @@ object FirebaseSyncService {
                                         joinedAtStr = dateStr,
                                         joinedAtMs = timestampMs,
                                         status = if (statusStr.contains("Rig", ignoreCase = true) || commPaid > 0.0) "Active Rig Node" else "Free Miner",
-                                        hashrateBonus = 300.0,
-                                        hashrateContributed = 300.0,
-                                        speedBoostContributed = 300.0,
+                                        hashrateBonus = speedBoost,
+                                        hashrateContributed = speedBoost,
+                                        speedBoostContributed = speedBoost,
                                         commissionPaidUsdt = commPaid,
-                                        isMining = isMining
+                                        isMining = isCurrentlyActive,
+                                        miningStartedAt = miningStartedAt
                                     )
                                 }
                             }
@@ -2067,12 +2132,17 @@ object FirebaseSyncService {
                     if (error != null) return@addSnapshotListener
                     try {
                         if (snapshot != null) {
+                            val now = System.currentTimeMillis()
                             for (doc in snapshot.documents) {
                                 val memberUid = doc.getSafeString("child_id", doc.getSafeString("wallet_id", doc.id))
                                 if (memberUid.isBlank() || memberUid == userId) continue
                                 val statusStr = doc.getSafeString("status", "Free Miner")
                                 val commPaid = doc.getSafeDouble("commission_paid", 0.0)
-                                val isMining = doc.getSafeBoolean("is_mining", false)
+                                val isMining = doc.getSafeBoolean("is_mining", false) || doc.getSafeBoolean("grid_mining_active", false)
+                                val rawStart = doc.getSafeLong("mining_started_at", doc.getSafeLong("miningSessionStart", doc.getSafeLong("grid_session_start", 0L)))
+                                val miningStartedAt = if (rawStart in 1_000_000_000L..99_999_999_999L) rawStart * 1000L else rawStart
+                                val isCurrentlyActive = isMining && miningStartedAt > 0L && (now - miningStartedAt in 0 until (24L * 3600 * 1000L))
+                                val speedBoost = if (isCurrentlyActive) 300.0 else 0.0
                                 val timestampMs = doc.getSafeTimestampMs("joined_at", System.currentTimeMillis())
                                 val dateStr = try { simpleDateFormat.format(Date(timestampMs)) } catch (_: Exception) { "Recently" }
 
@@ -2083,11 +2153,12 @@ object FirebaseSyncService {
                                     joinedAtStr = if (existing != null && existing.joinedAtStr != "Recently") existing.joinedAtStr else dateStr,
                                     joinedAtMs = if (existing != null && existing.joinedAtMs > 0L) existing.joinedAtMs else timestampMs,
                                     status = if (statusStr.contains("Rig", ignoreCase = true) || commPaid > 0.0 || (existing?.status?.contains("Rig", ignoreCase = true) == true)) "Active Rig Node" else "Free Miner",
-                                    hashrateBonus = 300.0,
-                                    hashrateContributed = 300.0,
-                                    speedBoostContributed = 300.0,
+                                    hashrateBonus = speedBoost,
+                                    hashrateContributed = speedBoost,
+                                    speedBoostContributed = speedBoost,
                                     commissionPaidUsdt = maxOf(commPaid, existing?.commissionPaidUsdt ?: 0.0),
-                                    isMining = isMining || (existing?.isMining == true)
+                                    isMining = isCurrentlyActive,
+                                    miningStartedAt = if (miningStartedAt > 0L) miningStartedAt else (existing?.miningStartedAt ?: 0L)
                                 )
                             }
                             publishTeamList()

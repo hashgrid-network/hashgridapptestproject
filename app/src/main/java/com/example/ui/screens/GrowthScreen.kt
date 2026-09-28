@@ -226,7 +226,8 @@ fun GrowthScreen(
                     }
 
                     // Counter 2: Total Hashrate Earned
-                    val totalHashrateEarned = maxOf(effectiveExtraHashrate, effectiveTeamCount * 300.0)
+                    val activeMiners = teamMembers.count { it.isCurrentlyActive }
+                    val activeTeamBoostGhs = activeMiners * 300.0
                     Box(
                         modifier = Modifier
                             .weight(1f)
@@ -238,7 +239,7 @@ fun GrowthScreen(
                         Column {
                             Text("Team Hashrate", fontSize = 9.5.sp, color = SlateGray, fontWeight = FontWeight.SemiBold)
                             Spacer(modifier = Modifier.height(2.dp))
-                            Text("+${String.format(Locale.US, "%.0f", totalHashrateEarned)} GH/s", fontSize = 13.sp, fontWeight = FontWeight.Black, color = GoldGradientEnd)
+                            Text("+${String.format(Locale.US, "%.0f", activeTeamBoostGhs)} GH/s", fontSize = 13.sp, fontWeight = FontWeight.Black, color = GoldGradientEnd)
                         }
                     }
 
@@ -266,14 +267,16 @@ fun GrowthScreen(
         // ==========================================
         // PI-STYLE FREE MINING TEAM BOOST CARD
         // ==========================================
-        val activeMinersCount = teamMembers.count { it.isMining || it.status.equals("ACTIVE", ignoreCase = true) }
-        val piTeamBoostGhs = activeMinersCount * 0.10
+        val activeMinersCount = teamMembers.count { it.isCurrentlyActive }
+        val piTeamBoostGhs = activeMinersCount * 300.0
+        val totalTeamCount = teamMembers.size.coerceAtLeast(effectiveTeamCount.toInt())
+        val isBoostActive = activeMinersCount > 0
 
         Card(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(22.dp))
-                .border(1.5.dp, GoldBorder, RoundedCornerShape(22.dp))
+                .border(1.5.dp, if (isBoostActive) GoldBorder else GoldBorderSubtle, RoundedCornerShape(22.dp))
                 .testTag("pi_mining_team_boost_card"),
             colors = CardDefaults.cardColors(containerColor = ObsidianNavy),
             elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
@@ -293,13 +296,13 @@ fun GrowthScreen(
                             modifier = Modifier
                                 .size(32.dp)
                                 .clip(CircleShape)
-                                .background(MintDark.copy(alpha = 0.25f)),
+                                .background((if (isBoostActive) MintDark else SlateGray).copy(alpha = 0.25f)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Bolt,
                                 contentDescription = null,
-                                tint = MintGreen,
+                                tint = if (isBoostActive) MintGreen else SlateGray,
                                 modifier = Modifier.size(18.dp)
                             )
                         }
@@ -323,15 +326,15 @@ fun GrowthScreen(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(12.dp))
-                            .background(MintDark.copy(alpha = 0.2f))
-                            .border(1.dp, MintGreen.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
+                            .background((if (isBoostActive) MintDark else SlateNavy).copy(alpha = 0.2f))
+                            .border(1.dp, if (isBoostActive) MintGreen.copy(alpha = 0.6f) else SlateGray.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
                             .padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
                         Text(
-                            text = "● BOOST ACTIVE",
+                            text = if (isBoostActive) "● BOOST ACTIVE" else "○ IDLE",
                             fontSize = 9.sp,
                             fontWeight = FontWeight.Bold,
-                            color = MintGreen
+                            color = if (isBoostActive) MintGreen else SlateGray
                         )
                     }
                 }
@@ -345,15 +348,19 @@ fun GrowthScreen(
                 ) {
                     Column {
                         Text(
-                            text = "⚡ Team Boost: +${String.format(Locale.US, "%.2f", piTeamBoostGhs)} GH/s",
+                            text = if (activeMinersCount > 0) {
+                                "⚡ Team Boost: +${String.format(Locale.US, "%.2f", piTeamBoostGhs)} GH/s"
+                            } else {
+                                "Team Boost: +0.00 GH/s"
+                            },
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Black,
-                            color = MintGreen,
+                            color = if (activeMinersCount > 0) MintGreen else Color.White,
                             fontFamily = FontFamily.Monospace
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "($activeMinersCount / ${teamMembers.size.coerceAtLeast(effectiveTeamCount.toInt())} Active Miners Mining Now)",
+                            text = "($activeMinersCount / $totalTeamCount Active Miners Mining Now)",
                             fontSize = 10.5.sp,
                             color = Color.White.copy(alpha = 0.85f)
                         )
@@ -370,7 +377,7 @@ fun GrowthScreen(
                         .padding(10.dp)
                 ) {
                     Text(
-                        text = "Formula: Effective GH/s = Base GH/s + (Active Miners × 0.10 GH/s). Keep inviting team members to continuously scale your mining yield!",
+                        text = "Formula: Effective Hashrate = Base Hashrate + (Currently Active Downline Miners × 300 GH/s) + Rig Hashrate. Active status requires an ongoing 24-hour mining cycle. Speed drops automatically by 300 GH/s upon inactivity.",
                         fontSize = 9.5.sp,
                         color = SlateGray,
                         lineHeight = 13.5.sp
@@ -898,9 +905,14 @@ fun GrowthScreen(
                             } else {
                                 "HG-***" + rawId.takeLast(minOf(4, rawId.length))
                             }
-                            val speedBoostStr = "+${member.speedBoostContributed.toInt().coerceAtLeast(300)} GH/s"
+                            val isMemberActive = member.isCurrentlyActive
+                            val speedBoostStr = if (isMemberActive) "+300 GH/s" else "+0 GH/s"
                             val isRigNode = member.status.contains("Rig", ignoreCase = true) || member.commissionPaidUsdt > 0.0
-                            val statusDisplay = if (isRigNode) "Active Rig Node" else "Free Miner"
+                            val statusDisplay = when {
+                                isRigNode -> "Active Rig Node"
+                                isMemberActive -> "Mining Active"
+                                else -> "Inactive"
+                            }
                             val commissionDisplay = if (member.commissionPaidUsdt > 0.0) {
                                 "+$" + String.format(Locale.US, "%.2f", member.commissionPaidUsdt) + " USDT"
                             } else {
@@ -925,11 +937,11 @@ fun GrowthScreen(
                                             modifier = Modifier
                                                 .size(34.dp)
                                                 .clip(CircleShape)
-                                                .background(if (isRigNode) GoldLight else ObsidianNavy),
+                                                .background(if (isRigNode) GoldLight else if (isMemberActive) MintDark.copy(alpha = 0.25f) else ObsidianNavy),
                                             contentAlignment = Alignment.Center
                                         ) {
                                             Text(
-                                                text = if (isRigNode) "⚡" else "⛏️",
+                                                text = if (isRigNode) "⚡" else if (isMemberActive) "⛏️" else "💤",
                                                 fontSize = 15.sp
                                             )
                                         }
@@ -947,14 +959,14 @@ fun GrowthScreen(
                                                 Box(
                                                     modifier = Modifier
                                                         .clip(RoundedCornerShape(4.dp))
-                                                        .background(if (isRigNode) Color(0xFFE8F5E9) else Color(0xFFECEFF1))
+                                                        .background(if (isRigNode) Color(0xFFE8F5E9) else if (isMemberActive) MintDark.copy(alpha = 0.15f) else Color(0xFFECEFF1))
                                                         .padding(horizontal = 5.dp, vertical = 1.dp)
                                                 ) {
                                                     Text(
                                                         text = statusDisplay,
                                                         fontSize = 8.5.sp,
                                                         fontWeight = FontWeight.Bold,
-                                                        color = if (isRigNode) MintDark else SlateGray
+                                                        color = if (isRigNode) MintDark else if (isMemberActive) MintGreen else SlateGray
                                                     )
                                                 }
                                             }
@@ -971,14 +983,14 @@ fun GrowthScreen(
                                         Box(
                                             modifier = Modifier
                                                 .clip(RoundedCornerShape(6.dp))
-                                                .background(GoldLight)
+                                                .background(if (isMemberActive) GoldLight else Color(0xFFECEFF1))
                                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                                         ) {
                                             Text(
                                                 text = speedBoostStr,
                                                 fontSize = 9.sp,
                                                 fontWeight = FontWeight.Bold,
-                                                color = GoldGradientEnd
+                                                color = if (isMemberActive) GoldGradientEnd else SlateGray
                                             )
                                         }
                                         Spacer(modifier = Modifier.height(2.dp))

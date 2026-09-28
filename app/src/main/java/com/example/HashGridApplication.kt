@@ -7,6 +7,8 @@ import com.example.service.AuthService
 import com.example.service.FirebaseAppCheckManager
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreSettings
 
 class HashGridApplication : Application() {
 
@@ -24,6 +26,13 @@ class HashGridApplication : Application() {
                         .setStorageBucket("hashgrid-c7fe4.firebasestorage.app")
                         .build()
                     FirebaseApp.initializeApp(context, options)
+                    try {
+                        val firestore = FirebaseFirestore.getInstance()
+                        val settings = com.google.firebase.firestore.FirebaseFirestoreSettings.Builder()
+                            .setPersistenceEnabled(true)
+                            .build()
+                        firestore.firestoreSettings = settings
+                    } catch (_: Exception) {}
                 }
                 lastFirebaseInitError = null
                 true

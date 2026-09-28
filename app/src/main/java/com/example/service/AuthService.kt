@@ -215,8 +215,6 @@ object AuthService {
                             val batch = db.batch()
                             batch.update(parentRef, "total_referrals", com.google.firebase.firestore.FieldValue.increment(1))
                             batch.update(parentRef, "teamCount", com.google.firebase.firestore.FieldValue.increment(1))
-                            batch.update(parentRef, "bonus_hashrate", com.google.firebase.firestore.FieldValue.increment(300.0))
-                            batch.update(parentRef, "hashrate", com.google.firebase.firestore.FieldValue.increment(300.0))
                             batch.update(parentRef, "referral_list", com.google.firebase.firestore.FieldValue.arrayUnion(walletAddress))
 
                             val childMeta = hashMapOf<String, Any?>(
@@ -224,8 +222,9 @@ object AuthService {
                                 "wallet_id" to walletAddress,
                                 "joined_at" to com.google.firebase.firestore.FieldValue.serverTimestamp(),
                                 "is_mining" to false,
+                                "mining_started_at" to 0L,
                                 "status" to "Free Miner",
-                                "speed_boost" to 300.0,
+                                "speed_boost" to 0.0,
                                 "commission_paid" to 0.0
                             )
                             batch.set(parentRef.collection("referral_list").document(walletAddress), childMeta, SetOptions.merge())
@@ -234,8 +233,6 @@ object AuthService {
                             batch.set(parentUserRef, hashMapOf<String, Any>(
                                 "total_referrals" to com.google.firebase.firestore.FieldValue.increment(1),
                                 "teamCount" to com.google.firebase.firestore.FieldValue.increment(1),
-                                "bonus_hashrate" to com.google.firebase.firestore.FieldValue.increment(300.0),
-                                "hashrate" to com.google.firebase.firestore.FieldValue.increment(300.0),
                                 "referral_list" to com.google.firebase.firestore.FieldValue.arrayUnion(walletAddress)
                             ), SetOptions.merge())
 
