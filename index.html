@@ -329,9 +329,14 @@
         <span class="brand-name">HASHGRID</span>
       </a>
 
-      <div class="status-badge">
-        <div class="pulse-dot"></div>
-        <span>Geothermal Core Online</span>
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <div class="status-badge">
+          <div class="pulse-dot"></div>
+          <span>Geothermal Core Online</span>
+        </div>
+        <a href="admin/" class="admin-portal-link" style="color: var(--text-muted); text-decoration: none; font-size: 11px; font-weight: 700; padding: 6px 12px; border: 1px solid var(--border-subtle); border-radius: 12px; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s ease;">
+          <i class="fa-solid fa-shield-halved" style="color: var(--gold-primary);"></i> Admin Portal
+        </a>
       </div>
     </div>
 
@@ -352,7 +357,7 @@
       <i class="fa-solid fa-gift" style="color: var(--gold-primary); font-size: 18px;"></i>
       <span style="font-size: 13px; color: var(--text-muted);">Invited by:</span>
       <span class="ref-code" id="ref-display">HG-808080</span>
-      <span style="font-size: 11px; color: var(--mint-green); font-weight: 700;">+1.5 GH/s Bonus</span>
+      <span style="font-size: 11px; color: var(--mint-green); font-weight: 700;">+100 GH/s Starter Boost</span>
     </div>
 
     <!-- Main Download CTA Button -->
@@ -395,7 +400,12 @@
     <!-- Footer -->
     <footer>
       <span>&copy; 2026 HashGrid Infrastructure Inc. All rights reserved.</span>
-      <span>End-to-End Encrypted Multi-Sig Escrow</span>
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <span>End-to-End Encrypted Multi-Sig Escrow</span>
+        <a href="admin/" style="color: var(--text-muted); text-decoration: none; font-size: 11.5px; display: inline-flex; align-items: center; gap: 5px;">
+          <i class="fa-solid fa-lock" style="font-size: 10px; color: var(--gold-primary);"></i> Admin Portal
+        </a>
+      </div>
     </footer>
   </div>
 
@@ -428,8 +438,8 @@
     }
 
     // Direct APK Download Target (GitHub latest release or direct static APK)
-    const APK_DOWNLOAD_URL = "https://github.com/goldbrownp-blip/hashgridapptestproject/releases/download/latest/HashGrid-v1.0.apk";
-    const FALLBACK_APK_URL = "https://github.com/goldbrownp-blip/hashgridapptestproject/releases/download/v1.0.1/app-debug.apk";
+    const APK_DOWNLOAD_URL = "https://github.com/hashgrid-network/hashgrid-web/releases/latest/download/hashgrid.apk";
+    const FALLBACK_APK_URL = "https://github.com/hashgrid-network/hashgrid-web/releases/latest/download/hashgrid.apk";
 
     // 2. Main Download & Auto-Copy Handler
     async function handleApkDownload() {

@@ -60,12 +60,25 @@ data class TeamMember(
     val email: String = "",
     val joinedAtStr: String = "Recently",
     val joinedAtMs: Long = 0L,
-    val status: String = "ACTIVE",
-    val hashrateBonus: Double = 1.5,
-    val hashrateContributed: Double = 1.5,
+    val status: String = "Free Miner", // "Free Miner" or "Active Rig Node"
+    val hashrateBonus: Double = 300.0,
+    val hashrateContributed: Double = 300.0,
+    val speedBoostContributed: Double = 300.0,
+    val commissionPaidUsdt: Double = 0.0,
     val isMining: Boolean = true,
     val avatarUrl: String? = null
-)
+) {
+    val maskedId: String
+        get() {
+            val clean = uid.trim()
+            return when {
+                clean.startsWith("HG-") && clean.length > 7 -> "HG-***" + clean.takeLast(4)
+                clean.length > 6 -> clean.take(3) + "***" + clean.takeLast(4)
+                clean.isNotBlank() -> "HG-***" + clean.takeLast(minOf(4, clean.length))
+                else -> "HG-***NODE"
+            }
+        }
+}
 
 data class User(
     val id: String = "",
@@ -106,7 +119,9 @@ data class MiningPlan(
     val hardwareType: String = "ASIC Liquid Rig",
     val tag: String? = null,
     val badge: String = "Bronze Node",
-    val estMonthlyAmountStr: String = "~$1.50 / Month"
+    val estMonthlyAmountStr: String = "~$1.50 / Month",
+    val activeMiningHours: Int = 9600,
+    val activeMiningHoursStr: String = "9,600h"
 )
 
 fun safeComputeTaskProgress(accrued: Double, deposit: Double): Double {

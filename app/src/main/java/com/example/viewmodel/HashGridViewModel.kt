@@ -203,7 +203,9 @@ class HashGridViewModel : ViewModel() {
             hardwareType = "Antminer Micro Hydro Node",
             tag = "Bronze Node",
             badge = "Bronze Node",
-            estMonthlyAmountStr = "~$1.50 / Month"
+            estMonthlyAmountStr = "~$1.50 / Month",
+            activeMiningHours = 9600,
+            activeMiningHoursStr = "9,600h"
         ),
         MiningPlan(
             id = "plan_pro_miner_node",
@@ -220,7 +222,9 @@ class HashGridViewModel : ViewModel() {
             hardwareType = "IceRiver KS0 Ultra Liquid",
             tag = "Silver Node",
             badge = "Silver Node",
-            estMonthlyAmountStr = "~$4.00 / Month"
+            estMonthlyAmountStr = "~$4.00 / Month",
+            activeMiningHours = 9000,
+            activeMiningHoursStr = "9,000h"
         ),
         MiningPlan(
             id = "plan_quantum_rig_node",
@@ -237,7 +241,9 @@ class HashGridViewModel : ViewModel() {
             hardwareType = "Antminer S21 Hydro (Sub-Zero)",
             tag = "Gold Cyber Node",
             badge = "Gold Cyber Node",
-            estMonthlyAmountStr = "~$18.00 / Month"
+            estMonthlyAmountStr = "~$18.00 / Month",
+            activeMiningHours = 8000,
+            activeMiningHoursStr = "8,000h"
         ),
         MiningPlan(
             id = "plan_titan_enterprise_node",
@@ -254,7 +260,9 @@ class HashGridViewModel : ViewModel() {
             hardwareType = "Dedicated Whatsminer M63S Immersion Array",
             tag = "Diamond Node",
             badge = "Diamond Node",
-            estMonthlyAmountStr = "~$100.00 / Month"
+            estMonthlyAmountStr = "~$100.00 / Month",
+            activeMiningHours = 7200,
+            activeMiningHoursStr = "7,200h"
         )
     )
 

@@ -152,6 +152,10 @@ object AuthService {
 
             val cleanReferredBy = referredByCode?.trim()?.uppercase()?.ifBlank { null }
 
+            val hasReferrer = !cleanReferredBy.isNullOrBlank()
+            val initialBonusHashrate = if (hasReferrer) 100.0 else 0.0
+            val initialHashrate = if (hasReferrer) 101.0 else 1.0
+
             val db = try { FirebaseFirestore.getInstance() } catch (_: Exception) { null }
             val walletData = hashMapOf<String, Any?>(
                 "wallet_id" to walletAddress,
@@ -160,6 +164,7 @@ object AuthService {
                 "uid" to walletAddress,
                 "pin_hash" to pinHash,
                 "usdt_balance" to 0.0,
+                "withdrawable_balance" to 0.0,
                 "mining_earned" to 0.0,
                 "is_active" to true,
                 "created_at" to com.google.firebase.firestore.FieldValue.serverTimestamp(),
@@ -172,11 +177,14 @@ object AuthService {
                 "referral_balance" to 0.0,
                 "task_balance" to 0.0,
                 "total_referrals" to 0L,
+                "teamCount" to 0L,
                 "referral_list" to emptyList<String>(),
                 "is_mining" to false,
+                "status" to "Free Miner",
                 "mining_started_at" to 0L,
                 "last_synced_at" to now,
-                "hashrate" to 1.0,
+                "hashrate" to initialHashrate,
+                "bonus_hashrate" to initialBonusHashrate,
                 "last_daily_claim_at" to 0L,
                 "email" to "$walletAddress@hashgrid.io",
                 "displayName" to "Wallet ${walletAddress.takeLast(6)}"
@@ -206,6 +214,9 @@ object AuthService {
                             val parentRef = db.collection("wallets").document(parentWalletId)
                             val batch = db.batch()
                             batch.update(parentRef, "total_referrals", com.google.firebase.firestore.FieldValue.increment(1))
+                            batch.update(parentRef, "teamCount", com.google.firebase.firestore.FieldValue.increment(1))
+                            batch.update(parentRef, "bonus_hashrate", com.google.firebase.firestore.FieldValue.increment(300.0))
+                            batch.update(parentRef, "hashrate", com.google.firebase.firestore.FieldValue.increment(300.0))
                             batch.update(parentRef, "referral_list", com.google.firebase.firestore.FieldValue.arrayUnion(walletAddress))
 
                             val childMeta = hashMapOf<String, Any?>(
@@ -213,13 +224,18 @@ object AuthService {
                                 "wallet_id" to walletAddress,
                                 "joined_at" to com.google.firebase.firestore.FieldValue.serverTimestamp(),
                                 "is_mining" to false,
-                                "status" to "ACTIVE"
+                                "status" to "Free Miner",
+                                "speed_boost" to 300.0,
+                                "commission_paid" to 0.0
                             )
                             batch.set(parentRef.collection("referral_list").document(walletAddress), childMeta, SetOptions.merge())
 
                             val parentUserRef = db.collection("users").document(parentWalletId)
                             batch.set(parentUserRef, hashMapOf<String, Any>(
                                 "total_referrals" to com.google.firebase.firestore.FieldValue.increment(1),
+                                "teamCount" to com.google.firebase.firestore.FieldValue.increment(1),
+                                "bonus_hashrate" to com.google.firebase.firestore.FieldValue.increment(300.0),
+                                "hashrate" to com.google.firebase.firestore.FieldValue.increment(300.0),
                                 "referral_list" to com.google.firebase.firestore.FieldValue.arrayUnion(walletAddress)
                             ), SetOptions.merge())
 

@@ -945,32 +945,54 @@ object FirebaseSyncService {
                             if (walletRef != null) {
                                 commBatch?.set(walletRef, hashMapOf<String, Any>(
                                     "usdt_balance" to FieldValue.increment(commissionUsdt),
-                                    "referral_balance" to FieldValue.increment(commissionUsdt)
+                                    "withdrawable_balance" to FieldValue.increment(commissionUsdt),
+                                    "referral_balance" to FieldValue.increment(commissionUsdt),
+                                    "totalReferralRewardUsdt" to FieldValue.increment(commissionUsdt),
+                                    "totalReferralRewardsUsdt" to FieldValue.increment(commissionUsdt)
                                 ), SetOptions.merge())
 
                                 // 2. Write to wallets/{referred_by}/referral_rewards/{reward_id}
                                 commBatch?.set(walletRef.collection("referral_rewards").document(rewardId), rewardDocMap)
+
+                                // Update downline member status in referrer's referral_list
+                                commBatch?.set(walletRef.collection("referral_list").document(userId), hashMapOf<String, Any>(
+                                    "status" to "Active Rig Node",
+                                    "commission_paid" to FieldValue.increment(commissionUsdt),
+                                    "last_rig_purchased" to plan.name,
+                                    "last_purchase_cost" to plan.minDepositUsdt,
+                                    "updated_at" to FieldValue.serverTimestamp()
+                                ), SetOptions.merge())
                             }
 
-                            // 3. Credit Referrer User doc
+                            // 3. Mark buyer's own wallet as Active Rig Node
+                            val buyerWalletRef = firestore?.collection("wallets")?.document(userId)
+                            if (buyerWalletRef != null) {
+                                commBatch?.set(buyerWalletRef, hashMapOf<String, Any>(
+                                    "status" to "Active Rig Node"
+                                ), SetOptions.merge())
+                            }
+
+                            // 4. Credit Referrer User doc
                             val userRef = firestore?.collection("users")?.document(referrerUid)
                             if (userRef != null) {
                                 commBatch?.set(userRef, hashMapOf<String, Any>(
                                     "usdt_balance" to FieldValue.increment(commissionUsdt),
                                     "usdtBalance" to FieldValue.increment(commissionUsdt),
                                     "availableBalance" to FieldValue.increment(commissionUsdt),
+                                    "withdrawable_balance" to FieldValue.increment(commissionUsdt),
+                                    "totalReferralRewardUsdt" to FieldValue.increment(commissionUsdt),
                                     "totalReferralRewardsUsdt" to FieldValue.increment(commissionUsdt),
                                     "last_active" to FieldValue.serverTimestamp()
                                 ), SetOptions.merge())
 
-                                // 4. Write to users/{referred_by}/referral_rewards/{reward_id}
+                                // 5. Write to users/{referred_by}/referral_rewards/{reward_id}
                                 commBatch?.set(userRef.collection("referral_rewards").document(rewardId), rewardDocMap)
 
-                                // 5. Write to users/{referred_by}/transactions/{reward_id}
+                                // 6. Write to users/{referred_by}/transactions/{reward_id}
                                 val commTxDoc = hashMapOf<String, Any>(
                                     "id" to rewardId,
                                     "title" to "+$${String.format(Locale.US, "%.2f", commissionUsdt)} USDT",
-                                    "subtitle" to "7% Commission from $buyerName (${plan.name})",
+                                    "subtitle" to "7% Syndicate Node Commission from $userId - +$${String.format(Locale.US, "%.2f", commissionUsdt)} USDT",
                                     "btcAmountStr" to "",
                                     "usdtAmount" to commissionUsdt,
                                     "isCredit" to true,
@@ -1931,48 +1953,143 @@ object FirebaseSyncService {
                     }
                 }
 
-            // 5. Team & Syndicate subcollection listener (/users/{uid}/team)
-            db.collection("users").document(userId).collection("team")
+            // 5. Downline Team Query (wallets.where("referredBy", "==", userId) + wallets/{uid}/referral_list)
+            val downlineMap = java.util.concurrent.ConcurrentHashMap<String, TeamMember>()
+            val commissionsMap = java.util.concurrent.ConcurrentHashMap<String, Double>()
+            val simpleDateFormat = SimpleDateFormat("MMM dd, yyyy", Locale.US)
+
+            fun publishTeamList() {
+                val fullList = downlineMap.values.map { member ->
+                    val totalComm = commissionsMap[member.uid] ?: member.commissionPaidUsdt
+                    val finalStatus = if (totalComm > 0.0 || member.status.contains("Rig", ignoreCase = true)) "Active Rig Node" else "Free Miner"
+                    member.copy(
+                        status = finalStatus,
+                        commissionPaidUsdt = totalComm,
+                        speedBoostContributed = 300.0
+                    )
+                }.sortedByDescending { it.joinedAtMs }
+
+                val activeCount = fullList.count { it.isMining || it.status == "Active Rig Node" }.toLong()
+                onTeamUpdated?.invoke(activeCount, fullList)
+            }
+
+            // A. Listen to referral_rewards to aggregate commissions per downline member
+            db.collection("wallets").document(userId).collection("referral_rewards")
+                .addSnapshotListener { rewSnap, _ ->
+                    try {
+                        if (rewSnap != null) {
+                            commissionsMap.clear()
+                            for (rDoc in rewSnap.documents) {
+                                val fromId = rDoc.getSafeString("from_miner_id", rDoc.getSafeString("fromMinerId"))
+                                val comm = rDoc.getSafeDouble("commission_usdt", rDoc.getSafeDouble("commissionUsdt", 0.0))
+                                if (fromId.isNotBlank()) {
+                                    commissionsMap[fromId] = (commissionsMap[fromId] ?: 0.0) + comm
+                                }
+                            }
+                            publishTeamList()
+                        }
+                    } catch (_: Exception) {}
+                }
+
+            // B. Direct Firestore query: wallets.whereEqualTo("referredBy", userId)
+            db.collection("wallets").whereEqualTo("referredBy", userId)
                 .addSnapshotListener { snapshot, error ->
                     if (error != null) return@addSnapshotListener
                     try {
                         if (snapshot != null) {
-                            val teamList = mutableListOf<TeamMember>()
-                            val simpleDateFormat = SimpleDateFormat("MMM dd, yyyy", Locale.US)
                             for (doc in snapshot.documents) {
-                                val memberUid = doc.getSafeString("uid", doc.id)
-                                val rawName = doc.getSafeString("displayName").ifBlank { doc.getSafeString("name") }
-                                val displayName = if (rawName.isNotBlank() && !rawName.contains("@")) {
-                                    rawName
-                                } else {
-                                    "User 0x" + memberUid.replace("-", "").take(6).lowercase()
-                                }
-                                val email = doc.getSafeString("email")
-                                val status = doc.getSafeString("status", "ACTIVE")
-                                val bonus = doc.getSafeDouble("hashrateContributed", doc.getSafeDouble("hashrateBonus", doc.getSafeDouble("bonus", 1.5)))
-                                val isMining = doc.getSafeBoolean("isMining", true)
-                                val avatar = doc.getSafeString("avatarUrl").ifBlank { doc.getSafeString("photoUrl") }.takeIf { it.isNotBlank() }
-                                val timestampMs = doc.getSafeTimestampMs("joinedAt", System.currentTimeMillis())
+                                val memberUid = doc.id
+                                if (memberUid == userId) continue
+                                val statusStr = doc.getSafeString("status", "Free Miner")
+                                val commPaid = doc.getSafeDouble("commission_paid", 0.0)
+                                val isMining = doc.getSafeBoolean("is_mining", false)
+                                val timestampMs = doc.getSafeTimestampMs("created_at", System.currentTimeMillis())
                                 val dateStr = try { simpleDateFormat.format(Date(timestampMs)) } catch (_: Exception) { "Recently" }
 
-                                teamList.add(
-                                    TeamMember(
-                                        uid = memberUid,
-                                        displayName = displayName,
-                                        email = email,
-                                        joinedAtStr = dateStr,
-                                        joinedAtMs = timestampMs,
-                                        status = status,
-                                        hashrateBonus = bonus,
-                                        hashrateContributed = bonus,
-                                        isMining = isMining,
-                                        avatarUrl = avatar
-                                    )
+                                downlineMap[memberUid] = TeamMember(
+                                    uid = memberUid,
+                                    displayName = "Miner " + (if (memberUid.length > 6) memberUid.takeLast(4) else memberUid),
+                                    joinedAtStr = dateStr,
+                                    joinedAtMs = timestampMs,
+                                    status = if (statusStr.contains("Rig", ignoreCase = true) || commPaid > 0.0) "Active Rig Node" else "Free Miner",
+                                    hashrateBonus = 300.0,
+                                    hashrateContributed = 300.0,
+                                    speedBoostContributed = 300.0,
+                                    commissionPaidUsdt = commPaid,
+                                    isMining = isMining
                                 )
                             }
-                            teamList.sortByDescending { it.joinedAtMs }
-                            val activeCount = teamList.count { it.status.equals("ACTIVE", ignoreCase = true) }.toLong()
-                            onTeamUpdated?.invoke(activeCount, teamList)
+                            publishTeamList()
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+
+            // C. Also query wallets.whereEqualTo("referred_by", userId) for backwards compatibility
+            db.collection("wallets").whereEqualTo("referred_by", userId)
+                .addSnapshotListener { snapshot, _ ->
+                    try {
+                        if (snapshot != null) {
+                            for (doc in snapshot.documents) {
+                                val memberUid = doc.id
+                                if (memberUid == userId) continue
+                                if (!downlineMap.containsKey(memberUid)) {
+                                    val statusStr = doc.getSafeString("status", "Free Miner")
+                                    val commPaid = doc.getSafeDouble("commission_paid", 0.0)
+                                    val isMining = doc.getSafeBoolean("is_mining", false)
+                                    val timestampMs = doc.getSafeTimestampMs("created_at", System.currentTimeMillis())
+                                    val dateStr = try { simpleDateFormat.format(Date(timestampMs)) } catch (_: Exception) { "Recently" }
+
+                                    downlineMap[memberUid] = TeamMember(
+                                        uid = memberUid,
+                                        displayName = "Miner " + (if (memberUid.length > 6) memberUid.takeLast(4) else memberUid),
+                                        joinedAtStr = dateStr,
+                                        joinedAtMs = timestampMs,
+                                        status = if (statusStr.contains("Rig", ignoreCase = true) || commPaid > 0.0) "Active Rig Node" else "Free Miner",
+                                        hashrateBonus = 300.0,
+                                        hashrateContributed = 300.0,
+                                        speedBoostContributed = 300.0,
+                                        commissionPaidUsdt = commPaid,
+                                        isMining = isMining
+                                    )
+                                }
+                            }
+                            publishTeamList()
+                        }
+                    } catch (_: Exception) {}
+                }
+
+            // D. Listen to wallets/{userId}/referral_list subcollection
+            db.collection("wallets").document(userId).collection("referral_list")
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) return@addSnapshotListener
+                    try {
+                        if (snapshot != null) {
+                            for (doc in snapshot.documents) {
+                                val memberUid = doc.getSafeString("child_id", doc.getSafeString("wallet_id", doc.id))
+                                if (memberUid.isBlank() || memberUid == userId) continue
+                                val statusStr = doc.getSafeString("status", "Free Miner")
+                                val commPaid = doc.getSafeDouble("commission_paid", 0.0)
+                                val isMining = doc.getSafeBoolean("is_mining", false)
+                                val timestampMs = doc.getSafeTimestampMs("joined_at", System.currentTimeMillis())
+                                val dateStr = try { simpleDateFormat.format(Date(timestampMs)) } catch (_: Exception) { "Recently" }
+
+                                val existing = downlineMap[memberUid]
+                                downlineMap[memberUid] = TeamMember(
+                                    uid = memberUid,
+                                    displayName = existing?.displayName ?: ("Miner " + (if (memberUid.length > 6) memberUid.takeLast(4) else memberUid)),
+                                    joinedAtStr = if (existing != null && existing.joinedAtStr != "Recently") existing.joinedAtStr else dateStr,
+                                    joinedAtMs = if (existing != null && existing.joinedAtMs > 0L) existing.joinedAtMs else timestampMs,
+                                    status = if (statusStr.contains("Rig", ignoreCase = true) || commPaid > 0.0 || (existing?.status?.contains("Rig", ignoreCase = true) == true)) "Active Rig Node" else "Free Miner",
+                                    hashrateBonus = 300.0,
+                                    hashrateContributed = 300.0,
+                                    speedBoostContributed = 300.0,
+                                    commissionPaidUsdt = maxOf(commPaid, existing?.commissionPaidUsdt ?: 0.0),
+                                    isMining = isMining || (existing?.isMining == true)
+                                )
+                            }
+                            publishTeamList()
                         }
                     } catch (e: Exception) {
                         e.printStackTrace()
