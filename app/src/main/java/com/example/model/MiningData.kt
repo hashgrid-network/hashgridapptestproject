@@ -37,7 +37,7 @@ enum class MilestoneStatus {
 }
 
 data class LiveTickerItem(
-    val id: String,
+    val id: String = "",
     val displaySymbol: String = "",
     val baseName: String = "",
     val iconCrypto: String = "",
@@ -90,26 +90,44 @@ data class User(
 )
 
 data class MiningPlan(
-    val id: String,
-    val name: String,
-    val subtitle: String,
-    val cryptoSymbol: String,
-    val iconCrypto: String,
-    val minDepositUsdt: Double,
-    val hashPowerGh: Double,
-    val monthlyYieldPercent: Double,
+    val id: String = "",
+    val name: String = "Cloud Rig",
+    val subtitle: String = "",
+    val cryptoSymbol: String = "BTC",
+    val iconCrypto: String = "⚡",
+    val minDepositUsdt: Double = 10.0,
+    val hashPowerGh: Double = 10000.0,
+    val monthlyYieldPercent: Double = 11.5,
     val termDays: Int = 30,
-    val dailyYieldUsdtEst: Double,
-    val hardwareType: String,
+    val dailyYieldUsdtEst: Double = 0.038,
+    val hardwareType: String = "ASIC Liquid Rig",
     val tag: String? = null
 )
 
+fun safeComputeTaskProgress(accrued: Double, deposit: Double): Double {
+    return try {
+        if (deposit <= 0.0 || accrued.isNaN() || deposit.isNaN() || accrued.isInfinite() || deposit.isInfinite()) {
+            100.0
+        } else {
+            val target = deposit * 0.30
+            if (target <= 0.0) {
+                100.0
+            } else {
+                val pct = (accrued / target) * 100.0
+                if (pct.isNaN() || pct.isInfinite()) 0.0 else pct.coerceIn(0.0, 100.0)
+            }
+        }
+    } catch (_: Exception) {
+        0.0
+    }
+}
+
 data class ActiveContract(
-    val id: String,
-    val planName: String,
+    val id: String = "",
+    val planName: String = "Mining Rig",
     val cryptoSymbol: String = "BTC",
-    val depositUsdt: Double,
-    val hashPowerGh: Double,
+    val depositUsdt: Double = 0.0,
+    val hashPowerGh: Double = 0.0,
     val elapsedDays: Int = 0,
     val totalDays: Int = 30,
     val accruedProfitUsdt: Double = 0.0,
@@ -124,9 +142,9 @@ data class ActiveContract(
     val isActive: Boolean = System.currentTimeMillis() < endTimestampMs,
     // Work Tracker Data Model (30% contract completion rule)
     val plan_cost: Double = depositUsdt,
-    val target_yield_30_percent: Double = depositUsdt * 0.30,
+    val target_yield_30_percent: Double = if (depositUsdt > 0) depositUsdt * 0.30 else 3.0,
     val current_yield_mined: Double = accruedProfitUsdt,
-    val task_progress_pct: Double = if (depositUsdt > 0) ((accruedProfitUsdt / (depositUsdt * 0.30)) * 100.0).coerceIn(0.0, 100.0) else 100.0,
+    val task_progress_pct: Double = safeComputeTaskProgress(accruedProfitUsdt, depositUsdt),
     val work_status: String = if (accruedProfitUsdt >= (depositUsdt * 0.30) && depositUsdt > 0) "COMPLETED" else if (depositUsdt <= 0) "COMPLETED" else "IN_PROGRESS",
     val unlocked_for_withdrawal: Boolean = (accruedProfitUsdt >= (depositUsdt * 0.30) || depositUsdt <= 0)
 ) {
@@ -138,19 +156,22 @@ data class ActiveContract(
     val unlockedForWithdrawal: Boolean get() = unlocked_for_withdrawal
 
     fun getMaturityCountdownStr(currentTimeMs: Long = System.currentTimeMillis()): String {
-        val remainingMs = maxOf(0L, endTimestampMs - currentTimeMs)
-        if (remainingMs <= 0) return "Contract Matured"
-        val days = remainingMs / (24 * 3600 * 1000L)
-        val hours = (remainingMs % (24 * 3600 * 1000L)) / (3600 * 1000L)
-        val mins = (remainingMs % (3600 * 1000L)) / (60 * 1000L)
-        return if (days > 0) "${days}d ${hours}h left" else if (hours > 0) "${hours}h ${mins}m left" else "${mins}m left"
+        return try {
+            val remainingMs = maxOf(0L, endTimestampMs - currentTimeMs)
+            if (remainingMs <= 0) return "Contract Matured"
+            val days = remainingMs / (24 * 3600 * 1000L)
+            val hours = (remainingMs % (24 * 3600 * 1000L)) / (3600 * 1000L)
+            val mins = (remainingMs % (3600 * 1000L)) / (60 * 1000L)
+            if (days > 0) "${days}d ${hours}h left" else if (hours > 0) "${hours}h ${mins}m left" else "${mins}m left"
+        } catch (_: Exception) {
+            "30 Days Term"
+        }
     }
 }
 
-
 data class ActivityItem(
-    val id: String,
-    val title: String,
+    val id: String = "",
+    val title: String = "",
     val subtitle: String = "",
     val btcAmountStr: String = "",
     val usdtAmount: Double = 0.0,
@@ -159,20 +180,20 @@ data class ActivityItem(
 )
 
 data class PayoutItem(
-    val id: String,
-    val dateStr: String,
-    val amountUsdt: Double,
-    val targetAddress: String,
+    val id: String = "",
+    val dateStr: String = "",
+    val amountUsdt: Double = 0.0,
+    val targetAddress: String = "",
     val network: String = "TRC20",
     val status: PayoutStatus = PayoutStatus.PENDING_24H_AUDIT
 )
 
 data class BountyTask(
-    val id: String,
-    val type: BountyType,
-    val title: String,
-    val description: String,
-    val rewardUsdt: Double,
+    val id: String = "",
+    val type: BountyType = BountyType.CUSTOM,
+    val title: String = "",
+    val description: String = "",
+    val rewardUsdt: Double = 0.0,
     val status: BountyStatus = BountyStatus.AVAILABLE,
     val submissionProof: String? = null,
     val extraDetail: String? = null,
@@ -180,19 +201,18 @@ data class BountyTask(
 )
 
 data class CreatorMilestoneSubmission(
-    val id: String,
-    val userId: String,
-    val channelUrl: String,
-    val videoUrl: String,
-    val contactTelegram: String,
-    val submittedAt: String,
+    val id: String = "",
+    val userId: String = "",
+    val channelUrl: String = "",
+    val videoUrl: String = "",
+    val contactTelegram: String = "",
+    val submittedAt: String = "",
     val status: MilestoneStatus = MilestoneStatus.PENDING_EXECUTIVE_AUDIT
 )
 
-
 data class ChatMessage(
-    val id: String,
-    val text: String,
-    val isUser: Boolean,
+    val id: String = "",
+    val text: String = "",
+    val isUser: Boolean = false,
     val timestamp: Long = System.currentTimeMillis()
 )

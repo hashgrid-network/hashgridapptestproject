@@ -711,6 +711,7 @@ fun HashGridApp(
 
     if (showWithdraw) {
         WithdrawModal(
+            userEmail = viewModel.userEmail,
             availableBalanceUsdt = walletBalance,
             lockedAuditBalanceUsdt = viewModel.lockedAuditBalanceUsdt.collectAsStateWithLifecycle().value,
             activeContracts = activeContracts,

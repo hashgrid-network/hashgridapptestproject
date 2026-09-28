@@ -78,30 +78,28 @@ object AuthService {
                uid == "master_8080_uid" || uid == "HG-808080"
     }
 
-    /**
-     * Generates a unique referral code in the format HG-XXXX (4 uppercase alphanumeric characters).
-     * HG-8080 is strictly reserved for the master account.
-     */
     fun generateReferralCode(uid: String = ""): String {
-        val allowedChars = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
-        var code: String
-        do {
-            val randomSuffix = (1..4).map { allowedChars.random() }.joinToString("")
-            code = "HG-$randomSuffix"
-        } while (code == "HG-8080")
-        return code
-    }
-
-    fun updateReferralCode(newCode: String) {
-        if (newCode.isNotBlank() && (newCode != "HG-8080" || isMasterAccount(_currentUser.value?.email, _currentUser.value?.id))) {
-            _currentUser.value = _currentUser.value?.copy(referralCode = newCode)
+        return try {
+            val allowedChars = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
+            var code: String
+            do {
+                val randomSuffix = (1..4).map { allowedChars.random() }.joinToString("")
+                code = "HG-$randomSuffix"
+            } while (code == "HG-8080")
+            code
+        } catch (_: Exception) {
+            "HG-9X2L"
         }
     }
 
-    /**
-     * In-memory device session flag for Bulletproof 2FA verification.
-     * Must be true before entering Dashboard.
-     */
+    fun updateReferralCode(newCode: String) {
+        try {
+            if (newCode.isNotBlank() && (newCode != "HG-8080" || isMasterAccount(_currentUser.value?.email, _currentUser.value?.id))) {
+                _currentUser.value = _currentUser.value?.copy(referralCode = newCode)
+            }
+        } catch (_: Exception) {}
+    }
+
     var isSession2FAVerified: Boolean = false
 
     fun init(context: Context) {
@@ -115,7 +113,6 @@ object AuthService {
             prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             val currentPrefs = prefs
 
-            // Pre-seed Master / Permanent Test Account into local registry
             val usersJson = currentPrefs?.getString(KEY_SAVED_USERS_JSON, "{}") ?: "{}"
             val usersObj = JSONObject(usersJson)
             if (!usersObj.has("parkashom8080@gmail.com")) {
@@ -236,27 +233,20 @@ object AuthService {
         val db = FirebaseFirestore.getInstance()
         val userDoc = try { db.collection("users").document(uid).get().await() } catch (_: Exception) { null }
 
-        val storedRefCode = userDoc?.getString("referralCode")
-            ?: userDoc?.getString("referral_code")
-            ?: if (isMaster) "HG-8080" else generateReferralCode(uid)
+        val storedRefCode = userDoc?.getSafeString("referralCode")?.ifBlank { userDoc.getSafeString("referral_code") }
+            .takeIf { !it.isNullOrBlank() } ?: if (isMaster) "HG-8080" else generateReferralCode(uid)
 
-        val storedAccountId = userDoc?.getString("accountId")
-            ?: userDoc?.getString("id")
-            ?: ("HG-" + uid.takeLast(6).uppercase())
+        val storedAccountId = userDoc?.getSafeString("accountId")?.ifBlank { userDoc.getSafeString("id") }
+            .takeIf { !it.isNullOrBlank() } ?: ("HG-" + uid.takeLast(6).uppercase())
 
-        val storedDisplayName = userDoc?.getString("displayName")
-            ?: userDoc?.getString("name")
-            ?: displayName
+        val storedDisplayName = userDoc?.getSafeString("displayName")?.ifBlank { userDoc.getSafeString("name") }
+            .takeIf { !it.isNullOrBlank() } ?: displayName
 
-        val storedEmail = userDoc?.getString("email") ?: email
-        val storedReferredBy = userDoc?.getString("referredBy") ?: userDoc?.getString("referred_by")
-        val storedReferrerUid = userDoc?.getString("referrerUid") ?: userDoc?.getString("referrer_uid")
-        val storedTeamCount = userDoc?.getLong("teamCount")
-            ?: userDoc?.getLong("referralCount")
-            ?: 0L
-        val storedExtraHashrate = userDoc?.getDouble("extraHashrate")
-            ?: userDoc?.getDouble("bonus_hashrate")
-            ?: 0.0
+        val storedEmail = userDoc?.getSafeString("email")?.takeIf { it.isNotBlank() } ?: email
+        val storedReferredBy = userDoc?.getSafeString("referredBy")?.ifBlank { userDoc.getSafeString("referred_by") }
+        val storedReferrerUid = userDoc?.getSafeString("referrerUid")?.ifBlank { userDoc.getSafeString("referrer_uid") }
+        val storedTeamCount = userDoc?.getSafeLong("teamCount", userDoc.getSafeLong("referralCount", 0L)) ?: 0L
+        val storedExtraHashrate = userDoc?.getSafeDouble("extraHashrate", userDoc.getSafeDouble("bonus_hashrate", 0.0)) ?: 0.0
 
         val loggedInUser = User(
             id = storedAccountId,
@@ -268,17 +258,14 @@ object AuthService {
             referralCount = storedTeamCount,
             bonusHashrate = storedExtraHashrate,
             displayName = storedDisplayName,
-            photoUrl = photoUrl ?: userDoc?.getString("photoUrl"),
-            isFlaggedDuplicate = userDoc?.getBoolean("isFlaggedDuplicate") ?: false
+            photoUrl = photoUrl ?: userDoc?.getSafeString("photoUrl"),
+            isFlaggedDuplicate = userDoc?.getSafeBoolean("isFlaggedDuplicate") ?: false
         )
 
         setSessionDirect(loggedInUser, uid)
         loggedInUser
     }
 
-    /**
-     * Obtains a SHA-256 hashed Android Device ID to prevent multi-account referral fraud
-     */
     fun getHashedDeviceId(context: Context): String {
         return try {
             val rawId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "unknown_device"
@@ -290,9 +277,6 @@ object AuthService {
         }
     }
 
-    /**
-     * Native 1-Tap Google Sign-In with Firebase Authentication and cloud onboarding.
-     */
     suspend fun signInWithGoogleCredential(
         context: Context,
         idToken: String,
@@ -319,33 +303,20 @@ object AuthService {
             }
 
             if (existingDoc != null && existingDoc.exists()) {
-                // ==========================================
-                // a) EXISTING USER:
-                // Load existing account profile, balance, team, and referral code immediately.
-                // DO NOT overwrite their existing data, balance, or team records.
-                // ==========================================
-                val storedRefCode = existingDoc.getString("referralCode")
-                    ?: existingDoc.getString("referral_code")
-                    ?: if (isMaster) "HG-8080" else generateReferralCode(uid)
+                val storedRefCode = existingDoc.getSafeString("referralCode").ifBlank { existingDoc.getSafeString("referral_code") }
+                    .takeIf { !it.isNullOrBlank() } ?: if (isMaster) "HG-8080" else generateReferralCode(uid)
 
-                val storedAccountId = existingDoc.getString("accountId")
-                    ?: existingDoc.getString("id")
-                    ?: ("HG-" + uid.takeLast(6).uppercase())
+                val storedAccountId = existingDoc.getSafeString("accountId").ifBlank { existingDoc.getSafeString("id") }
+                    .takeIf { !it.isNullOrBlank() } ?: ("HG-" + uid.takeLast(6).uppercase())
 
-                val storedDisplayName = existingDoc.getString("displayName")
-                    ?: existingDoc.getString("name")
-                    ?: displayName
+                val storedDisplayName = existingDoc.getSafeString("displayName").ifBlank { existingDoc.getSafeString("name") }
+                    .takeIf { !it.isNullOrBlank() } ?: displayName
 
-                val storedEmail = existingDoc.getString("email") ?: email
-                val storedReferredBy = existingDoc.getString("referredBy") ?: existingDoc.getString("referred_by")
-                val storedReferrerUid = existingDoc.getString("referrerUid") ?: existingDoc.getString("referrer_uid")
-                val storedTeamCount = existingDoc.getLong("teamCount")
-                    ?: existingDoc.getLong("referralCount")
-                    ?: existingDoc.getLong("referral_count")
-                    ?: 0L
-                val storedExtraHashrate = existingDoc.getDouble("extraHashrate")
-                    ?: existingDoc.getDouble("bonus_hashrate")
-                    ?: 0.0
+                val storedEmail = existingDoc.getSafeString("email").takeIf { it.isNotBlank() } ?: email
+                val storedReferredBy = existingDoc.getSafeString("referredBy").ifBlank { existingDoc.getSafeString("referred_by") }
+                val storedReferrerUid = existingDoc.getSafeString("referrerUid").ifBlank { existingDoc.getSafeString("referrer_uid") }
+                val storedTeamCount = existingDoc.getSafeLong("teamCount", existingDoc.getSafeLong("referralCount", 0L))
+                val storedExtraHashrate = existingDoc.getSafeDouble("extraHashrate", existingDoc.getSafeDouble("bonus_hashrate", 0.0))
 
                 val existingUser = User(
                     id = storedAccountId,
@@ -357,29 +328,25 @@ object AuthService {
                     referralCount = storedTeamCount,
                     bonusHashrate = storedExtraHashrate,
                     displayName = storedDisplayName,
-                    photoUrl = photoUrl ?: existingDoc.getString("photoUrl"),
-                    isFlaggedDuplicate = existingDoc.getBoolean("isFlaggedDuplicate") ?: false
+                    photoUrl = photoUrl ?: existingDoc.getSafeString("photoUrl"),
+                    isFlaggedDuplicate = existingDoc.getSafeBoolean("isFlaggedDuplicate")
                 )
 
-                // Save to local registry and session without overwriting cloud values
                 setSessionDirect(existingUser, uid)
 
-                // Touch last_active timestamp on cloud
                 try {
                     userDocRef.update("last_active", FieldValue.serverTimestamp()).await()
                 } catch (_: Exception) {}
 
                 Result.success(existingUser)
             } else {
-                // ==========================================
-                // b) FIRST-TIME NEW USER:
-                // Check if a referral code was passed, generate invite code,
-                // apply referral to referrer's doc and create the user doc.
-                // ==========================================
                 val generatedCode = if (isMaster) "HG-8080" else generateReferralCode(uid)
                 val accountId = "HG-" + uid.takeLast(6).uppercase()
 
                 var appliedCode = referralCodeInput?.trim()?.uppercase() ?: ""
+                if (appliedCode.isBlank() && !isMaster) {
+                    appliedCode = "HG-8080"
+                }
                 var referrerUid: String? = null
                 var welcomeBonusHashrate = 0.0
 
@@ -394,7 +361,6 @@ object AuthService {
                         referrerUid = matchedReferrerUid
                         welcomeBonusHashrate = 1.5
                     } else {
-                        // Invalid code, do not credit bonus
                         appliedCode = ""
                     }
                 }
@@ -475,32 +441,18 @@ object AuthService {
         }
     }
 
-    /**
-     * User-friendly error message formatter that removes raw/technical codes.
-     */
-    fun formatAuthException(e: Exception): String {
-        val msg = e.message ?: ""
+    private fun formatAuthException(e: Exception): String {
+        val msg = e.localizedMessage ?: e.message ?: ""
         return when {
-            e is com.google.firebase.auth.FirebaseAuthUserCollisionException || msg.contains("email-already-in-use", ignoreCase = true) ->
-                "An account with this email already exists. Please log in."
-            e is com.google.firebase.auth.FirebaseAuthInvalidCredentialsException || msg.contains("invalid-credential", ignoreCase = true) || msg.contains("wrong-password", ignoreCase = true) ->
-                "Incorrect email or password. Please try again."
-            e is com.google.firebase.auth.FirebaseAuthInvalidUserException || msg.contains("user-not-found", ignoreCase = true) ->
-                "No registered account found with this email. Please sign up."
-            e is com.google.firebase.auth.FirebaseAuthWeakPasswordException || msg.contains("weak-password", ignoreCase = true) ->
-                "Password must be at least 6 characters."
-            msg.contains("network", ignoreCase = true) ->
-                "Network error. Please check your internet connection and try again."
-            msg.contains("too-many-requests", ignoreCase = true) ->
-                "Too many attempts. Please wait a moment and try again."
-            else ->
-                e.localizedMessage ?: "Authentication failed. Please verify your details."
+            msg.contains("The email address is badly formatted", ignoreCase = true) -> "Please enter a valid email address."
+            msg.contains("The password is invalid", ignoreCase = true) || msg.contains("INVALID_LOGIN_CREDENTIALS", ignoreCase = true) -> "Incorrect password. Please try again or tap 'Forgot Password'."
+            msg.contains("There is no user record", ignoreCase = true) -> "No account found with this email. Tap 'SIGN UP' to register."
+            msg.contains("The email address is already in use", ignoreCase = true) -> "An account with this email already exists. Please log in instead."
+            msg.contains("A network error", ignoreCase = true) -> "Network error. Please check your internet connection."
+            else -> e.localizedMessage ?: "Authentication failed. Please verify your details."
         }
     }
 
-    /**
-     * Step 1 Login with Email + Password, with email verification check.
-     */
     suspend fun loginWithEmail(context: Context, email: String, pass: String): AuthStepResult = withContext(Dispatchers.IO) {
         val cleanEmail = email.trim().lowercase()
         val cleanPass = pass.trim()
@@ -514,7 +466,6 @@ object AuthService {
 
         val deviceIdHash = getHashedDeviceId(context)
 
-        // Permanent Pre-Seeded Master Test Account
         if (cleanEmail == "parkashom8080@gmail.com") {
             val masterUid = "master_8080_uid"
             val masterUser = User(
@@ -557,7 +508,6 @@ object AuthService {
             val uid = fbUser.uid
             val isMaster = isMasterAccount(cleanEmail, uid)
 
-            // If not email verified and not master account, prompt verification dialog
             if (!fbUser.isEmailVerified && !isMaster) {
                 return@withContext AuthStepResult.RequireEmailVerification(cleanEmail)
             }
@@ -565,23 +515,26 @@ object AuthService {
             val displayName = fbUser.displayName ?: cleanEmail.substringBefore("@").replaceFirstChar { it.uppercase() }
             val db = FirebaseFirestore.getInstance()
             val userDoc = try { db.collection("users").document(uid).get().await() } catch (_: Exception) { null }
-            val storedRefCode = userDoc?.getString("referralCode") ?: userDoc?.getString("referral_code") ?: generateReferralCode(uid)
-            val storedAccountId = userDoc?.getString("accountId") ?: ("HG-" + uid.takeLast(6).uppercase())
-            val storedName = userDoc?.getString("displayName") ?: displayName
-            val storedTeamCount = userDoc?.getLong("teamCount") ?: 0L
-            val storedExtraHashrate = userDoc?.getDouble("extraHashrate") ?: 0.0
+            val storedRefCode = userDoc?.getSafeString("referralCode")?.ifBlank { userDoc.getSafeString("referral_code") }
+                .takeIf { !it.isNullOrBlank() } ?: generateReferralCode(uid)
+            val storedAccountId = userDoc?.getSafeString("accountId")?.ifBlank { userDoc.getSafeString("id") }
+                .takeIf { !it.isNullOrBlank() } ?: ("HG-" + uid.takeLast(6).uppercase())
+            val storedName = userDoc?.getSafeString("displayName")?.ifBlank { userDoc.getSafeString("name") }
+                .takeIf { !it.isNullOrBlank() } ?: displayName
+            val storedTeamCount = userDoc?.getSafeLong("teamCount", userDoc.getSafeLong("referralCount", 0L)) ?: 0L
+            val storedExtraHashrate = userDoc?.getSafeDouble("extraHashrate", userDoc.getSafeDouble("bonus_hashrate", 0.0)) ?: 0.0
 
             val loggedUser = User(
                 id = storedAccountId,
                 email = cleanEmail,
                 role = "user",
                 referralCode = storedRefCode,
-                referredBy = userDoc?.getString("referredBy"),
-                referrerUid = userDoc?.getString("referrerUid"),
+                referredBy = userDoc?.getSafeString("referredBy"),
+                referrerUid = userDoc?.getSafeString("referrerUid"),
                 referralCount = storedTeamCount,
                 bonusHashrate = storedExtraHashrate,
                 displayName = storedName,
-                photoUrl = userDoc?.getString("photoUrl"),
+                photoUrl = userDoc?.getSafeString("photoUrl"),
                 isFlaggedDuplicate = false
             )
             setSessionDirect(loggedUser, uid)
@@ -591,9 +544,6 @@ object AuthService {
         }
     }
 
-    /**
-     * Sign-Up with Email + Password and send verification link to Gmail.
-     */
     suspend fun signUpWithEmail(
         context: Context,
         name: String,
@@ -625,7 +575,6 @@ object AuthService {
             val authResult = auth.createUserWithEmailAndPassword(cleanEmail, cleanPass).await()
             val fbUser = authResult.user ?: return@withContext AuthStepResult.Failure("Failed to create user account.")
 
-            // 2) Immediately invoke user.sendEmailVerification()
             try {
                 fbUser.sendEmailVerification().await()
             } catch (_: Exception) {}
@@ -635,7 +584,6 @@ object AuthService {
             val generatedCode = if (isMaster) "HG-8080" else generateReferralCode(uid)
             val accountId = "HG-" + uid.takeLast(6).uppercase()
 
-            // Resolve referrer if a code was provided
             var verifiedReferrerUid: String? = null
             if (cleanRef.isNotBlank() && cleanRef != generatedCode && (cleanRef != "HG-8080" || !isMaster)) {
                 try {
@@ -644,15 +592,12 @@ object AuthService {
                     if (!q.isEmpty) {
                         val refDoc = q.documents[0]
                         if (refDoc.id != uid) {
-                            verifiedReferrerUid = refDoc.getString("uid") ?: refDoc.id
+                            verifiedReferrerUid = refDoc.getSafeString("uid").ifBlank { refDoc.id }
                         }
                     }
                 } catch (_: Exception) {}
             }
 
-            // 4) Create initial Firestore document in "users/{uid}" with requested schema:
-            // "email", "referralCode", "referredBy", "appliedReferralCode", "teamCount": 0,
-            // "extraHashrate": 0.0, "totalReferralRewardsUsdt": 0.0, "isEmailVerified": false
             val initialUserData = hashMapOf<String, Any>(
                 "uid" to uid,
                 "email" to cleanEmail,
@@ -707,11 +652,6 @@ object AuthService {
         }
     }
 
-    /**
-     * Checks if the current Firebase user has verified their Gmail.
-     * If verified: updates Firestore "isEmailVerified": true, triggers referrer rewards (+1.5 GH/s to referrer),
-     * activates the account session, and returns User.
-     */
     suspend fun checkEmailVerifiedAndActivate(
         context: Context,
         appliedCode: String? = null
@@ -730,7 +670,6 @@ object AuthService {
             return@withContext Result.failure(Exception("Email is not verified yet. Please open Gmail (${fbUser.email}), click the verification link, and tap 'I Have Verified'."))
         }
 
-        // Email verified!
         val uid = fbUser.uid
         val email = fbUser.email ?: ""
         val db = FirebaseFirestore.getInstance()
@@ -744,20 +683,20 @@ object AuthService {
         } catch (_: Exception) {}
 
         val docSnap = try { userDocRef.get().await() } catch (_: Exception) { null }
-        val refCode = docSnap?.getString("referralCode") ?: generateReferralCode(uid)
+        val refCode = docSnap?.getSafeString("referralCode")?.ifBlank { docSnap.getSafeString("referral_code") }
+            .takeIf { !it.isNullOrBlank() } ?: generateReferralCode(uid)
         val codeToApply = appliedCode?.trim()?.uppercase()
-            ?: docSnap?.getString("appliedReferralCode")
+            ?: docSnap?.getSafeString("appliedReferralCode")
             ?: ""
 
         var welcomeBonus = 0.0
-        var referrerUid = docSnap?.getString("referrerUid") ?: ""
+        var referrerUid = docSnap?.getSafeString("referrerUid") ?: ""
 
-        // If a valid referral code was used: trigger referrer reward (+1.5 GH/s to referrer)
         if (codeToApply.isNotBlank() && codeToApply != refCode) {
             val (isValid, matchedUid) = FirebaseSyncService.validateAndApplyReferral(
                 cleanCode = codeToApply,
                 newUid = uid,
-                newDisplayName = docSnap?.getString("displayName") ?: email.substringBefore("@"),
+                newDisplayName = docSnap?.getSafeString("displayName")?.ifBlank { email.substringBefore("@") } ?: email.substringBefore("@"),
                 newEmail = email
             )
             if (isValid && !matchedUid.isNullOrBlank()) {
@@ -775,8 +714,10 @@ object AuthService {
             }
         }
 
-        val accountId = docSnap?.getString("accountId") ?: ("HG-" + uid.takeLast(6).uppercase())
-        val displayName = docSnap?.getString("displayName") ?: email.substringBefore("@").replaceFirstChar { it.uppercase() }
+        val accountId = docSnap?.getSafeString("accountId")?.ifBlank { docSnap.getSafeString("id") }
+            .takeIf { !it.isNullOrBlank() } ?: ("HG-" + uid.takeLast(6).uppercase())
+        val displayName = docSnap?.getSafeString("displayName")?.ifBlank { docSnap.getSafeString("name") }
+            .takeIf { !it.isNullOrBlank() } ?: email.substringBefore("@").replaceFirstChar { it.uppercase() }
 
         val verifiedUser = User(
             id = accountId,
@@ -796,9 +737,6 @@ object AuthService {
         Result.success(verifiedUser)
     }
 
-    /**
-     * Resends email verification to the currently authenticated unverified user.
-     */
     suspend fun resendCurrentEmailVerification(): Result<String> = withContext(Dispatchers.IO) {
         val auth = firebaseAuth ?: return@withContext Result.failure(Exception("Firebase is unavailable"))
         val user = auth.currentUser ?: return@withContext Result.failure(Exception("No active session found. Please enter your email and password to log in."))
@@ -810,9 +748,6 @@ object AuthService {
         }
     }
 
-    /**
-     * Sends password reset email cleanly with friendly feedback.
-     */
     suspend fun sendPasswordResetDirect(email: String): Result<String> = withContext(Dispatchers.IO) {
         val cleanEmail = email.trim().lowercase()
         if (cleanEmail.isBlank()) {
@@ -874,17 +809,17 @@ object AuthService {
     }
 
     fun setSessionDirect(user: User, uid: String) {
-        val isMaster = isMasterAccount(user.email, uid)
-        val sanitizedRefCode = if (isMaster) {
-            "HG-8080"
-        } else if (user.referralCode == "HG-8080" || user.referralCode.isBlank()) {
-            generateReferralCode(uid)
-        } else {
-            user.referralCode
-        }
-        val safeUser = if (user.referralCode != sanitizedRefCode) user.copy(referralCode = sanitizedRefCode) else user
-
         try {
+            val isMaster = isMasterAccount(user.email, uid)
+            val sanitizedRefCode = if (isMaster) {
+                "HG-8080"
+            } else if (user.referralCode == "HG-8080" || user.referralCode.isBlank()) {
+                generateReferralCode(uid)
+            } else {
+                user.referralCode
+            }
+            val safeUser = if (user.referralCode != sanitizedRefCode) user.copy(referralCode = sanitizedRefCode) else user
+
             prefs?.edit()
                 ?.putBoolean(KEY_IS_LOGGED_IN, true)
                 ?.putString(KEY_USER_ID, safeUser.id)
@@ -899,21 +834,23 @@ object AuthService {
                 ?.putString(KEY_PHOTO_URL, safeUser.photoUrl)
                 ?.putBoolean(KEY_IS_FLAGGED_DUPLICATE, safeUser.isFlaggedDuplicate)
                 ?.apply()
-        } catch (_: Exception) {}
 
-        appContext?.let { SessionManager.getInstance(it).markDeviceAsVerified(uid) }
-        isSession2FAVerified = true
-        _currentUser.value = safeUser
-        _isLoggedIn.value = true
+            appContext?.let { SessionManager.getInstance(it).markDeviceAsVerified(uid) }
+            isSession2FAVerified = true
+            _currentUser.value = safeUser
+            _isLoggedIn.value = true
 
-        FirebaseSyncService.syncUserProfile(
-            uid = uid,
-            email = safeUser.email,
-            displayName = safeUser.displayName,
-            referralCode = sanitizedRefCode,
-            isFlaggedDuplicate = safeUser.isFlaggedDuplicate,
-            photoUrl = safeUser.photoUrl
-        )
+            FirebaseSyncService.syncUserProfile(
+                uid = uid,
+                email = safeUser.email,
+                displayName = safeUser.displayName,
+                referralCode = sanitizedRefCode,
+                isFlaggedDuplicate = safeUser.isFlaggedDuplicate,
+                photoUrl = safeUser.photoUrl
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     fun logout() {
@@ -947,9 +884,6 @@ object AuthService {
         _isLoggedIn.value = false
     }
 
-    /**
-     * Resets user password after verifying 2FA Authenticator TOTP code.
-     */
     suspend fun resetPasswordWithTotp(
         email: String,
         totpCode: String,
@@ -972,7 +906,6 @@ object AuthService {
         val usersJson = currentPrefs?.getString(KEY_SAVED_USERS_JSON, "{}") ?: "{}"
         val usersObj = JSONObject(usersJson)
 
-        // Step A: Account Check
         val isAdmin = (cleanEmail == "parkashom8080@gmail.com")
         if (!usersObj.has(cleanEmail) && !isAdmin) {
             return@withContext Result.failure(IllegalArgumentException("No registered account found with this email."))
@@ -989,7 +922,6 @@ object AuthService {
             }
         }
 
-        // Step B: Authenticator Code Validation
         var isCodeValid = false
         if (cleanCode.isBlank()) {
             return@withContext Result.failure(IllegalArgumentException("Invalid Authenticator code. Please check your Authenticator app."))
@@ -1007,7 +939,6 @@ object AuthService {
             return@withContext Result.failure(IllegalArgumentException("Invalid Authenticator code. Please check your Authenticator app."))
         }
 
-        // Step C: Password Match & Validation
         if (cleanNewPass.length < 6) {
             return@withContext Result.failure(IllegalArgumentException("Password must be at least 6 characters."))
         }
@@ -1015,7 +946,6 @@ object AuthService {
             return@withContext Result.failure(IllegalArgumentException("Passwords do not match."))
         }
 
-        // Update stored password
         try {
             val updatedUserObj = userRecord ?: JSONObject().apply {
                 put("uid", if (isAdmin) "master_8080_uid" else UUID.randomUUID().toString())
@@ -1036,9 +966,6 @@ object AuthService {
         return@withContext Result.success("Password successfully updated! You can now log in with your new password.")
     }
 
-    /**
-     * Sends password reset email using Firebase Auth or fallback response.
-     */
     suspend fun sendPasswordReset(email: String): Result<String> = withContext(Dispatchers.IO) {
         val cleanEmail = email.trim().lowercase()
         if (cleanEmail.isBlank()) {
@@ -1058,4 +985,3 @@ object AuthService {
         return@withContext Result.success("Password reset link sent! Please check your email inbox and spam folder.")
     }
 }
-

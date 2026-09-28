@@ -8,6 +8,7 @@ import com.example.model.OFFICIAL_TRC20_ADDRESS
 import com.example.model.PayoutItem
 import com.example.model.PayoutStatus
 import com.example.model.TeamMember
+import com.example.model.safeComputeTaskProgress
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
@@ -35,45 +36,45 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 data class FirebaseUser(
-    val uid: String,
-    val email: String,
-    val walletBalance: Double,
-    val miningRate: String,
-    val createdAt: String
+    val uid: String = "",
+    val email: String = "",
+    val walletBalance: Double = 0.0,
+    val miningRate: String = "0.0",
+    val createdAt: String = ""
 )
 
 data class FirebaseWithdrawal(
-    val requestId: String,
-    val userId: String,
-    val amount: Double,
-    val cryptoAddress: String,
-    val network: String,
-    val status: String, // "pending", "approved", "rejected"
-    val timestamp: String
+    val requestId: String = "",
+    val userId: String = "",
+    val amount: Double = 0.0,
+    val cryptoAddress: String = "",
+    val network: String = "TRC20",
+    val status: String = "pending",
+    val timestamp: String = ""
 )
 
 data class FirebaseDeposit(
-    val paymentId: String,
-    val userId: String,
-    val amount: Double,
-    val currency: String,
+    val paymentId: String = "",
+    val userId: String = "",
+    val amount: Double = 0.0,
+    val currency: String = "USDT",
     val network: String = "TRC20",
     val txHash: String = "",
-    val status: String, // "pending", "confirmed"
-    val timestamp: String
+    val status: String = "pending",
+    val timestamp: String = ""
 )
 
 data class FirebaseTaskClaim(
-    val claimId: String,
-    val userId: String,
-    val userEmail: String,
-    val deviceId: String,
-    val taskId: String,
-    val taskTitle: String,
-    val proofLink: String,
-    val requestedAmountUsdt: Double,
-    val status: String = "PENDING", // "PENDING", "APPROVED", "REJECTED"
-    val timestamp: String
+    val claimId: String = "",
+    val userId: String = "",
+    val userEmail: String = "",
+    val deviceId: String = "",
+    val taskId: String = "",
+    val taskTitle: String = "",
+    val proofLink: String = "",
+    val requestedAmountUsdt: Double = 0.0,
+    val status: String = "PENDING",
+    val timestamp: String = ""
 )
 
 data class UserRemoteData(
@@ -96,12 +97,78 @@ data class UserRemoteData(
     val activeTeamBonus: Double = 0.0
 )
 
+// Ultra-Defensive DocumentSnapshot Extension Functions
+fun DocumentSnapshot.getSafeDouble(field: String, default: Double = 0.0): Double {
+    return try {
+        when (val v = this.get(field)) {
+            is Number -> if (v.toDouble().isNaN() || v.toDouble().isInfinite()) default else v.toDouble()
+            is String -> v.toDoubleOrNull()?.let { if (it.isNaN() || it.isInfinite()) default else it } ?: default
+            is Boolean -> if (v) 1.0 else 0.0
+            else -> default
+        }
+    } catch (_: Exception) {
+        default
+    }
+}
+
+fun DocumentSnapshot.getSafeLong(field: String, default: Long = 0L): Long {
+    return try {
+        when (val v = this.get(field)) {
+            is Number -> v.toLong()
+            is String -> v.toLongOrNull() ?: v.toDoubleOrNull()?.toLong() ?: default
+            is Boolean -> if (v) 1L else 0L
+            is Timestamp -> v.toDate().time
+            else -> default
+        }
+    } catch (_: Exception) {
+        default
+    }
+}
+
+fun DocumentSnapshot.getSafeBoolean(field: String, default: Boolean = false): Boolean {
+    return try {
+        when (val v = this.get(field)) {
+            is Boolean -> v
+            is String -> v.lowercase().toBooleanStrictOrNull() ?: default
+            is Number -> v.toInt() != 0
+            else -> default
+        }
+    } catch (_: Exception) {
+        default
+    }
+}
+
+fun DocumentSnapshot.getSafeString(field: String, default: String = ""): String {
+    return try {
+        when (val v = this.get(field)) {
+            is String -> v
+            null -> default
+            else -> v.toString()
+        }
+    } catch (_: Exception) {
+        default
+    }
+}
+
+fun DocumentSnapshot.getSafeTimestampMs(field: String, default: Long = System.currentTimeMillis()): Long {
+    return try {
+        when (val v = this.get(field)) {
+            is Timestamp -> v.toDate().time
+            is Number -> v.toLong()
+            is String -> v.toLongOrNull() ?: default
+            is Date -> v.time
+            else -> default
+        }
+    } catch (_: Exception) {
+        default
+    }
+}
+
 object FirebaseSyncService {
 
     private val scope = CoroutineScope(Dispatchers.IO)
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
-    // Configurable Firebase Realtime Database Base URL
     var firebaseDatabaseUrl: String = "https://hashgrid-institutional-default-rtdb.firebaseio.com"
 
     val firestore: FirebaseFirestore?
@@ -117,7 +184,6 @@ object FirebaseSyncService {
     private val _lastSyncTimestamp = MutableStateFlow(System.currentTimeMillis())
     val lastSyncTimestamp: StateFlow<Long> = _lastSyncTimestamp.asStateFlow()
 
-    // Permanently locked official deposit addresses
     var trc20DepositAddress: String = OFFICIAL_TRC20_ADDRESS
     var bep20DepositAddress: String = OFFICIAL_BEP20_ADDRESS
 
@@ -138,223 +204,109 @@ object FirebaseSyncService {
                 firestore?.collection("app_config")?.document("payment_settings")?.get()
                     ?.addOnSuccessListener { doc ->
                         if (doc != null && doc.exists()) {
-                            doc.getString("trc20_address")?.let { if (it.isNotBlank()) trc20DepositAddress = it }
-                            doc.getString("bep20_address")?.let { if (it.isNotBlank()) bep20DepositAddress = it }
+                            val trc = doc.getSafeString("trc20_address")
+                            if (trc.isNotBlank()) trc20DepositAddress = trc
+                            val bep = doc.getSafeString("bep20_address")
+                            if (bep.isNotBlank()) bep20DepositAddress = bep
                         }
                     }
             } catch (_: Exception) {}
         }
     }
 
-    /**
-     * Fetch user record from Firestore (/users/{uid}) and RTDB
-     */
-    fun fetchUserData(uid: String): UserRemoteData? {
-        val safeKey = sanitizeKey(uid)
-        return try {
-            val url = "$firebaseDatabaseUrl/users/$safeKey.json"
-            val request = Request.Builder().url(url).get().build()
-            httpClient.newCall(request).execute().use { response ->
-                if (response.isSuccessful) {
-                    val body = response.body?.string()?.trim()
-                    if (!body.isNullOrBlank() && body != "null") {
-                        val obj = JSONObject(body)
-                        val usdt = obj.optDouble("usdt_balance", obj.optDouble("walletBalance", 0.0))
-                        val btc = obj.optDouble("btc_balance", 0.0)
-                        val withdrawn = obj.optDouble("total_withdrawn", 0.0)
-                        val hr = obj.optDouble("hash_rate", 0.0)
-                        val kyc = obj.optString("kyc_status", "UNVERIFIED")
-                        val twoFa = obj.optBoolean("two_factor_enabled", false)
-                        val refCount = obj.optLong("referral_count", 0L)
-                        val bonusHr = obj.optDouble("bonus_hashrate", 0.0)
-                        val refCode = obj.optString("referral_code", "")
-                        val refBy = obj.optString("referred_by", null)
-                        UserRemoteData(
-                            usdtBalance = usdt,
-                            btcBalance = btc,
-                            hashRate = hr,
-                            totalWithdrawn = withdrawn,
-                            referralCount = refCount,
-                            bonusHashrate = bonusHr,
-                            referralCode = refCode,
-                            referredBy = refBy,
-                            kycStatus = kyc,
-                            twoFactorEnabled = twoFa
-                        )
-                    } else null
-                } else null
-            }
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    /**
-     * Validates referral code in Firestore query lookup across "referralCode" and "referral_code".
-     * Updates referrer atomically:
-     * - FieldValue.increment(1) for "teamCount", "directReferrals", "referral_count", "referralCount"
-     * - FieldValue.increment(1.5) for "bonus_hashrate" and "hash_rate"
-     * - Creates subcollection document: "users/{referrerUid}/team/{newUid}" with details
-     * Returns Pair(isValid, referrerUid).
-     */
     suspend fun validateAndApplyReferral(
         cleanCode: String,
         newUid: String,
-        newDisplayName: String = "Active Miner",
+        newDisplayName: String = "New Miner",
         newEmail: String = ""
     ): Pair<Boolean, String?> = kotlinx.coroutines.withContext(Dispatchers.IO) {
-        val uppercaseCode = cleanCode.trim().uppercase()
-        val lowercaseCode = cleanCode.trim().lowercase()
-        if (uppercaseCode.isBlank()) return@withContext Pair(false, null)
+        if (cleanCode.isBlank() || cleanCode == "HG-8080") {
+            return@withContext Pair(cleanCode == "HG-8080", if (cleanCode == "HG-8080") "master_8080_uid" else null)
+        }
+        val db = firestore ?: return@withContext Pair(false, null)
 
         try {
-            val db = firestore
-            if (db != null) {
-                // 1. Search by "referralCode" (standard camelCase, uppercase)
-                var querySnap = db.collection("users")
-                    .whereEqualTo("referralCode", uppercaseCode)
+            var querySnap = db.collection("users")
+                .whereEqualTo("referralCode", cleanCode)
+                .limit(1)
+                .get()
+                .await()
+
+            if (querySnap.isEmpty) {
+                querySnap = db.collection("users")
+                    .whereEqualTo("referral_code", cleanCode)
                     .limit(1)
                     .get()
                     .await()
+            }
 
-                // Fallback search by "referralCode" (lowercase)
-                if (querySnap.isEmpty) {
-                    querySnap = db.collection("users")
-                        .whereEqualTo("referralCode", lowercaseCode)
-                        .limit(1)
-                        .get()
-                        .await()
-                }
+            if (!querySnap.isEmpty) {
+                val referrerDoc = querySnap.documents[0]
+                val referrerUid = referrerDoc.getSafeString("uid").ifBlank { referrerDoc.id }
 
-                // Fallback search by "referral_code" (snake_case, uppercase)
-                if (querySnap.isEmpty) {
-                    querySnap = db.collection("users")
-                        .whereEqualTo("referral_code", uppercaseCode)
-                        .limit(1)
-                        .get()
-                        .await()
-                }
+                if (referrerUid.isNotBlank() && referrerUid != newUid && referrerDoc.id != newUid) {
+                    try {
+                        val currentCount = referrerDoc.getSafeLong("teamCount")
+                        val newCount = currentCount + 1
+                        val newTier = when {
+                            newCount >= 20 -> "ELITE"
+                            newCount >= 5 -> "PRO"
+                            else -> "NOVICE"
+                        }
 
-                // Fallback search by "referral_code" (snake_case, lowercase)
-                if (querySnap.isEmpty) {
-                    querySnap = db.collection("users")
-                        .whereEqualTo("referral_code", lowercaseCode)
-                        .limit(1)
-                        .get()
-                        .await()
-                }
+                        db.collection("users").document(referrerUid).update(
+                            "teamCount", FieldValue.increment(1),
+                            "directReferrals", FieldValue.increment(1),
+                            "referral_count", FieldValue.increment(1),
+                            "referralCount", FieldValue.increment(1),
+                            "extraHashrate", FieldValue.increment(1.5),
+                            "bonus_hashrate", FieldValue.increment(1.5),
+                            "hash_rate", FieldValue.increment(1.5),
+                            "syndicateTier", newTier,
+                            "lastReconciledAt", FieldValue.serverTimestamp(),
+                            "last_active", FieldValue.serverTimestamp()
+                        ).await()
 
-                // Special dev/retroactive safeguard: If code is HG-8080 and not found, auto-seed master account
-                if (querySnap.isEmpty && uppercaseCode == "HG-8080") {
-                    val masterData = hashMapOf<String, Any>(
-                        "uid" to "master_8080_uid",
-                        "email" to "parkashom8080@gmail.com",
-                        "displayName" to "Parkash Om",
-                        "referralCode" to "HG-8080",
-                        "referral_code" to "HG-8080",
-                        "teamCount" to 12L,
-                        "directReferrals" to 12L,
-                        "extraHashrate" to 50.0,
-                        "bonus_hashrate" to 50.0,
-                        "hash_rate" to 500000.0,
-                        "usdt_balance" to 1000.0,
-                        "created_at" to FieldValue.serverTimestamp(),
-                        "last_active" to FieldValue.serverTimestamp()
-                    )
-                    db.collection("users").document("master_8080_uid").set(masterData, SetOptions.merge()).await()
-                    querySnap = db.collection("users")
-                        .whereEqualTo("referralCode", "HG-8080")
-                        .limit(1)
-                        .get()
-                        .await()
-                }
+                        val maskedName = if (newDisplayName.isNotBlank() && !newDisplayName.contains("@")) {
+                            newDisplayName
+                        } else {
+                            "User 0x" + newUid.replace("-", "").take(6).lowercase()
+                        }
+                        val teamMemberDoc = hashMapOf<String, Any>(
+                            "uid" to newUid,
+                            "displayName" to maskedName,
+                            "joinedAt" to FieldValue.serverTimestamp(),
+                            "joinedAtMs" to System.currentTimeMillis(),
+                            "status" to "ACTIVE",
+                            "hashrateBonus" to 1.5,
+                            "hashrateContributed" to 1.5,
+                            "isMining" to true,
+                            "email" to newEmail
+                        )
+                        db.collection("users").document(referrerUid)
+                            .collection("team").document(newUid)
+                            .set(teamMemberDoc, SetOptions.merge()).await()
 
-                if (!querySnap.isEmpty) {
-                    val referrerDoc = querySnap.documents[0]
-                    val referrerUid = referrerDoc.getString("uid") ?: referrerDoc.id
-
-                    // Bulletproof Self-referral prevention lock
-                    if (referrerUid.isNotBlank() && referrerUid != newUid && referrerDoc.id != newUid) {
-                        try {
-                            val currentCount = referrerDoc.getLong("teamCount") ?: 0L
-                            val newCount = currentCount + 1
-                            val newTier = when {
-                                newCount >= 20 -> "ELITE"
-                                newCount >= 5 -> "PRO"
-                                else -> "NOVICE"
-                            }
-
-                            // 1. Atomically update referrer document
-                            // - Update referrer's document using FieldValue.increment(1) on "teamCount" and "directReferrals"
-                            // - Add +1.5 GH/s hashrate speed boost ONLY ("extraHashrate": FieldValue.increment(1.5))
-                            // - Instant cash/USDT reward credited on signup is 0.00 USDT
-                            db.collection("users").document(referrerUid).update(
-                                "teamCount", FieldValue.increment(1),
-                                "directReferrals", FieldValue.increment(1),
-                                "referral_count", FieldValue.increment(1),
-                                "referralCount", FieldValue.increment(1),
-                                "extraHashrate", FieldValue.increment(1.5),
-                                "bonus_hashrate", FieldValue.increment(1.5),
-                                "hash_rate", FieldValue.increment(1.5),
-                                "syndicateTier", newTier,
-                                "lastReconciledAt", FieldValue.serverTimestamp(),
-                                "last_active", FieldValue.serverTimestamp()
-                            ).await()
-
-                            // 2. Add an independent server document into subcollection "users/{referrerUid}/team/{newUserUid}"
-                            val maskedName = if (newDisplayName.isNotBlank() && !newDisplayName.contains("@")) {
-                                newDisplayName
-                            } else {
-                                "User 0x" + newUid.replace("-", "").take(6).lowercase()
-                            }
-                            val teamMemberDoc = hashMapOf<String, Any>(
-                                "uid" to newUid,
-                                "displayName" to maskedName,
-                                "joinedAt" to FieldValue.serverTimestamp(),
-                                "joinedAtMs" to System.currentTimeMillis(),
-                                "status" to "ACTIVE",
-                                "hashrateBonus" to 1.5,
-                                "hashrateContributed" to 1.5,
-                                "isMining" to true,
-                                "email" to newEmail
-                            )
-                            db.collection("users").document(referrerUid)
-                                .collection("team").document(newUid)
-                                .set(teamMemberDoc, SetOptions.merge()).await()
-
-                        } catch (_: Exception) {}
-                        return@withContext Pair(true, referrerUid)
-                    } else {
-                        // Matching self-referral is explicitly rejected
-                        return@withContext Pair(false, null)
-                    }
+                    } catch (_: Exception) {}
+                    return@withContext Pair(true, referrerUid)
                 }
             }
         } catch (_: Exception) {}
         Pair(false, null)
     }
 
-    /**
-     * Automatic retroactive referral recovery and reconciliation task:
-     * 1) Query Firestore collection "users" where "referredBy" == currentUid OR "appliedReferralCode" == referralCode (case-insensitive)
-     * 2) Count all matching user documents in the database
-     * 3) If actual count > current teamCount (or if teamCount is 0):
-     *    Update current user doc with: "teamCount": actualCount, "extraHashrate": actualCount * 1.5, "directReferrals": actualCount
-     * 4) For every matched user, ensure they are present in subcollection "users/{currentUid}/team/{memberUid}".
-     *    If missing, automatically backfill/create their record with displayName/email and joined date.
-     */
     suspend fun reconcileUserReferrals(currentUid: String, referralCode: String): Long = kotlinx.coroutines.withContext(Dispatchers.IO) {
         if (currentUid.isBlank()) return@withContext 0L
         val db = firestore ?: return@withContext 0L
         try {
             val userDoc = db.collection("users").document(currentUid).get().await()
-            val userEmail = userDoc.getString("email") ?: ""
+            val userEmail = userDoc.getSafeString("email")
             val isMasterAccount = (currentUid == "master_8080_uid" || userEmail.equals("parkashom8080@gmail.com", ignoreCase = true))
 
-            val existingDocCode = userDoc.getString("referralCode") ?: userDoc.getString("referral_code")
+            val existingDocCode = userDoc.getSafeString("referralCode").ifBlank { userDoc.getSafeString("referral_code") }
             val userPersonalCode = when {
                 isMasterAccount -> "HG-8080"
-                !existingDocCode.isNullOrBlank() && existingDocCode != "HG-8080" -> existingDocCode
+                existingDocCode.isNotBlank() && existingDocCode != "HG-8080" -> existingDocCode
                 referralCode.isNotBlank() && referralCode != "HG-8080" -> referralCode
                 else -> AuthService.generateReferralCode(currentUid)
             }
@@ -364,69 +316,31 @@ object FirebaseSyncService {
 
             val matchedUsers = mutableMapOf<String, DocumentSnapshot>()
 
-            // 1. Query by referredBy (UID)
-            try {
-                val q1 = db.collection("users").whereEqualTo("referredBy", currentUid).get().await()
-                for (doc in q1.documents) {
-                    if (doc.id != currentUid) matchedUsers[doc.id] = doc
-                }
-            } catch (_: Exception) {}
-
-            // 2. Query by referred_by (UID)
-            try {
-                val q2 = db.collection("users").whereEqualTo("referred_by", currentUid).get().await()
-                for (doc in q2.documents) {
-                    if (doc.id != currentUid) matchedUsers[doc.id] = doc
-                }
-            } catch (_: Exception) {}
-
-            // 3. Query by referrerUid (UID)
-            try {
-                val q3 = db.collection("users").whereEqualTo("referrerUid", currentUid).get().await()
-                for (doc in q3.documents) {
-                    if (doc.id != currentUid) matchedUsers[doc.id] = doc
-                }
-            } catch (_: Exception) {}
-
-            // 4. Query by referrer_uid (UID)
-            try {
-                val q4 = db.collection("users").whereEqualTo("referrer_uid", currentUid).get().await()
-                for (doc in q4.documents) {
-                    if (doc.id != currentUid) matchedUsers[doc.id] = doc
-                }
-            } catch (_: Exception) {}
-
-            // 5. Query by appliedReferralCode / referralCode
-            // CRITICAL DATA ISOLATION: "HG-8080" query is STRICTLY RESERVED for master account!
-            val canQueryCode = uppercaseCode.isNotBlank() && (uppercaseCode != "HG-8080" || isMasterAccount)
-            if (canQueryCode) {
+            val fieldsToQuery = listOf("referredBy", "referred_by", "referrerUid", "referrer_uid")
+            for (field in fieldsToQuery) {
                 try {
-                    val q5 = db.collection("users").whereEqualTo("appliedReferralCode", uppercaseCode).get().await()
-                    for (doc in q5.documents) {
-                        if (doc.id != currentUid) matchedUsers[doc.id] = doc
-                    }
-                } catch (_: Exception) {}
-                try {
-                    val q6 = db.collection("users").whereEqualTo("appliedReferralCode", lowercaseCode).get().await()
-                    for (doc in q6.documents) {
-                        if (doc.id != currentUid) matchedUsers[doc.id] = doc
-                    }
-                } catch (_: Exception) {}
-                try {
-                    val q7 = db.collection("users").whereEqualTo("referredBy", uppercaseCode).get().await()
-                    for (doc in q7.documents) {
-                        if (doc.id != currentUid) matchedUsers[doc.id] = doc
-                    }
-                } catch (_: Exception) {}
-                try {
-                    val q8 = db.collection("users").whereEqualTo("referred_by", uppercaseCode).get().await()
-                    for (doc in q8.documents) {
+                    val q = db.collection("users").whereEqualTo(field, currentUid).get().await()
+                    for (doc in q.documents) {
                         if (doc.id != currentUid) matchedUsers[doc.id] = doc
                     }
                 } catch (_: Exception) {}
             }
 
-            // 6. Inspect existing subcollection "users/{currentUid}/team"
+            val canQueryCode = uppercaseCode.isNotBlank() && (uppercaseCode != "HG-8080" || isMasterAccount)
+            if (canQueryCode) {
+                val codeQueries = listOf(uppercaseCode, lowercaseCode)
+                for (code in codeQueries) {
+                    for (field in listOf("appliedReferralCode", "referredBy", "referred_by")) {
+                        try {
+                            val q = db.collection("users").whereEqualTo(field, code).get().await()
+                            for (doc in q.documents) {
+                                if (doc.id != currentUid) matchedUsers[doc.id] = doc
+                            }
+                        } catch (_: Exception) {}
+                    }
+                }
+            }
+
             val existingSubcollectionIds = mutableSetOf<String>()
             try {
                 val teamSnap = db.collection("users").document(currentUid).collection("team").get().await()
@@ -436,8 +350,8 @@ object FirebaseSyncService {
             } catch (_: Exception) {}
 
             val actualCount = maxOf(matchedUsers.size.toLong(), existingSubcollectionIds.size.toLong())
-            val currentTeamCount = userDoc.getLong("teamCount") ?: 0L
-            val needsCodeFix = !isMasterAccount && (existingDocCode == "HG-8080" || existingDocCode.isNullOrBlank())
+            val currentTeamCount = userDoc.getSafeLong("teamCount")
+            val needsCodeFix = !isMasterAccount && (existingDocCode == "HG-8080" || existingDocCode.isBlank())
 
             if (actualCount > currentTeamCount || needsCodeFix || !userDoc.contains("extraHashrate") || !userDoc.contains("totalReferralRewardsUsdt")) {
                 val finalExtraHashrate = actualCount * 1.5
@@ -446,7 +360,7 @@ object FirebaseSyncService {
                     actualCount >= 5 -> "PRO"
                     else -> "NOVICE"
                 }
-                val existingRewards = userDoc.getDouble("totalReferralRewardsUsdt") ?: 0.0
+                val existingRewards = userDoc.getSafeDouble("totalReferralRewardsUsdt")
                 val updates = hashMapOf<String, Any>(
                     "teamCount" to actualCount,
                     "directReferrals" to actualCount,
@@ -463,23 +377,22 @@ object FirebaseSyncService {
                 db.collection("users").document(currentUid).set(updates, SetOptions.merge()).await()
             }
 
-            // 8. Backfill missing members into subcollection "users/{currentUid}/team/{memberUid}"
             for ((memberUid, memberDoc) in matchedUsers) {
                 if (!existingSubcollectionIds.contains(memberUid)) {
-                    val rawName = memberDoc.getString("displayName") ?: memberDoc.getString("name") ?: ""
+                    val rawName = memberDoc.getSafeString("displayName").ifBlank { memberDoc.getSafeString("name") }
                     val displayName = if (rawName.isNotBlank() && !rawName.contains("@")) {
                         rawName
                     } else {
                         "User 0x" + memberUid.replace("-", "").take(6).lowercase()
                     }
-                    val email = memberDoc.getString("email") ?: ""
-                    val joinedAt = memberDoc.getTimestamp("created_at") ?: memberDoc.getTimestamp("joinedAt") ?: Timestamp.now()
+                    val email = memberDoc.getSafeString("email")
+                    val joinedAtMs = memberDoc.getSafeTimestampMs("created_at", memberDoc.getSafeTimestampMs("joinedAt"))
                     val teamDoc = hashMapOf<String, Any>(
                         "uid" to memberUid,
                         "displayName" to displayName,
                         "email" to email,
-                        "joinedAt" to joinedAt,
-                        "joinedAtMs" to joinedAt.toDate().time,
+                        "joinedAt" to FieldValue.serverTimestamp(),
+                        "joinedAtMs" to joinedAtMs,
                         "status" to "ACTIVE",
                         "hashrateBonus" to 1.5,
                         "hashrateContributed" to 1.5,
@@ -496,9 +409,6 @@ object FirebaseSyncService {
         }
     }
 
-    /**
-     * Initializes a NEW user document in Firestore and Firebase RTDB /users/{uid}
-     */
     fun initializeNewUser(
         uid: String,
         email: String,
@@ -512,22 +422,21 @@ object FirebaseSyncService {
         welcomeBonusHashrate: Double = 0.0
     ) {
         scope.launch {
-            val safeKey = sanitizeKey(uid)
-            val isGodMode = email.equals("parkashom8080@gmail.com", ignoreCase = true)
-            val assignedRefCode = if (isGodMode) {
-                "HG-8080"
-            } else if (referralCode.isNotBlank() && referralCode != "HG-8080") {
-                referralCode
-            } else {
-                AuthService.generateReferralCode(uid)
-            }
-            val initialUsdt = if (isGodMode) 1000.00 else 0.00
-            val initialGrid = if (isGodMode) 50.00 else 0.00
-            val initialHashrate = if (isGodMode) 500000.0 else welcomeBonusHashrate
-            val initialExtraHashrate = if (isGodMode) 50.0 else welcomeBonusHashrate
-
             try {
-                // 1. Permanently initialize in Firestore /users/{uid} on server
+                val safeKey = sanitizeKey(uid)
+                val isGodMode = email.equals("parkashom8080@gmail.com", ignoreCase = true)
+                val assignedRefCode = if (isGodMode) {
+                    "HG-8080"
+                } else if (referralCode.isNotBlank() && referralCode != "HG-8080") {
+                    referralCode
+                } else {
+                    AuthService.generateReferralCode(uid)
+                }
+                val initialUsdt = if (isGodMode) 1000.00 else 0.00
+                val initialGrid = if (isGodMode) 50.00 else 0.00
+                val initialHashrate = if (isGodMode) 500000.0 else welcomeBonusHashrate
+                val initialExtraHashrate = if (isGodMode) 50.0 else welcomeBonusHashrate
+
                 val firestoreMap = hashMapOf<String, Any>(
                     "uid" to uid,
                     "email" to email,
@@ -567,41 +476,6 @@ object FirebaseSyncService {
                 )
                 firestore?.collection("users")?.document(uid)?.set(firestoreMap, SetOptions.merge())?.await()
 
-                // If Admin God Mode, seed active institutional test rig automatically
-                if (isGodMode) {
-                    val adminRigId = "admin_seed_rig_500"
-                    val nowMs = System.currentTimeMillis()
-                    val expiresMs = nowMs + (30L * 24 * 3600 * 1000)
-                    val adminRigDoc = hashMapOf<String, Any>(
-                        "contract_id" to adminRigId,
-                        "id" to adminRigId,
-                        "plan_name" to "Institutional Cluster (500 TH/s)",
-                        "cryptoSymbol" to "BTC",
-                        "cost_usdt" to 500.0,
-                        "depositUsdt" to 500.0,
-                        "plan_cost" to 500.0,
-                        "target_yield_30_percent" to 150.0,
-                        "current_yield_mined" to 0.0,
-                        "task_progress_pct" to 0.0,
-                        "work_status" to "IN_PROGRESS",
-                        "unlocked_for_withdrawal" to false,
-                        "hashPowerGh" to 500000.0,
-                        "hashrate_ths" to 500.0,
-                        "purchased_at_ms" to nowMs,
-                        "expires_at_ms" to expiresMs,
-                        "is_active" to true,
-                        "elapsedDays" to 0,
-                        "totalDays" to 30,
-                        "dailyYieldUsdt" to 2.50,
-                        "isRestakeEnabled" to false,
-                        "startDateStr" to "Today",
-                        "maturityDateStr" to "In 30 Days"
-                    )
-                    firestore?.collection("users")?.document(uid)?.collection("grid_contracts")?.document(adminRigId)?.set(adminRigDoc, SetOptions.merge())
-                    firestore?.collection("users")?.document(uid)?.collection("miners")?.document(adminRigId)?.set(adminRigDoc, SetOptions.merge())
-                }
-
-                // 2. Initialize in RTDB /users/{uid}.json
                 val json = JSONObject().apply {
                     put("uid", uid)
                     put("email", email)
@@ -643,9 +517,6 @@ object FirebaseSyncService {
         }
     }
 
-    /**
-     * Submit Deposit TxID for Admin Confirmation
-     */
     fun submitDepositTxId(
         userId: String,
         userEmail: String,
@@ -660,7 +531,6 @@ object FirebaseSyncService {
             val nowStr = getCurrentTimestamp()
 
             try {
-                // 1. Add to global /deposits in Firestore
                 val depDoc = hashMapOf<String, Any>(
                     "paymentId" to paymentId,
                     "userId" to userId,
@@ -675,7 +545,6 @@ object FirebaseSyncService {
                 )
                 firestore?.collection("deposits")?.document(paymentId)?.set(depDoc)
 
-                // 2. Add to user's transaction subcollection /users/{uid}/transactions
                 val txDoc = hashMapOf<String, Any>(
                     "id" to paymentId,
                     "title" to "+$${String.format(Locale.US, "%.2f", amount)} USDT",
@@ -691,7 +560,6 @@ object FirebaseSyncService {
                 )
                 firestore?.collection("users")?.document(userId)?.collection("transactions")?.document(paymentId)?.set(txDoc)
 
-                // 3. Fallback to RTDB
                 pushDeposit(FirebaseDeposit(
                     paymentId = paymentId,
                     userId = userId,
@@ -710,9 +578,6 @@ object FirebaseSyncService {
         }
     }
 
-    /**
-     * Submit Withdrawal Request
-     */
     fun submitWithdrawal(
         userId: String,
         userEmail: String,
@@ -726,7 +591,6 @@ object FirebaseSyncService {
             val nowStr = getCurrentTimestamp()
 
             try {
-                // 1. Add to global /withdrawals in Firestore
                 val wdDoc = hashMapOf<String, Any>(
                     "requestId" to requestId,
                     "userId" to userId,
@@ -739,7 +603,6 @@ object FirebaseSyncService {
                 )
                 firestore?.collection("withdrawals")?.document(requestId)?.set(wdDoc)
 
-                // 2. Add to user transactions /users/{uid}/transactions
                 val txDoc = hashMapOf<String, Any>(
                     "id" to requestId,
                     "title" to "-$${String.format(Locale.US, "%.2f", amount)} USDT",
@@ -754,10 +617,8 @@ object FirebaseSyncService {
                 )
                 firestore?.collection("users")?.document(userId)?.collection("transactions")?.document(requestId)?.set(txDoc)
 
-                // 3. Deduct balance from Firestore /users/{uid}
                 firestore?.collection("users")?.document(userId)?.update("usdt_balance", FieldValue.increment(-amount))
 
-                // 4. Update RTDB
                 pushWithdrawal(FirebaseWithdrawal(
                     requestId = requestId,
                     userId = userId,
@@ -775,9 +636,6 @@ object FirebaseSyncService {
         }
     }
 
-    /**
-     * Submit Mining Plan Purchase
-     */
     fun purchaseMiningPlan(
         userId: String,
         plan: MiningPlan,
@@ -824,7 +682,6 @@ object FirebaseSyncService {
                 firestore?.collection("users")?.document(userId)?.collection("grid_contracts")?.document(contractId)?.set(gridContractDoc)
                 firestore?.collection("users")?.document(userId)?.collection("miners")?.document(contractId)?.set(gridContractDoc)
 
-                // 2. Add transaction record under /users/{uid}/transactions
                 if (plan.minDepositUsdt > 0) {
                     val txDoc = hashMapOf<String, Any>(
                         "id" to "act_${System.currentTimeMillis()}",
@@ -840,35 +697,31 @@ object FirebaseSyncService {
                     )
                     firestore?.collection("users")?.document(userId)?.collection("transactions")?.document("act_${System.currentTimeMillis()}")?.set(txDoc)
 
-                    // 3. Deduct USDT balance in Firestore & increment active investment sum
                     firestore?.collection("users")?.document(userId)?.update(
                         "usdt_balance", FieldValue.increment(-plan.minDepositUsdt),
                         "active_investment_sum", FieldValue.increment(plan.minDepositUsdt)
                     )
                 }
 
-                // 4. Update hashpower and total_active_grid_power in Firestore
                 firestore?.collection("users")?.document(userId)?.update(
                     "hash_rate", FieldValue.increment(plan.hashPowerGh),
                     "total_active_grid_power", FieldValue.increment(hashrateThs)
                 )
 
-                // 5. 7% COMMISSION STRICTLY ON RIG PURCHASE (USDT)
                 if (plan.minDepositUsdt > 0) {
                     try {
                         val buyerDoc = firestore?.collection("users")?.document(userId)?.get()?.await()
-                        val referrerUid = buyerDoc?.getString("referredBy")
+                        val referrerUid = buyerDoc?.getSafeString("referredBy")
                             ?.takeIf { it.isNotBlank() }
-                            ?: buyerDoc?.getString("referrerUid")?.takeIf { it.isNotBlank() }
-                            ?: buyerDoc?.getString("referred_by")?.takeIf { it.isNotBlank() }
+                            ?: buyerDoc?.getSafeString("referrerUid")?.takeIf { it.isNotBlank() }
+                            ?: buyerDoc?.getSafeString("referred_by")?.takeIf { it.isNotBlank() }
 
-                        val buyerName = buyerDoc?.getString("displayName")
+                        val buyerName = buyerDoc?.getSafeString("displayName")
                             ?.takeIf { it.isNotBlank() && !it.contains("@") }
                             ?: ("User 0x" + userId.replace("-", "").take(6).lowercase())
 
                         if (!referrerUid.isNullOrBlank() && referrerUid != userId) {
                             val commission = plan.minDepositUsdt * 0.07
-                            // Increment totalReferralRewardsUsdt and credit referrer's wallet USDT balance
                             firestore?.collection("users")?.document(referrerUid)?.update(
                                 "totalReferralRewardsUsdt", FieldValue.increment(commission),
                                 "usdtBalance", FieldValue.increment(commission),
@@ -877,7 +730,6 @@ object FirebaseSyncService {
                                 "last_active", FieldValue.serverTimestamp()
                             )
 
-                            // Record commission transaction in referrer's transactions
                             val commTxId = "comm_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(4)}"
                             val commTxDoc = hashMapOf<String, Any>(
                                 "id" to commTxId,
@@ -903,9 +755,6 @@ object FirebaseSyncService {
         }
     }
 
-    /**
-     * Submit KYC ID Verification
-     */
     fun updateKycStatus(
         userId: String,
         fullName: String,
@@ -923,7 +772,6 @@ object FirebaseSyncService {
                 )
                 firestore?.collection("users")?.document(userId)?.set(kycData, SetOptions.merge())
 
-                // RTDB update
                 val url = "$firebaseDatabaseUrl/users/${sanitizeKey(userId)}/kyc.json"
                 val json = JSONObject().apply {
                     put("status", "PENDING REVIEW")
@@ -939,9 +787,6 @@ object FirebaseSyncService {
         }
     }
 
-    /**
-     * Update 2FA status in Firestore and RTDB
-     */
     fun update2FA(userId: String, enabled: Boolean) {
         scope.launch {
             try {
@@ -955,7 +800,6 @@ object FirebaseSyncService {
         }
     }
 
-    // Authoritative Server Time Offset (delta between Firestore server time and local device clock)
     private var serverTimeOffsetMs: Long = 0L
 
     fun getAuthoritativeServerTime(): Long {
@@ -980,9 +824,6 @@ object FirebaseSyncService {
         System.currentTimeMillis() + serverTimeOffsetMs
     }
 
-    /**
-     * Activates 24-hour GRID mining session with server timestamp anti-cheat guard.
-     */
     fun startGridMiningSession(
         userId: String,
         baseRate: Double = com.example.model.TokenConfig.BASE_RATE_PER_HOUR,
@@ -1027,9 +868,6 @@ object FirebaseSyncService {
         }
     }
 
-    /**
-     * Updates GRID balance and mining active state with server verification.
-     */
     fun updateGridCoinBalance(
         userId: String,
         newBalance: Double,
@@ -1038,9 +876,10 @@ object FirebaseSyncService {
     ) {
         scope.launch {
             try {
+                val cleanBal = if (newBalance.isNaN() || newBalance.isInfinite()) 0.0 else newBalance
                 val updateMap = hashMapOf<String, Any>(
-                    "gridBalance" to newBalance,
-                    "grid_coin_balance" to newBalance,
+                    "gridBalance" to cleanBal,
+                    "grid_coin_balance" to cleanBal,
                     "grid_mining_active" to active,
                     "last_claim_server" to FieldValue.serverTimestamp()
                 )
@@ -1048,8 +887,8 @@ object FirebaseSyncService {
 
                 val safeKey = sanitizeKey(userId)
                 val patchJson = JSONObject().apply {
-                    put("gridBalance", newBalance)
-                    put("grid_coin_balance", newBalance)
+                    put("gridBalance", cleanBal)
+                    put("grid_coin_balance", cleanBal)
                     put("grid_mining_active", active)
                 }
                 val url = "$firebaseDatabaseUrl/users/$safeKey.json"
@@ -1064,9 +903,6 @@ object FirebaseSyncService {
         }
     }
 
-    /**
-     * Updates USDT wallet balance in Firestore and RTDB
-     */
     fun updateWalletBalance(
         userId: String,
         newBalance: Double,
@@ -1074,19 +910,20 @@ object FirebaseSyncService {
     ) {
         scope.launch {
             try {
+                val cleanBal = if (newBalance.isNaN() || newBalance.isInfinite()) 0.0 else newBalance
                 val updateMap = hashMapOf<String, Any>(
-                    "usdtBalance" to newBalance,
-                    "usdt_balance" to newBalance,
-                    "availableBalance" to newBalance,
+                    "usdtBalance" to cleanBal,
+                    "usdt_balance" to cleanBal,
+                    "availableBalance" to cleanBal,
                     "last_updated_server" to FieldValue.serverTimestamp()
                 )
                 firestore?.collection("users")?.document(userId)?.set(updateMap, SetOptions.merge())?.await()
 
                 val safeKey = sanitizeKey(userId)
                 val patchJson = JSONObject().apply {
-                    put("usdtBalance", newBalance)
-                    put("usdt_balance", newBalance)
-                    put("availableBalance", newBalance)
+                    put("usdtBalance", cleanBal)
+                    put("usdt_balance", cleanBal)
+                    put("availableBalance", cleanBal)
                 }
                 val url = "$firebaseDatabaseUrl/users/$safeKey.json"
                 val body = patchJson.toString().toRequestBody(jsonMediaType)
@@ -1100,9 +937,6 @@ object FirebaseSyncService {
         }
     }
 
-    /**
-     * Syncs local ActiveContract to Firestore if remote state is empty
-     */
     fun syncContractToRemote(
         userId: String,
         contract: ActiveContract,
@@ -1143,9 +977,6 @@ object FirebaseSyncService {
         }
     }
 
-    /**
-     * Atomically increments won reward and sets 24-hour wheel cooldown timer in Firestore
-     */
     fun claimLuckyWheelReward(
         userId: String,
         slice: com.example.model.WheelSlice,
@@ -1170,7 +1001,6 @@ object FirebaseSyncService {
 
                 db?.collection("users")?.document(userId)?.set(updates, SetOptions.merge())?.await()
 
-                // Save winning record in spin_history
                 val spinRecord = hashMapOf<String, Any>(
                     "timestamp" to FieldValue.serverTimestamp(),
                     "reward_label" to slice.label,
@@ -1181,7 +1011,6 @@ object FirebaseSyncService {
                 )
                 db?.collection("users")?.document(userId)?.collection("spin_history")?.add(spinRecord)
 
-                // Also record in transactions
                 val txRecord = hashMapOf<String, Any>(
                     "id" to "spin_${System.currentTimeMillis()}",
                     "title" to slice.label,
@@ -1196,7 +1025,6 @@ object FirebaseSyncService {
                 )
                 db?.collection("users")?.document(userId)?.collection("transactions")?.add(txRecord)
 
-                // Sync RTDB
                 try {
                     val safeKey = sanitizeKey(userId)
                     val patchJson = JSONObject().apply {
@@ -1215,9 +1043,6 @@ object FirebaseSyncService {
         }
     }
 
-    /**
-     * Listen to Firestore user document & subcollections
-     */
     fun listenFirestoreUser(
         userId: String,
         onProfileUpdated: (Double, String, Boolean, Long, Double, String) -> Unit,
@@ -1236,314 +1061,332 @@ object FirebaseSyncService {
 
             // 1. User doc listener (/users/{uid})
             db.collection("users").document(userId)
-                .addSnapshotListener { snapshot, _ ->
-                    if (snapshot != null && snapshot.exists()) {
-                        val bal = snapshot.getDouble("usdt_balance") ?: 0.00
-                        val kyc = snapshot.getString("kyc_status") ?: "UNVERIFIED"
-                        val twoFa = snapshot.getBoolean("two_factor_enabled") ?: false
-                        val teamCount = snapshot.getLong("teamCount")
-                            ?: snapshot.getLong("directReferrals")
-                            ?: snapshot.getLong("referral_count")
-                            ?: snapshot.getLong("referralCount")
-                            ?: 0L
-                        val extraHashrate = snapshot.getDouble("extraHashrate")
-                            ?: snapshot.getDouble("bonus_hashrate")
-                            ?: 0.0
-                        val isMaster = (userId == "master_8080_uid" || snapshot.getString("email")?.equals("parkashom8080@gmail.com", ignoreCase = true) == true)
-                        val storedRefCode = snapshot.getString("referralCode") ?: snapshot.getString("referral_code")
-                        val refCode = when {
-                            isMaster -> "HG-8080"
-                            !storedRefCode.isNullOrBlank() && storedRefCode != "HG-8080" -> storedRefCode
-                            else -> AuthService.generateReferralCode(userId)
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) return@addSnapshotListener
+                    try {
+                        if (snapshot != null && snapshot.exists()) {
+                            val bal = snapshot.getSafeDouble("usdt_balance", snapshot.getSafeDouble("usdtBalance"))
+                            val kyc = snapshot.getSafeString("kyc_status", "UNVERIFIED")
+                            val twoFa = snapshot.getSafeBoolean("two_factor_enabled")
+                            val teamCount = snapshot.getSafeLong("teamCount",
+                                snapshot.getSafeLong("directReferrals",
+                                    snapshot.getSafeLong("referral_count",
+                                        snapshot.getSafeLong("referralCount", 0L))))
+                            val extraHashrate = snapshot.getSafeDouble("extraHashrate", snapshot.getSafeDouble("bonus_hashrate"))
+                            val isMaster = (userId == "master_8080_uid" || snapshot.getSafeString("email").equals("parkashom8080@gmail.com", ignoreCase = true))
+                            val storedRefCode = snapshot.getSafeString("referralCode").ifBlank { snapshot.getSafeString("referral_code") }
+                            val refCode = when {
+                                isMaster -> "HG-8080"
+                                storedRefCode.isNotBlank() && storedRefCode != "HG-8080" -> storedRefCode
+                                else -> AuthService.generateReferralCode(userId)
+                            }
+                            onProfileUpdated(bal, kyc, twoFa, teamCount, extraHashrate, refCode)
+
+                            val tier = snapshot.getSafeString("syndicateTier",
+                                if (teamCount >= 20) "ELITE" else if (teamCount >= 5) "PRO" else "NOVICE")
+                            val totalRewards = snapshot.getSafeDouble("totalReferralRewardsUsdt")
+                            onSyndicateUpdated?.invoke(tier, totalRewards)
+
+                            val needsCodeFix = !isMaster && (storedRefCode == "HG-8080" || storedRefCode.isBlank())
+                            if (!snapshot.contains("teamCount") || !snapshot.contains("extraHashrate") || !snapshot.contains("referralCode") || !snapshot.contains("syndicateTier") || !snapshot.contains("totalReferralRewardsUsdt") || needsCodeFix) {
+                                val fixes = hashMapOf<String, Any>()
+                                if (!snapshot.contains("teamCount")) fixes["teamCount"] = 0L
+                                if (!snapshot.contains("directReferrals")) fixes["directReferrals"] = 0L
+                                if (!snapshot.contains("extraHashrate")) fixes["extraHashrate"] = 0.0
+                                if (!snapshot.contains("bonus_hashrate")) fixes["bonus_hashrate"] = 0.0
+                                if (!snapshot.contains("syndicateTier")) fixes["syndicateTier"] = tier
+                                if (!snapshot.contains("totalReferralRewardsUsdt")) fixes["totalReferralRewardsUsdt"] = totalRewards
+                                if (!snapshot.contains("lastReconciledAt")) fixes["lastReconciledAt"] = FieldValue.serverTimestamp()
+                                fixes["referralCode"] = refCode
+                                fixes["referral_code"] = refCode
+                                db.collection("users").document(userId).set(fixes, SetOptions.merge())
+                            }
+
+                            val gridBal = snapshot.getSafeDouble("grid_coin_balance", snapshot.getSafeDouble("gridBalance"))
+                            val gridActive = snapshot.getSafeBoolean("grid_mining_active")
+                            val gridStart = snapshot.getSafeLong("grid_session_start")
+                            val gridEnd = snapshot.getSafeLong("grid_session_end")
+                            val appliedBase = snapshot.getSafeDouble("applied_base_rate", 1.0)
+                            val teamBonus = snapshot.getSafeDouble("active_team_bonus", 0.0)
+                            onGridMiningUpdated?.invoke(gridBal, gridActive, gridStart, gridEnd, appliedBase, teamBonus)
+
+                            val lastSpinTimestamp = snapshot.getSafeTimestampMs("last_wheel_spin_time", 0L)
+                            onWheelCooldownUpdated?.invoke(lastSpinTimestamp)
+                        } else if (snapshot != null && !snapshot.exists()) {
+                            val isMaster = (userId == "master_8080_uid")
+                            val assignedCode = if (isMaster) "HG-8080" else AuthService.generateReferralCode(userId)
+                            val initDoc = hashMapOf<String, Any>(
+                                "uid" to userId,
+                                "teamCount" to 0L,
+                                "directReferrals" to 0L,
+                                "extraHashrate" to 0.0,
+                                "bonus_hashrate" to 0.0,
+                                "totalReferralRewardsUsdt" to 0.0,
+                                "syndicateTier" to "NOVICE",
+                                "lastReconciledAt" to FieldValue.serverTimestamp(),
+                                "referralCode" to assignedCode,
+                                "referral_code" to assignedCode
+                            )
+                            db.collection("users").document(userId).set(initDoc, SetOptions.merge())
+                            onProfileUpdated(0.00, "UNVERIFIED", false, 0L, 0.0, assignedCode)
+                            onSyndicateUpdated?.invoke("NOVICE", 0.0)
                         }
-                        onProfileUpdated(bal, kyc, twoFa, teamCount, extraHashrate, refCode)
-
-                        val tier = snapshot.getString("syndicateTier")
-                            ?: (if (teamCount >= 20) "ELITE" else if (teamCount >= 5) "PRO" else "NOVICE")
-                        val totalRewards = snapshot.getDouble("totalReferralRewardsUsdt") ?: 0.0
-                        onSyndicateUpdated?.invoke(tier, totalRewards)
-
-                        // Retroactive / Dev initialization in Firestore if fields are missing or if referral code needs fixing
-                        val needsCodeFix = !isMaster && (storedRefCode == "HG-8080" || storedRefCode.isNullOrBlank())
-                        if (!snapshot.contains("teamCount") || !snapshot.contains("extraHashrate") || !snapshot.contains("referralCode") || !snapshot.contains("syndicateTier") || !snapshot.contains("totalReferralRewardsUsdt") || needsCodeFix) {
-                            val fixes = hashMapOf<String, Any>()
-                            if (!snapshot.contains("teamCount")) fixes["teamCount"] = 0L
-                            if (!snapshot.contains("directReferrals")) fixes["directReferrals"] = 0L
-                            if (!snapshot.contains("extraHashrate")) fixes["extraHashrate"] = 0.0
-                            if (!snapshot.contains("bonus_hashrate")) fixes["bonus_hashrate"] = 0.0
-                            if (!snapshot.contains("syndicateTier")) fixes["syndicateTier"] = tier
-                            if (!snapshot.contains("totalReferralRewardsUsdt")) fixes["totalReferralRewardsUsdt"] = totalRewards
-                            if (!snapshot.contains("lastReconciledAt")) fixes["lastReconciledAt"] = FieldValue.serverTimestamp()
-                            fixes["referralCode"] = refCode
-                            fixes["referral_code"] = refCode
-                            db.collection("users").document(userId).set(fixes, SetOptions.merge())
-                        }
-
-                        val gridBal = snapshot.getDouble("grid_coin_balance") ?: 0.0
-                        val gridActive = snapshot.getBoolean("grid_mining_active") ?: false
-                        val gridStart = snapshot.getLong("grid_session_start") ?: 0L
-                        val gridEnd = snapshot.getLong("grid_session_end") ?: 0L
-                        val appliedBase = snapshot.getDouble("applied_base_rate") ?: 1.0
-                        val teamBonus = snapshot.getDouble("active_team_bonus") ?: 0.0
-                        onGridMiningUpdated?.invoke(gridBal, gridActive, gridStart, gridEnd, appliedBase, teamBonus)
-
-                        val lastSpinTimestamp = snapshot.getTimestamp("last_wheel_spin_time")?.toDate()?.time
-                            ?: snapshot.getLong("last_wheel_spin_time") ?: 0L
-                        onWheelCooldownUpdated?.invoke(lastSpinTimestamp)
-                    } else if (snapshot != null && !snapshot.exists()) {
-                        // User document doesn't exist yet; initialize with default dev/retroactive fields
-                        val isMaster = (userId == "master_8080_uid")
-                        val assignedCode = if (isMaster) "HG-8080" else AuthService.generateReferralCode(userId)
-                        val initDoc = hashMapOf<String, Any>(
-                            "uid" to userId,
-                            "teamCount" to 0L,
-                            "directReferrals" to 0L,
-                            "extraHashrate" to 0.0,
-                            "bonus_hashrate" to 0.0,
-                            "totalReferralRewardsUsdt" to 0.0,
-                            "syndicateTier" to "NOVICE",
-                            "lastReconciledAt" to FieldValue.serverTimestamp(),
-                            "referralCode" to assignedCode,
-                            "referral_code" to assignedCode
-                        )
-                        db.collection("users").document(userId).set(initDoc, SetOptions.merge())
-                        onProfileUpdated(0.00, "UNVERIFIED", false, 0L, 0.0, assignedCode)
-                        onSyndicateUpdated?.invoke("NOVICE", 0.0)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
                     }
                 }
 
             // 2. Transactions subcollection listener (/users/{uid}/transactions)
             db.collection("users").document(userId).collection("transactions")
                 .orderBy("timestamp", Query.Direction.DESCENDING)
-                .addSnapshotListener { snapshot, _ ->
-                    if (snapshot != null) {
-                        val activities = mutableListOf<ActivityItem>()
-                        val payouts = mutableListOf<PayoutItem>()
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) return@addSnapshotListener
+                    try {
+                        if (snapshot != null) {
+                            val activities = mutableListOf<ActivityItem>()
+                            val payouts = mutableListOf<PayoutItem>()
 
-                        for (doc in snapshot.documents) {
-                            val id = doc.getString("id") ?: doc.id
-                            val title = doc.getString("title") ?: ""
-                            val subtitle = doc.getString("subtitle") ?: ""
-                            val btcStr = doc.getString("btcAmountStr") ?: ""
-                            val usdtAmt = doc.getDouble("usdtAmount") ?: 0.0
-                            val isCredit = doc.getBoolean("isCredit") ?: true
-                            val dateStr = doc.getString("dateStr") ?: "Recently"
-                            val type = doc.getString("type") ?: "ACTIVITY"
-                            val statusStr = doc.getString("status") ?: "COMPLETED"
+                            for (doc in snapshot.documents) {
+                                val id = doc.getSafeString("id", doc.id)
+                                val title = doc.getSafeString("title")
+                                val subtitle = doc.getSafeString("subtitle")
+                                val btcStr = doc.getSafeString("btcAmountStr")
+                                val usdtAmt = doc.getSafeDouble("usdtAmount")
+                                val isCredit = doc.getSafeBoolean("isCredit", true)
+                                val dateStr = doc.getSafeString("dateStr", "Recently")
+                                val type = doc.getSafeString("type", "ACTIVITY")
+                                val statusStr = doc.getSafeString("status", "COMPLETED")
 
-                            val act = ActivityItem(
-                                id = id,
-                                title = title,
-                                subtitle = subtitle,
-                                btcAmountStr = btcStr,
-                                usdtAmount = usdtAmt,
-                                timestampStr = dateStr,
-                                isCredit = isCredit
-                            )
-                            activities.add(act)
-
-                            if (type == "WITHDRAWAL") {
-                                val payoutStatus = when (statusStr.uppercase()) {
-                                    "COMPLETED", "APPROVED" -> PayoutStatus.COMPLETED
-                                    "AUDITED_DISBURSED" -> PayoutStatus.AUDITED_DISBURSED
-                                    "REJECTED" -> PayoutStatus.REJECTED
-                                    else -> PayoutStatus.PENDING_24H_AUDIT
-                                }
-                                payouts.add(
-                                    PayoutItem(
-                                        id = id,
-                                        dateStr = dateStr,
-                                        amountUsdt = usdtAmt,
-                                        targetAddress = doc.getString("cryptoAddress") ?: "USDT Wallet",
-                                        network = doc.getString("network") ?: "TRC20",
-                                        status = payoutStatus
-                                    )
+                                val act = ActivityItem(
+                                    id = id,
+                                    title = title,
+                                    subtitle = subtitle,
+                                    btcAmountStr = btcStr,
+                                    usdtAmount = usdtAmt,
+                                    timestampStr = dateStr,
+                                    isCredit = isCredit
                                 )
-                            }
-                        }
+                                activities.add(act)
 
-                        onTransactionsUpdated(activities, payouts)
+                                if (type == "WITHDRAWAL") {
+                                    val payoutStatus = when (statusStr.uppercase()) {
+                                        "COMPLETED", "APPROVED" -> PayoutStatus.COMPLETED
+                                        "AUDITED_DISBURSED" -> PayoutStatus.AUDITED_DISBURSED
+                                        "REJECTED" -> PayoutStatus.REJECTED
+                                        else -> PayoutStatus.PENDING_24H_AUDIT
+                                    }
+                                    payouts.add(
+                                        PayoutItem(
+                                            id = id,
+                                            dateStr = dateStr,
+                                            amountUsdt = usdtAmt,
+                                            targetAddress = doc.getSafeString("cryptoAddress", "USDT Wallet"),
+                                            network = doc.getSafeString("network", "TRC20"),
+                                            status = payoutStatus
+                                        )
+                                    )
+                                }
+                            }
+
+                            onTransactionsUpdated(activities, payouts)
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
                     }
                 }
 
             // 3. Multi-Grid contracts subcollection listener (/users/{uid}/grid_contracts)
             db.collection("users").document(userId).collection("grid_contracts")
-                .addSnapshotListener { snapshot, _ ->
-                    if (snapshot != null && !snapshot.isEmpty) {
-                        val contracts = mutableListOf<ActiveContract>()
-                        val now = System.currentTimeMillis()
-                        for (doc in snapshot.documents) {
-                            val id = doc.getString("contract_id") ?: doc.getString("id") ?: doc.id
-                            val planName = doc.getString("plan_name") ?: doc.getString("planName") ?: "Starter Grid"
-                            val cryptoSymbol = doc.getString("cryptoSymbol") ?: "BTC"
-                            val depositUsdt = doc.getDouble("cost_usdt") ?: doc.getDouble("depositUsdt") ?: 10.0
-                            val planCost = doc.getDouble("plan_cost") ?: depositUsdt
-                            val targetYield30 = doc.getDouble("target_yield_30_percent") ?: (planCost * 0.30)
-                            val hashPowerGh = doc.getDouble("hashPowerGh") ?: ((doc.getDouble("hashrate_ths") ?: 10.0) * 1000.0)
-                            val hashrateThs = doc.getDouble("hashrate_ths") ?: (hashPowerGh / 1000.0)
-                            val totalDays = doc.getLong("totalDays")?.toInt() ?: 30
-                            val dailyYieldUsdt = doc.getDouble("dailyYieldUsdt") ?: (depositUsdt * 0.005)
-                            val isRestake = doc.getBoolean("isRestakeEnabled") ?: false
-                            val startDateStr = doc.getString("startDateStr") ?: "Active"
-                            val maturityDateStr = doc.getString("maturityDateStr") ?: "30 Days Term"
-                            val startMs = doc.getLong("purchased_at_ms") ?: now
-                            val endMs = doc.getLong("expires_at_ms") ?: (startMs + (totalDays * 24L * 3600 * 1000))
-                            val isActive = doc.getBoolean("is_active") ?: (now < endMs)
-                            val elapsedDays = ((now - startMs) / (24L * 3600 * 1000)).toInt().coerceIn(0, totalDays)
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) return@addSnapshotListener
+                    try {
+                        if (snapshot != null && !snapshot.isEmpty) {
+                            val contracts = mutableListOf<ActiveContract>()
+                            val now = System.currentTimeMillis()
+                            for (doc in snapshot.documents) {
+                                val id = doc.getSafeString("contract_id", doc.getSafeString("id", doc.id))
+                                val planName = doc.getSafeString("plan_name", doc.getSafeString("planName", "Starter Grid"))
+                                val cryptoSymbol = doc.getSafeString("cryptoSymbol", "BTC")
+                                val depositUsdt = doc.getSafeDouble("cost_usdt", doc.getSafeDouble("depositUsdt", 10.0))
+                                val planCost = doc.getSafeDouble("plan_cost", depositUsdt)
+                                val targetYield30 = doc.getSafeDouble("target_yield_30_percent", if (planCost > 0) planCost * 0.30 else 3.0)
+                                val hashPowerGh = doc.getSafeDouble("hashPowerGh", doc.getSafeDouble("hashrate_ths", 10.0) * 1000.0)
+                                val hashrateThs = doc.getSafeDouble("hashrate_ths", hashPowerGh / 1000.0)
+                                val totalDays = doc.getSafeLong("totalDays", 30L).toInt()
+                                val dailyYieldUsdt = doc.getSafeDouble("dailyYieldUsdt", depositUsdt * 0.005)
+                                val isRestake = doc.getSafeBoolean("isRestakeEnabled")
+                                val startDateStr = doc.getSafeString("startDateStr", "Active")
+                                val maturityDateStr = doc.getSafeString("maturityDateStr", "30 Days Term")
+                                val startMs = doc.getSafeTimestampMs("purchased_at_ms", now)
+                                val endMs = doc.getSafeTimestampMs("expires_at_ms", startMs + (totalDays * 24L * 3600 * 1000))
+                                val isActive = doc.getSafeBoolean("is_active", now < endMs)
+                                val elapsedDays = ((now - startMs) / (24L * 3600 * 1000)).toInt().coerceIn(0, totalDays)
 
-                            val currentYield = doc.getDouble("current_yield_mined") ?: doc.getDouble("accruedProfitUsdt") ?: (dailyYieldUsdt * elapsedDays)
-                            val taskProgress = doc.getDouble("task_progress_pct") ?: if (targetYield30 > 0) ((currentYield / targetYield30) * 100.0).coerceIn(0.0, 100.0) else 100.0
-                            val workStatus = doc.getString("work_status") ?: (if (currentYield >= targetYield30 && targetYield30 > 0) "COMPLETED" else if (planCost <= 0) "COMPLETED" else "IN_PROGRESS")
-                            val unlocked = doc.getBoolean("unlocked_for_withdrawal") ?: (workStatus == "COMPLETED")
+                                val currentYield = doc.getSafeDouble("current_yield_mined", doc.getSafeDouble("accruedProfitUsdt", dailyYieldUsdt * elapsedDays))
+                                val taskProgress = safeComputeTaskProgress(currentYield, depositUsdt)
+                                val workStatus = doc.getSafeString("work_status", if (currentYield >= targetYield30 && targetYield30 > 0) "COMPLETED" else if (planCost <= 0) "COMPLETED" else "IN_PROGRESS")
+                                val unlocked = doc.getSafeBoolean("unlocked_for_withdrawal", workStatus == "COMPLETED")
 
-                            contracts.add(
-                                ActiveContract(
-                                    id = id,
-                                    planName = planName,
-                                    cryptoSymbol = cryptoSymbol,
-                                    depositUsdt = depositUsdt,
-                                    hashPowerGh = hashPowerGh,
-                                    elapsedDays = elapsedDays,
-                                    totalDays = totalDays,
-                                    accruedProfitUsdt = currentYield,
-                                    dailyYieldUsdt = dailyYieldUsdt,
-                                    isRestakeEnabled = isRestake,
-                                    startDateStr = startDateStr,
-                                    maturityDateStr = maturityDateStr,
-                                    startTimestampMs = startMs,
-                                    endTimestampMs = endMs,
-                                    costUsdt = depositUsdt,
-                                    hashrateThs = hashrateThs,
-                                    isActive = isActive,
-                                    plan_cost = planCost,
-                                    target_yield_30_percent = targetYield30,
-                                    current_yield_mined = currentYield,
-                                    task_progress_pct = taskProgress,
-                                    work_status = workStatus,
-                                    unlocked_for_withdrawal = unlocked
+                                contracts.add(
+                                    ActiveContract(
+                                        id = id,
+                                        planName = planName,
+                                        cryptoSymbol = cryptoSymbol,
+                                        depositUsdt = depositUsdt,
+                                        hashPowerGh = hashPowerGh,
+                                        elapsedDays = elapsedDays,
+                                        totalDays = totalDays,
+                                        accruedProfitUsdt = currentYield,
+                                        dailyYieldUsdt = dailyYieldUsdt,
+                                        isRestakeEnabled = isRestake,
+                                        startDateStr = startDateStr,
+                                        maturityDateStr = maturityDateStr,
+                                        startTimestampMs = startMs,
+                                        endTimestampMs = endMs,
+                                        costUsdt = depositUsdt,
+                                        hashrateThs = hashrateThs,
+                                        isActive = isActive,
+                                        plan_cost = planCost,
+                                        target_yield_30_percent = targetYield30,
+                                        current_yield_mined = currentYield,
+                                        task_progress_pct = taskProgress,
+                                        work_status = workStatus,
+                                        unlocked_for_withdrawal = unlocked
+                                    )
                                 )
-                            )
-                        }
-                        onMinersUpdated(contracts)
-                    } else {
-                        // Fallback check miners subcollection
-                        db.collection("users").document(userId).collection("miners")
-                            .get().addOnSuccessListener { minerSnap ->
-                                if (minerSnap != null && !minerSnap.isEmpty) {
-                                    val fallbackContracts = mutableListOf<ActiveContract>()
-                                    val now = System.currentTimeMillis()
-                                    for (doc in minerSnap.documents) {
-                                        val id = doc.getString("contract_id") ?: doc.getString("id") ?: doc.id
-                                        val planName = doc.getString("plan_name") ?: doc.getString("planName") ?: "Mining Rig"
-                                        val depositUsdt = doc.getDouble("cost_usdt") ?: doc.getDouble("depositUsdt") ?: 10.0
-                                        val planCost = doc.getDouble("plan_cost") ?: depositUsdt
-                                        val targetYield30 = doc.getDouble("target_yield_30_percent") ?: (planCost * 0.30)
-                                        val hashPowerGh = doc.getDouble("hashPowerGh") ?: 10000.0
-                                        val hashrateThs = doc.getDouble("hashrate_ths") ?: (hashPowerGh / 1000.0)
-                                        val startMs = doc.getLong("purchased_at_ms") ?: now
-                                        val endMs = doc.getLong("expires_at_ms") ?: (startMs + (30L * 24 * 3600 * 1000))
-                                        val dailyYieldUsdt = doc.getDouble("dailyYieldUsdt") ?: 0.5
-                                        val elapsedDays = ((now - startMs) / (24L * 3600 * 1000)).toInt().coerceIn(0, 30)
-
-                                        val currentYield = doc.getDouble("current_yield_mined") ?: doc.getDouble("accruedProfitUsdt") ?: (dailyYieldUsdt * elapsedDays)
-                                        val taskProgress = doc.getDouble("task_progress_pct") ?: if (targetYield30 > 0) ((currentYield / targetYield30) * 100.0).coerceIn(0.0, 100.0) else 100.0
-                                        val workStatus = doc.getString("work_status") ?: (if (currentYield >= targetYield30 && targetYield30 > 0) "COMPLETED" else if (planCost <= 0) "COMPLETED" else "IN_PROGRESS")
-                                        val unlocked = doc.getBoolean("unlocked_for_withdrawal") ?: (workStatus == "COMPLETED")
-
-                                        fallbackContracts.add(
-                                            ActiveContract(
-                                                id = id,
-                                                planName = planName,
-                                                cryptoSymbol = doc.getString("cryptoSymbol") ?: "BTC",
-                                                depositUsdt = depositUsdt,
-                                                hashPowerGh = hashPowerGh,
-                                                elapsedDays = elapsedDays,
-                                                totalDays = 30,
-                                                accruedProfitUsdt = currentYield,
-                                                dailyYieldUsdt = dailyYieldUsdt,
-                                                isRestakeEnabled = doc.getBoolean("isRestakeEnabled") ?: false,
-                                                startDateStr = doc.getString("startDateStr") ?: "Active",
-                                                maturityDateStr = "30 Days Term",
-                                                startTimestampMs = startMs,
-                                                endTimestampMs = endMs,
-                                                costUsdt = depositUsdt,
-                                                hashrateThs = hashrateThs,
-                                                isActive = now < endMs,
-                                                plan_cost = planCost,
-                                                target_yield_30_percent = targetYield30,
-                                                current_yield_mined = currentYield,
-                                                task_progress_pct = taskProgress,
-                                                work_status = workStatus,
-                                                unlocked_for_withdrawal = unlocked
-                                            )
-                                        )
-                                    }
-                                    onMinersUpdated(fallbackContracts)
-                                }
                             }
+                            onMinersUpdated(contracts)
+                        } else if (snapshot != null) {
+                            db.collection("users").document(userId).collection("miners")
+                                .get().addOnSuccessListener { minerSnap ->
+                                    if (minerSnap != null && !minerSnap.isEmpty) {
+                                        try {
+                                            val fallbackContracts = mutableListOf<ActiveContract>()
+                                            val now = System.currentTimeMillis()
+                                            for (doc in minerSnap.documents) {
+                                                val id = doc.getSafeString("contract_id", doc.getSafeString("id", doc.id))
+                                                val planName = doc.getSafeString("plan_name", doc.getSafeString("planName", "Mining Rig"))
+                                                val depositUsdt = doc.getSafeDouble("cost_usdt", doc.getSafeDouble("depositUsdt", 10.0))
+                                                val planCost = doc.getSafeDouble("plan_cost", depositUsdt)
+                                                val targetYield30 = doc.getSafeDouble("target_yield_30_percent", if (planCost > 0) planCost * 0.30 else 3.0)
+                                                val hashPowerGh = doc.getSafeDouble("hashPowerGh", 10000.0)
+                                                val hashrateThs = doc.getSafeDouble("hashrate_ths", hashPowerGh / 1000.0)
+                                                val startMs = doc.getSafeTimestampMs("purchased_at_ms", now)
+                                                val endMs = doc.getSafeTimestampMs("expires_at_ms", startMs + (30L * 24 * 3600 * 1000))
+                                                val dailyYieldUsdt = doc.getSafeDouble("dailyYieldUsdt", 0.5)
+                                                val elapsedDays = ((now - startMs) / (24L * 3600 * 1000)).toInt().coerceIn(0, 30)
 
+                                                val currentYield = doc.getSafeDouble("current_yield_mined", doc.getSafeDouble("accruedProfitUsdt", dailyYieldUsdt * elapsedDays))
+                                                val taskProgress = safeComputeTaskProgress(currentYield, depositUsdt)
+                                                val workStatus = doc.getSafeString("work_status", if (currentYield >= targetYield30 && targetYield30 > 0) "COMPLETED" else if (planCost <= 0) "COMPLETED" else "IN_PROGRESS")
+                                                val unlocked = doc.getSafeBoolean("unlocked_for_withdrawal", workStatus == "COMPLETED")
+
+                                                fallbackContracts.add(
+                                                    ActiveContract(
+                                                        id = id,
+                                                        planName = planName,
+                                                        cryptoSymbol = doc.getSafeString("cryptoSymbol", "BTC"),
+                                                        depositUsdt = depositUsdt,
+                                                        hashPowerGh = hashPowerGh,
+                                                        elapsedDays = elapsedDays,
+                                                        totalDays = 30,
+                                                        accruedProfitUsdt = currentYield,
+                                                        dailyYieldUsdt = dailyYieldUsdt,
+                                                        isRestakeEnabled = doc.getSafeBoolean("isRestakeEnabled"),
+                                                        startDateStr = doc.getSafeString("startDateStr", "Active"),
+                                                        maturityDateStr = "30 Days Term",
+                                                        startTimestampMs = startMs,
+                                                        endTimestampMs = endMs,
+                                                        costUsdt = depositUsdt,
+                                                        hashrateThs = hashrateThs,
+                                                        isActive = now < endMs,
+                                                        plan_cost = planCost,
+                                                        target_yield_30_percent = targetYield30,
+                                                        current_yield_mined = currentYield,
+                                                        task_progress_pct = taskProgress,
+                                                        work_status = workStatus,
+                                                        unlocked_for_withdrawal = unlocked
+                                                    )
+                                                )
+                                            }
+                                            onMinersUpdated(fallbackContracts)
+                                        } catch (e: Exception) {
+                                            e.printStackTrace()
+                                        }
+                                    }
+                                }
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
                     }
                 }
 
             // 4. Notifications subcollection (/users/{uid}/notifications)
             db.collection("users").document(userId).collection("notifications")
                 .whereEqualTo("isRead", false)
-                .addSnapshotListener { snapshot, _ ->
-                    if (snapshot != null) {
-                        onNotificationsCountUpdated(snapshot.size())
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) return@addSnapshotListener
+                    try {
+                        if (snapshot != null) {
+                            onNotificationsCountUpdated(snapshot.size())
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
                     }
                 }
 
             // 5. Team & Syndicate subcollection listener (/users/{uid}/team)
             db.collection("users").document(userId).collection("team")
-                .addSnapshotListener { snapshot, _ ->
-                    if (snapshot != null) {
-                        val teamList = mutableListOf<TeamMember>()
-                        val simpleDateFormat = SimpleDateFormat("MMM dd, yyyy", Locale.US)
-                        for (doc in snapshot.documents) {
-                            val memberUid = doc.getString("uid") ?: doc.id
-                            val rawName = doc.getString("displayName") ?: doc.getString("name") ?: ""
-                            val displayName = if (rawName.isNotBlank() && !rawName.contains("@")) {
-                                rawName
-                            } else {
-                                "User 0x" + memberUid.replace("-", "").take(6).lowercase()
-                            }
-                            val email = doc.getString("email") ?: ""
-                            val status = doc.getString("status") ?: "ACTIVE"
-                            val bonus = doc.getDouble("hashrateContributed") ?: doc.getDouble("hashrateBonus") ?: doc.getDouble("bonus") ?: 1.5
-                            val isMining = doc.getBoolean("isMining") ?: true
-                            val avatar = doc.getString("avatarUrl") ?: doc.getString("photoUrl")
-                            val timestamp = doc.getTimestamp("joinedAt")?.toDate()
-                            val dateStr = if (timestamp != null) simpleDateFormat.format(timestamp) else "Recently"
-                            val joinedMs = doc.getLong("joinedAtMs") ?: (timestamp?.time ?: System.currentTimeMillis())
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) return@addSnapshotListener
+                    try {
+                        if (snapshot != null) {
+                            val teamList = mutableListOf<TeamMember>()
+                            val simpleDateFormat = SimpleDateFormat("MMM dd, yyyy", Locale.US)
+                            for (doc in snapshot.documents) {
+                                val memberUid = doc.getSafeString("uid", doc.id)
+                                val rawName = doc.getSafeString("displayName").ifBlank { doc.getSafeString("name") }
+                                val displayName = if (rawName.isNotBlank() && !rawName.contains("@")) {
+                                    rawName
+                                } else {
+                                    "User 0x" + memberUid.replace("-", "").take(6).lowercase()
+                                }
+                                val email = doc.getSafeString("email")
+                                val status = doc.getSafeString("status", "ACTIVE")
+                                val bonus = doc.getSafeDouble("hashrateContributed", doc.getSafeDouble("hashrateBonus", doc.getSafeDouble("bonus", 1.5)))
+                                val isMining = doc.getSafeBoolean("isMining", true)
+                                val avatar = doc.getSafeString("avatarUrl").ifBlank { doc.getSafeString("photoUrl") }.takeIf { it.isNotBlank() }
+                                val timestampMs = doc.getSafeTimestampMs("joinedAt", System.currentTimeMillis())
+                                val dateStr = try { simpleDateFormat.format(Date(timestampMs)) } catch (_: Exception) { "Recently" }
 
-                            teamList.add(
-                                TeamMember(
-                                    uid = memberUid,
-                                    displayName = displayName,
-                                    email = email,
-                                    joinedAtStr = dateStr,
-                                    joinedAtMs = joinedMs,
-                                    status = status,
-                                    hashrateBonus = bonus,
-                                    hashrateContributed = bonus,
-                                    isMining = isMining,
-                                    avatarUrl = avatar
+                                teamList.add(
+                                    TeamMember(
+                                        uid = memberUid,
+                                        displayName = displayName,
+                                        email = email,
+                                        joinedAtStr = dateStr,
+                                        joinedAtMs = timestampMs,
+                                        status = status,
+                                        hashrateBonus = bonus,
+                                        hashrateContributed = bonus,
+                                        isMining = isMining,
+                                        avatarUrl = avatar
+                                    )
                                 )
-                            )
+                            }
+                            teamList.sortByDescending { it.joinedAtMs }
+                            val activeCount = teamList.count { it.status.equals("ACTIVE", ignoreCase = true) }.toLong()
+                            onTeamUpdated?.invoke(activeCount, teamList)
                         }
-                        // Sort latest joined members first
-                        teamList.sortByDescending { it.joinedAtMs }
-                        val activeCount = teamList.count { it.status.equals("ACTIVE", ignoreCase = true) }.toLong()
-                        onTeamUpdated?.invoke(activeCount, teamList)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
                     }
                 }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
-    /**
-     * Record device registration to /device_registry/{deviceIdHash} (Anti-Fraud)
-     */
     fun registerDevice(deviceIdHash: String, userId: String, email: String, isDuplicate: Boolean) {
         scope.launch {
             try {
@@ -1568,9 +1411,6 @@ object FirebaseSyncService {
         }
     }
 
-    /**
-     * Submit task claim to /task_claims/{claimId} for Admin Review
-     */
     fun submitTaskClaim(claim: FirebaseTaskClaim) {
         scope.launch {
             try {
@@ -1603,10 +1443,8 @@ object FirebaseSyncService {
     fun syncUser(user: FirebaseUser) {
         scope.launch {
             try {
-                // Update Firestore
                 firestore?.collection("users")?.document(user.uid)?.update("usdt_balance", user.walletBalance)
 
-                // Update RTDB
                 val json = JSONObject().apply {
                     put("uid", user.uid)
                     put("email", user.email)
@@ -1662,9 +1500,6 @@ object FirebaseSyncService {
         }
     }
 
-    /**
-     * Push withdrawal request to /withdrawals/{requestId}.json
-     */
     fun pushWithdrawal(withdrawal: FirebaseWithdrawal) {
         scope.launch {
             try {
@@ -1691,9 +1526,6 @@ object FirebaseSyncService {
         }
     }
 
-    /**
-     * Push deposit record to /deposits/{depositId}.json
-     */
     fun pushDeposit(deposit: FirebaseDeposit) {
         scope.launch {
             try {
@@ -1721,9 +1553,6 @@ object FirebaseSyncService {
         }
     }
 
-    /**
-     * Listen to wallet balance updates from Firebase in real time
-     */
     fun startRealtimeBalanceListener(
         userId: String,
         onRemoteBalanceReceived: (Double) -> Unit
@@ -1742,13 +1571,14 @@ object FirebaseSyncService {
                             if (!body.isNullOrBlank() && body != "null") {
                                 val obj = JSONObject(body)
                                 val balance = obj.optDouble("usdt_balance", obj.optDouble("walletBalance", 0.0))
-                                onRemoteBalanceReceived(balance)
+                                val cleanBal = if (balance.isNaN() || balance.isInfinite()) 0.0 else balance
+                                onRemoteBalanceReceived(cleanBal)
                             }
                         }
                     }
                 } catch (_: Exception) {}
 
-                delay(10000L) // Poll remote every 10s
+                delay(10000L)
             }
         }
     }
@@ -1762,13 +1592,9 @@ object FirebaseSyncService {
         return sdf.format(Date())
     }
 
-    /**
-     * Activates TOTP 2FA for a user and stores secret in Firestore and RTDB
-     */
     fun saveTotpSecret(uid: String, secret: String, onComplete: ((Boolean) -> Unit)? = null) {
         scope.launch {
             try {
-                // 1. Update Firestore /users/{uid}
                 val updateMap = hashMapOf<String, Any>(
                     "totp_enabled" to true,
                     "totp_secret" to secret,
@@ -1777,7 +1603,6 @@ object FirebaseSyncService {
                 )
                 firestore?.collection("users")?.document(uid)?.set(updateMap, SetOptions.merge())
 
-                // 2. Update RTDB
                 val safeKey = sanitizeKey(uid)
                 val patchJson = JSONObject().apply {
                     put("totp_enabled", true)
@@ -1796,22 +1621,17 @@ object FirebaseSyncService {
         }
     }
 
-    /**
-     * Checks if user has TOTP enabled and retrieves secret
-     */
     suspend fun fetchTotpDetails(uid: String): Pair<Boolean, String?> = kotlinx.coroutines.withContext(Dispatchers.IO) {
         try {
-            // Check Firestore first
             val snap = firestore?.collection("users")?.document(uid)?.get()?.await()
             if (snap != null && snap.exists()) {
-                val enabled = snap.getBoolean("totp_enabled") ?: snap.getBoolean("two_factor_enabled") ?: false
-                val secret = snap.getString("totp_secret")
-                if (secret != null && secret.isNotBlank()) {
+                val enabled = snap.getSafeBoolean("totp_enabled", snap.getSafeBoolean("two_factor_enabled"))
+                val secret = snap.getSafeString("totp_secret")
+                if (secret.isNotBlank()) {
                     return@withContext Pair(enabled, secret)
                 }
             }
 
-            // Fallback RTDB
             val safeKey = sanitizeKey(uid)
             val url = "$firebaseDatabaseUrl/users/$safeKey.json"
             val request = Request.Builder().url(url).get().build()
@@ -1830,9 +1650,6 @@ object FirebaseSyncService {
         Pair(false, null)
     }
 
-    /**
-     * Updates work status & mining progress for a grid contract
-     */
     fun updateGridContractWorkStatus(
         userId: String,
         contractId: String,
@@ -1844,12 +1661,15 @@ object FirebaseSyncService {
         if (userId.isBlank() || contractId.isBlank()) return
         scope.launch {
             try {
+                val cleanYield = if (currentYieldMined.isNaN() || currentYieldMined.isInfinite()) 0.0 else currentYieldMined
+                val cleanProgress = if (taskProgressPct.isNaN() || taskProgressPct.isInfinite()) 0.0 else taskProgressPct.coerceIn(0.0, 100.0)
+
                 val updates = hashMapOf<String, Any>(
-                    "current_yield_mined" to currentYieldMined,
-                    "task_progress_pct" to taskProgressPct,
+                    "current_yield_mined" to cleanYield,
+                    "task_progress_pct" to cleanProgress,
                     "work_status" to workStatus,
                     "unlocked_for_withdrawal" to unlockedForWithdrawal,
-                    "accruedProfitUsdt" to currentYieldMined
+                    "accruedProfitUsdt" to cleanYield
                 )
                 firestore?.collection("users")?.document(userId)?.collection("grid_contracts")?.document(contractId)?.update(updates)
                 firestore?.collection("users")?.document(userId)?.collection("miners")?.document(contractId)?.update(updates)
@@ -1857,4 +1677,3 @@ object FirebaseSyncService {
         }
     }
 }
-

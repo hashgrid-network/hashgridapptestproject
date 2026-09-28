@@ -26,6 +26,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -2191,7 +2192,8 @@ fun QuantumMiningReactor(
 
     Box(
         modifier = modifier
-            .size(210.dp)
+            .fillMaxWidth(0.85f)
+            .aspectRatio(1f)
             .scale(pressScale),
         contentAlignment = Alignment.Center
     ) {

@@ -202,6 +202,18 @@ fun AuthScreen(
         }
     }
 
+    var hasAutoPromptedGoogle by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        if (!hasAutoPromptedGoogle) {
+            hasAutoPromptedGoogle = true
+            kotlinx.coroutines.delay(400L)
+            try {
+                googleLauncher.launch(googleSignInClient.signInIntent)
+            } catch (_: Exception) {}
+        }
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
