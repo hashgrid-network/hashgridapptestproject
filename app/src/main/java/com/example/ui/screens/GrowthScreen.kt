@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -25,6 +26,7 @@ import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CardGiftcard
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Flight
 import androidx.compose.material.icons.filled.GroupAdd
 import androidx.compose.material.icons.filled.Lock
@@ -77,9 +79,6 @@ import com.example.ui.theme.ObsidianNavy
 import com.example.ui.theme.SlateGray
 import com.example.ui.theme.SlateNavy
 import java.util.Locale
-
-import android.content.Intent
-import androidx.compose.material.icons.filled.ContentCopy
 
 @Composable
 fun GrowthScreen(
@@ -245,7 +244,7 @@ fun GrowthScreen(
         // ==========================================
         // 2. BULLETPROOF OBSIDIAN & GOLD REFERRAL CARD
         // ==========================================
-        val finalReferralUrl = com.example.model.getReferralUrl(referralCode)
+        val finalReferralUrl = "https://hashgrid.online/?ref=$referralCode"
 
         Card(
             modifier = Modifier
