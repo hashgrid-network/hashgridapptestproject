@@ -138,13 +138,19 @@ object AuthService {
         }
     }
 
-    suspend fun createWalletWithPin(context: Context, pin: String): Result<User> = withContext(Dispatchers.IO) {
+    suspend fun createWalletWithPin(
+        context: Context,
+        pin: String,
+        referredByCode: String? = null
+    ): Result<User> = withContext(Dispatchers.IO) {
         try {
             savePin(context, pin)
             val walletAddress = getOrCreateWalletAddress(context)
             val now = System.currentTimeMillis()
             val refCode = generateReferralCode(walletAddress)
             val pinHash = hashPin(pin)
+
+            val cleanReferredBy = referredByCode?.trim()?.uppercase()?.ifBlank { null }
 
             val db = try { FirebaseFirestore.getInstance() } catch (_: Exception) { null }
             val walletData = hashMapOf<String, Any?>(
@@ -160,8 +166,8 @@ object AuthService {
                 "last_login_at" to com.google.firebase.firestore.FieldValue.serverTimestamp(),
                 "referral_code" to refCode,
                 "referralCode" to refCode,
-                "referred_by" to null,
-                "referredBy" to null,
+                "referred_by" to cleanReferredBy,
+                "referredBy" to cleanReferredBy,
                 "mined_balance" to 0.0,
                 "referral_balance" to 0.0,
                 "task_balance" to 0.0,
@@ -180,9 +186,52 @@ object AuthService {
                 try {
                     db.collection("wallets").document(walletAddress).set(walletData, SetOptions.merge()).await()
                     db.collection("users").document(walletAddress).set(walletData, SetOptions.merge()).await()
-                } catch (_: Exception) {}
+
+                    if (!cleanReferredBy.isNullOrBlank() && cleanReferredBy != walletAddress) {
+                        var parentWalletId = cleanReferredBy
+                        var parentSnap = db.collection("wallets").document(cleanReferredBy).get().await()
+                        var parentExists = parentSnap.exists()
+
+                        if (!parentExists) {
+                            val querySnap = db.collection("wallets")
+                                .whereEqualTo("referral_code", cleanReferredBy)
+                                .get().await()
+                            if (!querySnap.isEmpty) {
+                                parentWalletId = querySnap.documents[0].id
+                                parentExists = true
+                            }
+                        }
+
+                        if (parentExists) {
+                            val parentRef = db.collection("wallets").document(parentWalletId)
+                            val batch = db.batch()
+                            batch.update(parentRef, "total_referrals", com.google.firebase.firestore.FieldValue.increment(1))
+                            batch.update(parentRef, "referral_list", com.google.firebase.firestore.FieldValue.arrayUnion(walletAddress))
+
+                            val childMeta = hashMapOf<String, Any?>(
+                                "child_id" to walletAddress,
+                                "wallet_id" to walletAddress,
+                                "joined_at" to com.google.firebase.firestore.FieldValue.serverTimestamp(),
+                                "is_mining" to false,
+                                "status" to "ACTIVE"
+                            )
+                            batch.set(parentRef.collection("referral_list").document(walletAddress), childMeta, SetOptions.merge())
+
+                            val parentUserRef = db.collection("users").document(parentWalletId)
+                            batch.set(parentUserRef, hashMapOf<String, Any>(
+                                "total_referrals" to com.google.firebase.firestore.FieldValue.increment(1),
+                                "referral_list" to com.google.firebase.firestore.FieldValue.arrayUnion(walletAddress)
+                            ), SetOptions.merge())
+
+                            batch.commit().await()
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
             }
 
+            DeepLinkManager.clearPendingReferralCode(context)
             val user = hydrateUserFromFirestore(context, walletAddress)
             _currentUser.value = user
             _isLoggedIn.value = true
@@ -270,6 +319,60 @@ object AuthService {
             Result.success(fallbackUser)
         }
     }
+
+    suspend fun restoreMinerNodeWithKeyAndPin(
+        context: Context,
+        secretMinerKey: String,
+        pin: String
+    ): Result<User> = withContext(Dispatchers.IO) {
+        try {
+            val cleanKey = secretMinerKey.trim().uppercase()
+            if (cleanKey.isBlank() || !cleanKey.startsWith("HG-")) {
+                return@withContext Result.failure(Exception("Invalid Secret Miner Key format. Must start with HG-"))
+            }
+
+            val inputHash = hashPin(pin)
+            val db = try { FirebaseFirestore.getInstance() } catch (_: Exception) { null }
+                ?: return@withContext Result.failure(Exception("Cloud Firestore unavailable"))
+
+            val walletRef = db.collection("wallets").document(cleanKey)
+            val snapshot = try { walletRef.get().await() } catch (_: Exception) { null }
+
+            if (snapshot == null || !snapshot.exists()) {
+                val userSnap = try { db.collection("users").document(cleanKey).get().await() } catch (_: Exception) { null }
+                if (userSnap == null || !userSnap.exists()) {
+                    return@withContext Result.failure(Exception("Miner Node not found! Please check your Secret Miner Key."))
+                }
+            }
+
+            val doc = if (snapshot != null && snapshot.exists()) snapshot else db.collection("users").document(cleanKey).get().await()
+            val storedHash = doc.getString("pin_hash") ?: doc.getString("pinHash")
+            val isMatch = (storedHash == inputHash) || (storedHash == pin) || verifyPin(context, pin)
+
+            if (!isMatch && !storedHash.isNullOrBlank()) {
+                return@withContext Result.failure(Exception("Incorrect 4-Digit PIN. Please try again."))
+            }
+
+            try {
+                walletRef.update("last_login_at", com.google.firebase.firestore.FieldValue.serverTimestamp()).await()
+                db.collection("users").document(cleanKey)
+                    .update("last_login_at", com.google.firebase.firestore.FieldValue.serverTimestamp()).await()
+            } catch (_: Exception) {}
+
+            val currentPrefs = prefs ?: context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            currentPrefs.edit().putString(KEY_WALLET_ADDRESS, cleanKey).putString(KEY_USER_PIN, pin).apply()
+
+            savePin(context, pin)
+            val user = hydrateUserFromFirestore(context, cleanKey)
+            _currentUser.value = user
+            _isLoggedIn.value = true
+            Result.success(user)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Result.failure(Exception(e.message ?: "Failed to restore cloud miner node."))
+        }
+    }
+
 
     suspend fun hydrateUserFromFirestore(context: Context, walletAddress: String): User = withContext(Dispatchers.IO) {
         val db = try { FirebaseFirestore.getInstance() } catch (_: Exception) { null }

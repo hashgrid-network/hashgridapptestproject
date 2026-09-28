@@ -196,109 +196,6 @@ fun HomeScreen(
             .padding(horizontal = 16.dp, vertical = 8.dp) // px-4 mobile side margins
     ) {
         // ========================================================
-        // 0. PWA / MOBILE "INSTALL APP" DISMISSIBLE BANNER
-        // ========================================================
-        if (!isInstallBannerDismissed) {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .border(1.dp, GoldBorderSubtle, RoundedCornerShape(16.dp))
-                    .testTag("pwa_install_banner"),
-                colors = CardDefaults.cardColors(containerColor = CardWhite),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(30.dp)
-                                .clip(CircleShape)
-                                .background(GoldLight),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.InstallMobile,
-                                contentDescription = null,
-                                tint = GoldGradientEnd,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = "New HashGrid Update Available! Tap to install the latest features & live syndicate tracking.",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = ObsidianNavy,
-                            lineHeight = 15.sp
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        // Golden pill "UPDATE" button
-                        Button(
-                            onClick = {
-                                val updateUrl = "https://hashgrid.online/"
-                                try {
-                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(updateUrl)).apply {
-                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    }
-                                    context.startActivity(intent)
-                                } catch (_: Exception) {}
-                            },
-                            modifier = Modifier
-                                .height(32.dp)
-                                .clip(RoundedCornerShape(16.dp))
-                                .testTag("update_app_button"),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 0.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .height(32.dp)
-                                    .background(GoldBrush)
-                                    .padding(horizontal = 10.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "UPDATE",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = ObsidianNavy
-                                )
-                            }
-                        }
-
-                        IconButton(
-                            onClick = { isInstallBannerDismissed = true },
-                            modifier = Modifier.size(26.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Dismiss",
-                                tint = SlateGray,
-                                modifier = Modifier.size(14.dp)
-                            )
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-        }
-
-        // ========================================================
         // 1. UNIFIED CLEAN TOP HEADER: COMPACT LIVE PRICE BAR
         // ========================================================
         UnifiedCryptoPriceBar(
@@ -329,7 +226,7 @@ fun HomeScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(14.dp)
+                        .padding(12.dp)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -337,26 +234,35 @@ fun HomeScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "MINER BALANCE (USDT)",
-                            fontSize = 10.sp,
+                            text = "MINER BALANCE",
+                            fontSize = 9.sp,
                             fontWeight = FontWeight.Bold,
                             color = SlateGray,
-                            letterSpacing = 0.8.sp
+                            letterSpacing = 0.5.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
                         )
+
+                        Spacer(modifier = Modifier.width(4.dp))
 
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(6.dp))
-                                .background(Color(0xFF00C853).copy(alpha = 0.15f))
-                                .border(0.6.dp, Color(0xFF00C853).copy(alpha = 0.5f), RoundedCornerShape(6.dp))
-                                .padding(horizontal = 5.dp, vertical = 2.dp)
+                                .background(Color(0xFF00F5A0).copy(alpha = 0.15f))
+                                .border(0.8.dp, Color(0xFF00F5A0).copy(alpha = 0.6f), RoundedCornerShape(6.dp))
+                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                            contentAlignment = Alignment.Center
                         ) {
                             Text(
                                 text = "WITHDRAWABLE",
-                                fontSize = 8.sp,
+                                fontSize = 7.5.sp,
                                 fontWeight = FontWeight.Black,
-                                color = Color(0xFF00E676),
-                                letterSpacing = 0.4.sp
+                                color = Color(0xFF00F5A0),
+                                letterSpacing = 0.2.sp,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Clip
                             )
                         }
                     }
@@ -365,19 +271,23 @@ fun HomeScreen(
 
                     Text(
                         text = String.format(Locale.US, "$%.2f", walletBalanceUsdt),
-                        fontSize = 18.sp,
+                        fontSize = 17.sp,
                         fontWeight = FontWeight.Black,
                         fontFamily = FontFamily.Monospace,
-                        color = Color.White
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
 
                     Spacer(modifier = Modifier.height(3.dp))
 
                     Text(
-                        text = "Withdrawable mining profits from purchased grids",
-                        fontSize = 9.sp,
+                        text = "Withdrawable mining profits",
+                        fontSize = 8.5.sp,
                         color = SlateGray,
-                        lineHeight = 12.5.sp
+                        lineHeight = 11.5.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -396,7 +306,7 @@ fun HomeScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(14.dp)
+                        .padding(12.dp)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -405,24 +315,34 @@ fun HomeScreen(
                     ) {
                         Text(
                             text = "GRID BALANCE",
-                            fontSize = 10.sp,
+                            fontSize = 9.sp,
                             fontWeight = FontWeight.Bold,
                             color = GoldGradientEnd,
-                            letterSpacing = 0.8.sp
+                            letterSpacing = 0.5.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
                         )
+
+                        Spacer(modifier = Modifier.width(4.dp))
+
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(6.dp))
                                 .background(GoldLight.copy(alpha = 0.15f))
                                 .border(0.6.dp, GoldBorderSubtle, RoundedCornerShape(6.dp))
-                                .padding(horizontal = 5.dp, vertical = 2.dp)
+                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                            contentAlignment = Alignment.Center
                         ) {
                             Text(
                                 text = "GENESIS",
-                                fontSize = 8.sp,
+                                fontSize = 7.5.sp,
                                 fontWeight = FontWeight.Black,
                                 color = GoldGradientEnd,
-                                letterSpacing = 0.4.sp
+                                letterSpacing = 0.2.sp,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Clip
                             )
                         }
                     }
@@ -431,19 +351,23 @@ fun HomeScreen(
 
                     Text(
                         text = String.format(Locale.US, "%.5f", gridCoinBalance),
-                        fontSize = 18.sp,
+                        fontSize = 17.sp,
                         fontWeight = FontWeight.Black,
                         fontFamily = FontFamily.Monospace,
-                        color = GoldGradientEnd
+                        color = GoldGradientEnd,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
 
                     Spacer(modifier = Modifier.height(3.dp))
 
                     Text(
-                        text = "Pre-launch native token reserve (100% claimable at DEX listing)",
-                        fontSize = 9.sp,
+                        text = "Pre-launch native token reserve",
+                        fontSize = 8.5.sp,
                         color = SlateGray,
-                        lineHeight = 12.5.sp
+                        lineHeight = 11.5.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }

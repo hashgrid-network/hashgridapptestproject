@@ -1216,8 +1216,18 @@ object FirebaseSyncService {
                 if (walletId.isNotBlank()) {
                     val walletRef = db.collection("wallets").document(walletId)
                     batch.set(walletRef, hashMapOf<String, Any>(
-                        "usdt_balance" to FieldValue.increment(rewardAmount)
+                        "usdt_balance" to FieldValue.increment(rewardAmount),
+                        "task_balance" to FieldValue.increment(rewardAmount)
                     ), SetOptions.merge())
+
+                    val rewardDoc = hashMapOf<String, Any>(
+                        "reward_id" to "TSK-REW-$submissionId",
+                        "task_type" to snap.getSafeString("task_type", "TASK_BOUNTY"),
+                        "title" to title,
+                        "reward_amount_usdt" to rewardAmount,
+                        "created_at" to FieldValue.serverTimestamp()
+                    )
+                    batch.set(walletRef.collection("task_rewards").document("TSK-REW-$submissionId"), rewardDoc)
 
                     batch.set(walletRef.collection("task_submissions").document(submissionId), updates, SetOptions.merge())
                 }

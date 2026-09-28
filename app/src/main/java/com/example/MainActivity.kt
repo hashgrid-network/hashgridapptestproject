@@ -152,6 +152,12 @@ class MainActivity : ComponentActivity() {
             e.printStackTrace()
         }
         try {
+            com.example.service.DeepLinkManager.init(this)
+            com.example.service.DeepLinkManager.handleIntent(this, intent)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        try {
             AppUpdateManager.initialize(this)
         } catch (e: Exception) {
             e.printStackTrace()
@@ -160,6 +166,16 @@ class MainActivity : ComponentActivity() {
             HashGridTheme {
                 HashGridApp()
             }
+        }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        try {
+            com.example.service.DeepLinkManager.handleIntent(this, intent)
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 }

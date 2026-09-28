@@ -363,7 +363,7 @@ fun GrowthScreen(
         // ==========================================
         // 2. BULLETPROOF OBSIDIAN & GOLD REFERRAL CARD
         // ==========================================
-        val finalReferralUrl = "https://hashgrid.online/?ref=$referralCode"
+        val finalReferralUrl = "https://hashgrid.online?ref=$referralCode"
 
         Card(
             modifier = Modifier
@@ -538,10 +538,9 @@ fun GrowthScreen(
                     // Button 3: Share Invite via Native Android Share Sheet
                     Button(
                         onClick = {
-                            val shareMessage = "⚡ Join me on HashGrid Cloud Mining!\n" +
-                                    "Mine native GRID tokens & earn 10% - 15% monthly USDT yields on 30-day institutional contracts.\n\n" +
-                                    "🎁 Referral Code: $referralCode\n" +
-                                    "📲 Download App & Start Mining: $finalReferralUrl"
+                            val shareMessage = "⚡ Join my Cloud Mining Syndicate on HashGrid!\n" +
+                                    "Deploy enterprise mining nodes and earn automated daily USDT yields.\n" +
+                                    "Start mining instantly: https://hashgrid.online?ref=$referralCode"
                             val sendIntent = Intent().apply {
                                 action = Intent.ACTION_SEND
                                 putExtra(Intent.EXTRA_TEXT, shareMessage)
