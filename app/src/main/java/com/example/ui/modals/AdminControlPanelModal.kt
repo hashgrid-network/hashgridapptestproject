@@ -79,13 +79,17 @@ fun AdminControlPanelModal(
     currentGridBalance: Double,
     marketplacePlans: List<MiningPlan>,
     pendingPayouts: List<PayoutItem>,
+    taskSubmissions: List<com.example.model.TaskSubmissionItem> = emptyList(),
     onInjectUsdt: (Double) -> Unit,
     onInjectGrid: (Double) -> Unit,
     onFreeDeployRig: (MiningPlan) -> Unit,
     onApproveWithdrawal: (String) -> Unit,
     onRejectWithdrawal: (String) -> Unit,
+    onApproveTaskSubmission: ((String) -> Unit)? = null,
+    onRejectTaskSubmission: ((String) -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
+
     val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -456,7 +460,140 @@ fun AdminControlPanelModal(
                 }
             }
 
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+
+            // ==========================================
+            // 4. TASK & BOUNTY SUBMISSIONS QUEUE (100% FIRESTORE)
+            // ==========================================
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .border(1.dp, GoldBorder, RoundedCornerShape(18.dp)),
+                colors = CardDefaults.cardColors(containerColor = CardWhite)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Bolt,
+                            contentDescription = null,
+                            tint = GoldGradientEnd,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "TASK & BOUNTY SUBMISSIONS QUEUE",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 0.5.sp,
+                            color = ObsidianNavy
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    val pendingTasks = taskSubmissions.filter { it.status.equals("PENDING", ignoreCase = true) }
+                    if (pendingTasks.isEmpty()) {
+                        Text(
+                            text = "No pending social task submissions in queue.",
+                            fontSize = 12.sp,
+                            color = SlateGray,
+                            modifier = Modifier.padding(vertical = 10.dp)
+                        )
+                    } else {
+                        pendingTasks.forEach { task ->
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                colors = CardDefaults.cardColors(containerColor = CanvasBackground),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = task.title,
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = ObsidianNavy
+                                        )
+                                        Text(
+                                            text = "+$${String.format(Locale.US, "%.2f", task.rewardAmountUsdt)} USDT",
+                                            fontSize = 12.5.sp,
+                                            fontWeight = FontWeight.Black,
+                                            color = MintDark
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.height(4.dp))
+
+                                    Text(
+                                        text = "ID: ${task.submissionId} • Wallet: ${task.walletId}",
+                                        fontSize = 9.5.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = SlateGray
+                                    )
+
+                                    if (!task.proofLink.isNullOrBlank()) {
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = "Proof: ${task.proofLink}",
+                                            fontSize = 9.5.sp,
+                                            color = ObsidianNavy
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.End
+                                    ) {
+                                        Button(
+                                            onClick = {
+                                                onRejectTaskSubmission?.invoke(task.submissionId)
+                                                Toast.makeText(context, "Task ${task.submissionId} Rejected", Toast.LENGTH_SHORT).show()
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = CrimsonRed, contentColor = Color.White),
+                                            shape = RoundedCornerShape(8.dp),
+                                            modifier = Modifier.height(32.dp)
+                                        ) {
+                                            Text("Reject Task", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                        }
+
+                                        Spacer(modifier = Modifier.width(8.dp))
+
+                                        Button(
+                                            onClick = {
+                                                onApproveTaskSubmission?.invoke(task.submissionId)
+                                                Toast.makeText(context, "Task ${task.submissionId} Approved & Credited!", Toast.LENGTH_SHORT).show()
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = MintDark, contentColor = Color.White),
+                                            shape = RoundedCornerShape(8.dp),
+                                            modifier = Modifier.height(32.dp)
+                                        ) {
+                                            Text("Approve & Credit $${String.format(Locale.US, "%.2f", task.rewardAmountUsdt)}", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(24.dp))
         }
     }
 }
+

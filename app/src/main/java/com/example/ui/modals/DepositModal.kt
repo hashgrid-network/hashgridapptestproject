@@ -263,12 +263,13 @@ fun DepositModal(
                         Column {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    text = "USDT DEPOSIT",
+                                    text = "DEPOSIT TO MINER",
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.Black,
                                     letterSpacing = 1.sp,
                                     color = ObsidianNavy
                                 )
+
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Box(
                                     modifier = Modifier

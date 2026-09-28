@@ -82,7 +82,8 @@ fun BottomNavBar(
         BottomBarTab(1, "Rigs Store", Icons.Filled.Memory, Icons.Outlined.Memory, "nav_plans")
     )
     val rightTabs = listOf(
-        BottomBarTab(2, "Wallet", Icons.Filled.AccountBalanceWallet, Icons.Outlined.AccountBalanceWallet, "nav_wallet"),
+        BottomBarTab(2, "Cloud Miner", Icons.Filled.AccountBalanceWallet, Icons.Outlined.AccountBalanceWallet, "nav_wallet"),
+
         BottomBarTab(3, "Network", Icons.Filled.Share, Icons.Outlined.Share, "nav_growth")
     )
 

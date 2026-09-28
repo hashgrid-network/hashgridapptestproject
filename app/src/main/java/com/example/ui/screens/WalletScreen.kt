@@ -141,12 +141,13 @@ fun WalletScreen(
                 ) {
                     Column {
                         Text(
-                            text = "INSTITUTIONAL ACCOUNT",
+                            text = "INSTITUTIONAL MINING NODE",
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 1.sp,
                             color = SlateGray
                         )
+
                         Text(
                             text = userId,
                             fontSize = 13.sp,

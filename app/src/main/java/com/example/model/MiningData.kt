@@ -321,3 +321,33 @@ data class ChatMessage(
     val isUser: Boolean = false,
     val timestamp: Long = System.currentTimeMillis()
 )
+
+data class ReferralReward(
+    val rewardId: String = "",
+    val fromMinerId: String = "",
+    val rigName: String = "Starter Node",
+    val rigCost: Double = 10.0,
+    val commissionRate: Double = 0.07,
+    val commissionUsdt: Double = 0.70,
+    val createdAtStr: String = "Just now",
+    val createdAtMs: Long = System.currentTimeMillis(),
+    val type: String = "RIG_PURCHASE_COMMISSION"
+)
+
+data class TaskSubmissionItem(
+    val submissionId: String = "",
+    val walletId: String = "",
+    val userId: String = "",
+    val taskType: String = "DAILY_STATUS", // "DAILY_STATUS" | "TELEGRAM_PROMO" | "YOUTUBE_COLLAB" | "VIEWS_50K"
+    val title: String = "Daily Status 10-Hour Views",
+    val proofMorningUrl: String? = null,
+    val proofEveningUrl: String? = null,
+    val proofLink: String? = null,
+    val status: String = "PENDING", // "PENDING" | "APPROVED" | "REJECTED"
+    val rewardAmountUsdt: Double = 0.20,
+    val submittedAtStr: String = "Just now",
+    val submittedAtMs: Long = System.currentTimeMillis(),
+    val reviewedAtStr: String? = null,
+    val adminNote: String? = null
+)
+

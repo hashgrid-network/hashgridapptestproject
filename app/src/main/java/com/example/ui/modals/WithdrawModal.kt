@@ -84,7 +84,7 @@ fun WithdrawModal(
 ) {
     val context = LocalContext.current
     var selectedNetworkIndex by remember { mutableIntStateOf(0) }
-    val networks = listOf("BEP20", "TRC20")
+    val networks = listOf("USDT (BEP-20)", "USDT (TRC-20)")
 
     var addressInput by remember { mutableStateOf("") }
     var amountInput by remember { mutableStateOf("") }
@@ -330,12 +330,13 @@ fun WithdrawModal(
                 ) {
                     Column {
                         Text(
-                            text = "AUDITED WITHDRAWAL",
+                            text = "WITHDRAW FROM MINER",
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Black,
                             letterSpacing = 1.sp,
                             color = ObsidianNavy
                         )
+
                         Text(
                             text = "Institutional Multi-Sig Settlement",
                             fontSize = 11.sp,
@@ -513,7 +514,7 @@ fun WithdrawModal(
                             onClick = { selectedNetworkIndex = index },
                             text = {
                                 Text(
-                                    text = "USDT ($net)",
+                                    text = net,
                                     fontWeight = if (selectedNetworkIndex == index) FontWeight.Bold else FontWeight.Medium,
                                     color = if (selectedNetworkIndex == index) ObsidianNavy else SlateGray,
                                     fontSize = 12.sp

@@ -234,7 +234,7 @@ fun AuthScreen(
                 )
 
                 Text(
-                    text = "NON-CUSTODIAL WEB3 WALLET",
+                    text = "DECENTRALIZED CLOUD MINER",
                     color = Web3Cyan,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
@@ -244,7 +244,7 @@ fun AuthScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Wallet Address Badge
+                // Miner Address Badge
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center,
@@ -272,7 +272,7 @@ fun AuthScreen(
                     Spacer(modifier = Modifier.width(8.dp))
                     Icon(
                         imageVector = Icons.Default.ContentCopy,
-                        contentDescription = "Copy Wallet Address",
+                        contentDescription = "Copy Miner Node Address",
                         tint = Color.Gray,
                         modifier = Modifier.size(14.dp)
                     )
@@ -282,7 +282,7 @@ fun AuthScreen(
 
                 Text(
                     text = when (pinMode) {
-                        PinMode.SET_PIN -> "Create 4-Digit PIN to Secure Your Wallet"
+                        PinMode.SET_PIN -> "Create 4-Digit PIN to Secure Your Cloud Miner"
                         PinMode.CONFIRM_PIN -> "Confirm Your 4-Digit PIN"
                         PinMode.UNLOCK_PIN -> "Enter Your 4-Digit PIN to Unlock"
                     },
@@ -296,13 +296,14 @@ fun AuthScreen(
 
                 Text(
                     text = when (pinMode) {
-                        PinMode.SET_PIN -> "Create a 4-digit security PIN to access your decentralized wallet"
+                        PinMode.SET_PIN -> "Create a 4-digit security PIN to access your decentralized cloud miner"
                         PinMode.CONFIRM_PIN -> "Re-enter your 4-digit PIN to confirm key creation"
                         PinMode.UNLOCK_PIN -> "Unlock your non-custodial quantum mining node"
                     },
                     color = Color.LightGray,
                     fontSize = 12.sp,
                     textAlign = TextAlign.Center
+
                 )
 
                 Spacer(modifier = Modifier.height(24.dp))

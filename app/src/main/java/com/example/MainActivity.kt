@@ -237,6 +237,9 @@ fun HashGridApp(
     val syndicateTier by viewModel.syndicateTier.collectAsStateWithLifecycle()
     val totalReferralRewardsUsdt by viewModel.totalReferralRewardsUsdt.collectAsStateWithLifecycle()
     val teamMembers by viewModel.teamMembers.collectAsStateWithLifecycle()
+    val referralRewards by viewModel.referralRewards.collectAsStateWithLifecycle()
+    val taskSubmissions by viewModel.taskSubmissions.collectAsStateWithLifecycle()
+
 
     // Gamification state
     val canSpinToday by viewModel.canSpinToday.collectAsStateWithLifecycle()
@@ -493,6 +496,7 @@ fun HashGridApp(
                                 syndicateTier = syndicateTier,
                                 totalReferralRewardsUsdt = totalReferralRewardsUsdt,
                                 teamMembers = teamMembers,
+                                referralRewards = referralRewards,
                                 bountyTasks = bountyTasks,
                                 freeAdCooldownHours = viewModel.getFreeAdCooldownHoursRemaining(),
                                 onClaimFreeAdSession = { viewModel.claimFreeAdSession() },
@@ -715,14 +719,18 @@ fun HashGridApp(
             currentGridBalance = gridCoinBalance,
             marketplacePlans = viewModel.marketplacePlans,
             pendingPayouts = payoutsList,
+            taskSubmissions = taskSubmissions,
             onInjectUsdt = { amt -> viewModel.injectUsdt(amt) },
             onInjectGrid = { amt -> viewModel.injectGrid(amt) },
             onFreeDeployRig = { plan -> viewModel.freeDeployRig(plan) },
             onApproveWithdrawal = { payoutId -> viewModel.approveWithdrawal(payoutId) },
             onRejectWithdrawal = { payoutId -> viewModel.rejectWithdrawal(payoutId) },
+            onApproveTaskSubmission = { subId -> viewModel.approveTaskSubmission(subId) },
+            onRejectTaskSubmission = { subId -> viewModel.rejectTaskSubmission(subId) },
             onDismiss = { viewModel.showAdminPanelModal.value = false }
         )
     }
+
 
     if (showRecentBroadcastsModal) {
         RecentBroadcastsSheet(

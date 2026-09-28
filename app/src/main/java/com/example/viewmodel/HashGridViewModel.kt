@@ -109,6 +109,28 @@ class HashGridViewModel : ViewModel() {
     private val _totalReferralRewardsUsdt = MutableStateFlow(0.0)
     val totalReferralRewardsUsdt: StateFlow<Double> = _totalReferralRewardsUsdt.asStateFlow()
 
+    private val _referralRewards = MutableStateFlow<List<com.example.model.ReferralReward>>(emptyList())
+    val referralRewards: StateFlow<List<com.example.model.ReferralReward>> = _referralRewards.asStateFlow()
+
+    private val _taskSubmissions = MutableStateFlow<List<com.example.model.TaskSubmissionItem>>(emptyList())
+    val taskSubmissions: StateFlow<List<com.example.model.TaskSubmissionItem>> = _taskSubmissions.asStateFlow()
+
+
+    // Pi-style Free Mining Boost Telemetry (+0.10 GH/s per active referred miner)
+    val activeReferredMinersCount: StateFlow<Int> = _teamMembers.map { members ->
+        members.count { it.isMining || it.status.equals("ACTIVE", ignoreCase = true) }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+
+    val piTeamBoostGhs: StateFlow<Double> = activeReferredMinersCount.map { activeCount ->
+        activeCount * 0.10
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, 0.0)
+
+    val piTeamBoostDisplayStr: StateFlow<String> = activeReferredMinersCount.map { activeCount ->
+        val boost = activeCount * 0.10
+        val total = _teamMembers.value.size
+        "⚡ Team Boost: +${String.format(Locale.US, "%.2f", boost)} GH/s ($activeCount / $total Active Miners)"
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, "⚡ Team Boost: +0.00 GH/s (0 / 0 Active Miners)")
+
     // Atomic Escrow Balance (Locked in 24h Audit)
     private val _lockedAuditBalanceUsdt = MutableStateFlow(0.0)
     val lockedAuditBalanceUsdt: StateFlow<Double> = _lockedAuditBalanceUsdt.asStateFlow()
@@ -534,6 +556,18 @@ class HashGridViewModel : ViewModel() {
                             }
 
                             reconcileReferrals()
+                            FirebaseSyncService.listenAllWithdrawals { masterPayouts ->
+                                if (masterPayouts.isNotEmpty()) {
+                                    _payoutsList.value = masterPayouts
+                                }
+                            }
+                            FirebaseSyncService.listenReferralRewards(user.id) { rewards ->
+                                _referralRewards.value = rewards
+                            }
+                            FirebaseSyncService.listenAllTaskSubmissions { submissions ->
+                                _taskSubmissions.value = submissions
+                            }
+
                             FirebaseSyncService.listenFirestoreUser(
                                 userId = user.id,
                                 onProfileUpdated = { remoteBal, kyc, twoFa, docTeamCount, extraHr, refCode ->
@@ -1187,45 +1221,59 @@ class HashGridViewModel : ViewModel() {
     }
 
     fun approveWithdrawal(payoutId: String) {
-        val payout = _payoutsList.value.find { it.id == payoutId } ?: return
+        val payout = _payoutsList.value.find { it.id == payoutId }
         _payoutsList.value = _payoutsList.value.map {
             if (it.id == payoutId) it.copy(status = PayoutStatus.COMPLETED) else it
         }
-        _lockedAuditBalanceUsdt.value = (_lockedAuditBalanceUsdt.value - payout.amountUsdt).coerceAtLeast(0.0)
-
+        if (payout != null) {
+            _lockedAuditBalanceUsdt.value = (_lockedAuditBalanceUsdt.value - payout.amountUsdt).coerceAtLeast(0.0)
+        }
         val txid = "0x" + UUID.randomUUID().toString().replace("-", "").take(16)
         val newAct = ActivityItem(
             id = "act_${System.currentTimeMillis()}",
-            title = "-$${String.format(Locale.US, "%.2f", payout.amountUsdt)} USDT",
+            title = "-$${String.format(Locale.US, "%.2f", payout?.amountUsdt ?: 0.0)} USDT",
             subtitle = "Withdrawal Dispatched (TX: $txid)",
             btcAmountStr = "Approved by Admin",
-            usdtAmount = payout.amountUsdt,
+            usdtAmount = payout?.amountUsdt ?: 0.0,
             timestampStr = "Just now",
             isCredit = false
         )
         _activityList.value = listOf(newAct) + _activityList.value
         saveLocalState()
+
+        FirebaseSyncService.approveWithdrawalAtomic(payoutId, txid) { _, _ -> }
     }
 
     fun rejectWithdrawal(payoutId: String) {
-        val payout = _payoutsList.value.find { it.id == payoutId } ?: return
+        val payout = _payoutsList.value.find { it.id == payoutId }
         _payoutsList.value = _payoutsList.value.map {
             if (it.id == payoutId) it.copy(status = PayoutStatus.REJECTED) else it
         }
-        _lockedAuditBalanceUsdt.value = (_lockedAuditBalanceUsdt.value - payout.amountUsdt).coerceAtLeast(0.0)
-        _walletBalanceUsdt.value += payout.amountUsdt
-
+        if (payout != null) {
+            _lockedAuditBalanceUsdt.value = (_lockedAuditBalanceUsdt.value - payout.amountUsdt).coerceAtLeast(0.0)
+            _walletBalanceUsdt.value += payout.amountUsdt
+        }
         val newAct = ActivityItem(
             id = "act_${System.currentTimeMillis()}",
-            title = "+$${String.format(Locale.US, "%.2f", payout.amountUsdt)} USDT",
+            title = "+$${String.format(Locale.US, "%.2f", payout?.amountUsdt ?: 0.0)} USDT",
             subtitle = "Withdrawal Rejected & Refunded to Wallet",
             btcAmountStr = "Refunded",
-            usdtAmount = payout.amountUsdt,
+            usdtAmount = payout?.amountUsdt ?: 0.0,
             timestampStr = "Just now",
             isCredit = true
         )
         _activityList.value = listOf(newAct) + _activityList.value
         saveLocalState()
+
+        FirebaseSyncService.rejectAndRefundWithdrawalAtomic(payoutId, "Rejected by Admin - Funds Refunded") { _, _ -> }
+    }
+
+    fun approveTaskSubmission(submissionId: String, adminNote: String = "Approved by Admin") {
+        FirebaseSyncService.approveTaskSubmissionAtomic(submissionId, adminNote) { success, msg -> }
+    }
+
+    fun rejectTaskSubmission(submissionId: String, adminNote: String = "Rejected by Admin") {
+        FirebaseSyncService.rejectTaskSubmissionAtomic(submissionId, adminNote) { success, msg -> }
     }
 
     fun submitYouTubeBounty(videoUrl: String, channelName: String): String? {
@@ -1252,7 +1300,7 @@ class HashGridViewModel : ViewModel() {
         }
         _submittedYoutubeUrls.add(cleanUrl.lowercase())
 
-        val claimId = "claim_yt_${System.currentTimeMillis()}"
+        val subId = "TSK-YT-" + UUID.randomUUID().toString().replace("-", "").take(10).uppercase()
 
         _bountyTasks.value = _bountyTasks.value.map {
             if (it.type == BountyType.YOUTUBE) {
@@ -1264,18 +1312,16 @@ class HashGridViewModel : ViewModel() {
             } else it
         }
 
-        FirebaseSyncService.submitTaskClaim(
-            FirebaseTaskClaim(
-                claimId = claimId,
+        FirebaseSyncService.submitTaskSubmissionToFirestore(
+            com.example.model.TaskSubmissionItem(
+                submissionId = subId,
+                walletId = "HG-" + userId.replace("-", "").take(8).uppercase(),
                 userId = userId,
-                userEmail = userEmail,
-                deviceId = "dev_${userId.takeLast(6)}",
-                taskId = "task_youtube_showcase",
-                taskTitle = "YouTube Video Showcase Bounty",
+                taskType = "YOUTUBE_COLLAB",
+                title = "YouTube Video Showcase Bounty",
                 proofLink = "Channel: $cleanChannel | URL: $cleanUrl",
-                requestedAmountUsdt = 5.00,
-                status = "PENDING",
-                timestamp = FirebaseSyncService.getCurrentTimestamp()
+                rewardAmountUsdt = 5.00,
+                status = "PENDING"
             )
         )
 
@@ -1289,7 +1335,7 @@ class HashGridViewModel : ViewModel() {
             return "Minimum 10 status views required for verification."
         }
 
-        val claimId = "claim_wa_${System.currentTimeMillis()}"
+        val subId = "TSK-WA-" + UUID.randomUUID().toString().replace("-", "").take(10).uppercase()
         _bountyTasks.value = _bountyTasks.value.map {
             if (it.type == BountyType.WHATSAPP) {
                 it.copy(
@@ -1300,18 +1346,18 @@ class HashGridViewModel : ViewModel() {
             } else it
         }
 
-        FirebaseSyncService.submitTaskClaim(
-            FirebaseTaskClaim(
-                claimId = claimId,
+        FirebaseSyncService.submitTaskSubmissionToFirestore(
+            com.example.model.TaskSubmissionItem(
+                submissionId = subId,
+                walletId = "HG-" + userId.replace("-", "").take(8).uppercase(),
                 userId = userId,
-                userEmail = userEmail,
-                deviceId = "dev_${userId.takeLast(6)}",
-                taskId = "task_whatsapp_status",
-                taskTitle = "WhatsApp Status Broadcasting",
+                taskType = "DAILY_STATUS",
+                title = "Daily Status 10-Hour Views",
+                proofMorningUrl = "https://hashgrid.io/proof/morning_${userId.take(6)}.png",
+                proofEveningUrl = "https://hashgrid.io/proof/evening_${userId.take(6)}.png",
                 proofLink = "Status Views: $trimmedViews (Posted: $timePosted)",
-                requestedAmountUsdt = 0.20,
-                status = "PENDING",
-                timestamp = FirebaseSyncService.getCurrentTimestamp()
+                rewardAmountUsdt = 0.20,
+                status = "PENDING"
             )
         )
 
@@ -1325,7 +1371,7 @@ class HashGridViewModel : ViewModel() {
         }
         val handle = if (trimmed.startsWith("@")) trimmed else "@$trimmed"
 
-        val claimId = "claim_tg_${System.currentTimeMillis()}"
+        val subId = "TSK-TG-" + UUID.randomUUID().toString().replace("-", "").take(10).uppercase()
         _bountyTasks.value = _bountyTasks.value.map {
             if (it.type == BountyType.TELEGRAM) {
                 it.copy(
@@ -1336,18 +1382,16 @@ class HashGridViewModel : ViewModel() {
             } else it
         }
 
-        FirebaseSyncService.submitTaskClaim(
-            FirebaseTaskClaim(
-                claimId = claimId,
+        FirebaseSyncService.submitTaskSubmissionToFirestore(
+            com.example.model.TaskSubmissionItem(
+                submissionId = subId,
+                walletId = "HG-" + userId.replace("-", "").take(8).uppercase(),
                 userId = userId,
-                userEmail = userEmail,
-                deviceId = "dev_${userId.takeLast(6)}",
-                taskId = "task_telegram_join",
-                taskTitle = "Telegram Syndicate Community",
+                taskType = "TELEGRAM_PROMO",
+                title = "Telegram Syndicate Community",
                 proofLink = handle,
-                requestedAmountUsdt = 0.20,
-                status = "PENDING",
-                timestamp = FirebaseSyncService.getCurrentTimestamp()
+                rewardAmountUsdt = 0.20,
+                status = "PENDING"
             )
         )
 
@@ -1358,8 +1402,9 @@ class HashGridViewModel : ViewModel() {
         if (channelUrl.isBlank() || videoUrl.isBlank()) {
             return "Please provide both channel and video review URLs."
         }
+        val subId = "TSK-50K-" + UUID.randomUUID().toString().replace("-", "").take(10).uppercase()
         val sub = CreatorMilestoneSubmission(
-            id = "ms_${System.currentTimeMillis().toString().takeLast(6)}",
+            id = subId,
             userId = userId,
             channelUrl = channelUrl.trim(),
             videoUrl = videoUrl.trim(),
@@ -1368,8 +1413,23 @@ class HashGridViewModel : ViewModel() {
             status = MilestoneStatus.PENDING_EXECUTIVE_AUDIT
         )
         _creatorSubmissions.value = listOf(sub) + _creatorSubmissions.value
+
+        FirebaseSyncService.submitTaskSubmissionToFirestore(
+            com.example.model.TaskSubmissionItem(
+                submissionId = subId,
+                walletId = "HG-" + userId.replace("-", "").take(8).uppercase(),
+                userId = userId,
+                taskType = "VIEWS_50K",
+                title = "Creator Milestone 50,000 Views",
+                proofLink = "Channel: ${channelUrl.trim()} | Video: ${videoUrl.trim()} | Telegram: ${contactTelegram.trim()}",
+                rewardAmountUsdt = 50.00,
+                status = "PENDING"
+            )
+        )
+
         return null
     }
+
 
     fun sendChatMessage(query: String) {
         if (query.isBlank()) return

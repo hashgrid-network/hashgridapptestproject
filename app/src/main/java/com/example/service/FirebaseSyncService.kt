@@ -584,48 +584,70 @@ object FirebaseSyncService {
         amount: Double,
         cryptoAddress: String,
         network: String,
+        walletId: String = "",
         onComplete: (Boolean) -> Unit
     ) {
         scope.launch {
-            val requestId = "wd_" + System.currentTimeMillis().toString().takeLast(8)
+            val withdrawalId = "WTH-" + UUID.randomUUID().toString().replace("-", "").take(12).uppercase()
+            val targetWallet = if (walletId.isNotBlank()) walletId else if (userId.isNotBlank()) userId else "HG-WALLET"
+            val formattedNetwork = if (!network.contains("USDT") && !network.contains("BEP") && !network.contains("TRC")) "USDT ($network)" else network
             val nowStr = getCurrentTimestamp()
 
             try {
-                val wdDoc = hashMapOf<String, Any>(
-                    "requestId" to requestId,
+                val db = firestore ?: throw IllegalStateException("Firestore unavailable")
+
+                val wdDoc = hashMapOf<String, Any?>(
+                    "withdrawal_id" to withdrawalId,
+                    "requestId" to withdrawalId,
+                    "wallet_id" to targetWallet,
                     "userId" to userId,
                     "userEmail" to userEmail,
-                    "amount" to amount,
+                    "payout_address" to cryptoAddress,
                     "cryptoAddress" to cryptoAddress,
-                    "network" to network,
-                    "status" to "pending",
-                    "timestamp" to FieldValue.serverTimestamp()
-                )
-                firestore?.collection("withdrawals")?.document(requestId)?.set(wdDoc)
-
-                val txDoc = hashMapOf<String, Any>(
-                    "id" to requestId,
-                    "title" to "-$${String.format(Locale.US, "%.2f", amount)} USDT",
-                    "subtitle" to "Withdrawal to ${cryptoAddress.take(6)}...${cryptoAddress.takeLast(4)} (24h Audit)",
-                    "btcAmountStr" to "",
-                    "usdtAmount" to amount,
-                    "isCredit" to false,
-                    "type" to "WITHDRAWAL",
-                    "status" to "PENDING_24H_AUDIT",
+                    "network" to formattedNetwork,
+                    "amount_usdt" to amount,
+                    "amount" to amount,
+                    "status" to "PENDING",
+                    "created_at" to FieldValue.serverTimestamp(),
                     "timestamp" to FieldValue.serverTimestamp(),
-                    "dateStr" to nowStr
+                    "processed_at" to null,
+                    "admin_tx_hash" to null,
+                    "rejection_reason" to null
                 )
-                firestore?.collection("users")?.document(userId)?.collection("transactions")?.document(requestId)?.set(txDoc)
 
-                firestore?.collection("users")?.document(userId)?.update("usdt_balance", FieldValue.increment(-amount))
+                // Master admin queue collection
+                db.collection("withdrawals").document(withdrawalId).set(wdDoc)
+
+                // Wallet subcollection
+                db.collection("wallets").document(targetWallet).collection("withdrawals").document(withdrawalId).set(wdDoc)
+
+                // User transactions subcollection
+                if (userId.isNotBlank()) {
+                    val txDoc = hashMapOf<String, Any>(
+                        "id" to withdrawalId,
+                        "title" to "-$${String.format(Locale.US, "%.2f", amount)} USDT",
+                        "subtitle" to "Withdrawal to ${cryptoAddress.take(6)}...${cryptoAddress.takeLast(4)} ($formattedNetwork)",
+                        "btcAmountStr" to "",
+                        "usdtAmount" to amount,
+                        "isCredit" to false,
+                        "type" to "WITHDRAWAL",
+                        "status" to "PENDING",
+                        "timestamp" to FieldValue.serverTimestamp(),
+                        "dateStr" to nowStr
+                    )
+                    db.collection("users").document(userId).collection("transactions").document(withdrawalId).set(txDoc)
+                    db.collection("users").document(userId).update("usdt_balance", FieldValue.increment(-amount), "usdtBalance", FieldValue.increment(-amount))
+                }
+
+                db.collection("wallets").document(targetWallet).update("usdt_balance", FieldValue.increment(-amount), "usdtBalance", FieldValue.increment(-amount))
 
                 pushWithdrawal(FirebaseWithdrawal(
-                    requestId = requestId,
+                    requestId = withdrawalId,
                     userId = userId,
                     amount = amount,
                     cryptoAddress = cryptoAddress,
-                    network = network,
-                    status = "pending",
+                    network = formattedNetwork,
+                    status = "PENDING",
                     timestamp = nowStr
                 ))
 
@@ -633,6 +655,181 @@ object FirebaseSyncService {
             } catch (_: Exception) {
                 onComplete(false)
             }
+        }
+    }
+
+    fun approveWithdrawalAtomic(
+        withdrawalId: String,
+        adminTxHash: String = "",
+        onComplete: ((Boolean, String) -> Unit)? = null
+    ) {
+        scope.launch {
+            try {
+                val db = firestore ?: throw IllegalStateException("Firestore unavailable")
+                val generatedTxHash = if (adminTxHash.isNotBlank()) adminTxHash else "0x" + UUID.randomUUID().toString().replace("-", "").take(16)
+
+                val wdRef = db.collection("withdrawals").document(withdrawalId)
+                val wdSnap = wdRef.get().await()
+
+                val userId = wdSnap.getSafeString("userId")
+                val walletId = wdSnap.getSafeString("wallet_id", userId)
+
+                val updates = hashMapOf<String, Any?>(
+                    "status" to "APPROVED",
+                    "processed_at" to FieldValue.serverTimestamp(),
+                    "admin_tx_hash" to generatedTxHash
+                )
+
+                db.collection("withdrawals").document(withdrawalId).set(updates, SetOptions.merge())
+
+                if (walletId.isNotBlank()) {
+                    db.collection("wallets").document(walletId).collection("withdrawals").document(withdrawalId).set(updates, SetOptions.merge())
+                }
+
+                if (userId.isNotBlank()) {
+                    val userTxUpdates = hashMapOf<String, Any>(
+                        "status" to "COMPLETED",
+                        "subtitle" to "Withdrawal Dispatched (TX: ${generatedTxHash.take(10)}...)",
+                        "admin_tx_hash" to generatedTxHash
+                    )
+                    db.collection("users").document(userId).collection("transactions").document(withdrawalId).set(userTxUpdates, SetOptions.merge())
+                }
+
+                onComplete?.invoke(true, "Withdrawal $withdrawalId Approved & Dispatched!")
+            } catch (e: Exception) {
+                onComplete?.invoke(false, "Approval failed: ${e.message}")
+            }
+        }
+    }
+
+    fun rejectAndRefundWithdrawalAtomic(
+        withdrawalId: String,
+        rejectionReason: String = "Rejected by Admin - Funds Refunded",
+        onComplete: ((Boolean, String) -> Unit)? = null
+    ) {
+        scope.launch {
+            try {
+                val db = firestore ?: throw IllegalStateException("Firestore unavailable")
+                val wdRef = db.collection("withdrawals").document(withdrawalId)
+
+                val wdSnap = wdRef.get().await()
+                if (!wdSnap.exists()) {
+                    onComplete?.invoke(false, "Withdrawal document not found.")
+                    return@launch
+                }
+
+                val currentStatus = wdSnap.getSafeString("status")
+                if (currentStatus == "REJECTED") {
+                    onComplete?.invoke(false, "Withdrawal is already rejected.")
+                    return@launch
+                }
+
+                val userId = wdSnap.getSafeString("userId")
+                val walletId = wdSnap.getSafeString("wallet_id", userId)
+                val amount = wdSnap.getSafeDouble("amount_usdt", wdSnap.getSafeDouble("amount"))
+
+                val wdUpdates = hashMapOf<String, Any?>(
+                    "status" to "REJECTED",
+                    "processed_at" to FieldValue.serverTimestamp(),
+                    "rejection_reason" to rejectionReason
+                )
+
+                db.collection("withdrawals").document(withdrawalId).set(wdUpdates, SetOptions.merge())
+
+                if (walletId.isNotBlank()) {
+                    val walletRef = db.collection("wallets").document(walletId)
+                    walletRef.set(hashMapOf<String, Any>(
+                        "usdt_balance" to FieldValue.increment(amount),
+                        "usdtBalance" to FieldValue.increment(amount),
+                        "availableBalance" to FieldValue.increment(amount)
+                    ), SetOptions.merge())
+
+                    walletRef.collection("withdrawals").document(withdrawalId).set(wdUpdates, SetOptions.merge())
+                }
+
+                if (userId.isNotBlank()) {
+                    val userRef = db.collection("users").document(userId)
+                    userRef.set(hashMapOf<String, Any>(
+                        "usdt_balance" to FieldValue.increment(amount),
+                        "usdtBalance" to FieldValue.increment(amount),
+                        "availableBalance" to FieldValue.increment(amount)
+                    ), SetOptions.merge())
+
+                    userRef.collection("transactions").document(withdrawalId).set(hashMapOf<String, Any>(
+                        "status" to "REJECTED",
+                        "subtitle" to "Withdrawal Rejected ($rejectionReason)"
+                    ), SetOptions.merge())
+
+                    val refundTxId = "ref_${System.currentTimeMillis()}"
+                    val refundTxDoc = hashMapOf<String, Any>(
+                        "id" to refundTxId,
+                        "title" to "+$${String.format(Locale.US, "%.2f", amount)} USDT",
+                        "subtitle" to "Withdrawal Refund ($rejectionReason)",
+                        "btcAmountStr" to "",
+                        "usdtAmount" to amount,
+                        "isCredit" to true,
+                        "type" to "REFUND",
+                        "status" to "COMPLETED",
+                        "timestamp" to FieldValue.serverTimestamp(),
+                        "dateStr" to getCurrentTimestamp()
+                    )
+                    userRef.collection("transactions").document(refundTxId).set(refundTxDoc)
+                }
+
+                onComplete?.invoke(true, "Withdrawal $withdrawalId Rejected & $amount USDT Refunded.")
+            } catch (e: Exception) {
+                onComplete?.invoke(false, "Rejection failed: ${e.message}")
+            }
+        }
+    }
+
+    fun listenAllWithdrawals(
+        onWithdrawalsUpdated: (List<PayoutItem>) -> Unit
+    ) {
+        try {
+            val db = firestore ?: return
+            db.collection("withdrawals")
+                .orderBy("created_at", Query.Direction.DESCENDING)
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) return@addSnapshotListener
+                    try {
+                        if (snapshot != null) {
+                            val list = mutableListOf<PayoutItem>()
+                            val sdf = SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.US)
+                            for (doc in snapshot.documents) {
+                                val id = doc.getSafeString("withdrawal_id", doc.getSafeString("requestId", doc.id))
+                                val amount = doc.getSafeDouble("amount_usdt", doc.getSafeDouble("amount"))
+                                val address = doc.getSafeString("payout_address", doc.getSafeString("cryptoAddress", "USDT Address"))
+                                val network = doc.getSafeString("network", "USDT (BEP-20)")
+                                val rawStatus = doc.getSafeString("status", "PENDING")
+                                val createdMs = doc.getSafeTimestampMs("created_at", doc.getSafeTimestampMs("timestamp"))
+                                val dateStr = try { sdf.format(Date(createdMs)) } catch (_: Exception) { "Recently" }
+
+                                val payoutStatus = when (rawStatus.uppercase()) {
+                                    "APPROVED", "COMPLETED", "AUDITED_DISBURSED" -> PayoutStatus.COMPLETED
+                                    "REJECTED" -> PayoutStatus.REJECTED
+                                    else -> PayoutStatus.PENDING_24H_AUDIT
+                                }
+
+                                list.add(
+                                    PayoutItem(
+                                        id = id,
+                                        dateStr = dateStr,
+                                        amountUsdt = amount,
+                                        targetAddress = address,
+                                        network = network,
+                                        status = payoutStatus
+                                    )
+                                )
+                            }
+                            onWithdrawalsUpdated(list)
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 
@@ -718,32 +915,74 @@ object FirebaseSyncService {
 
                         val buyerName = buyerDoc?.getSafeString("displayName")
                             ?.takeIf { it.isNotBlank() && !it.contains("@") }
-                            ?: ("User 0x" + userId.replace("-", "").take(6).lowercase())
+                            ?: ("HG-" + userId.replace("-", "").take(8).uppercase())
 
-                        if (!referrerUid.isNullOrBlank() && referrerUid != userId) {
-                            val commission = plan.minDepositUsdt * 0.07
-                            firestore?.collection("users")?.document(referrerUid)?.update(
-                                "totalReferralRewardsUsdt", FieldValue.increment(commission),
-                                "usdtBalance", FieldValue.increment(commission),
-                                "usdt_balance", FieldValue.increment(commission),
-                                "availableBalance", FieldValue.increment(commission),
-                                "last_active", FieldValue.serverTimestamp()
-                            )
+                        if (!referrerUid.isNullOrBlank() && referrerUid != userId && referrerUid != "HG-ACCOUNT") {
+                            val commissionUsdt = (plan.minDepositUsdt * 0.07 * 100.0).let { Math.round(it) / 100.0 }
+                            val rewardId = "REF-" + UUID.randomUUID().toString().replace("-", "").take(12).uppercase()
 
-                            val commTxId = "comm_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(4)}"
-                            val commTxDoc = hashMapOf<String, Any>(
-                                "id" to commTxId,
-                                "title" to "+$${String.format(Locale.US, "%.2f", commission)} USDT",
-                                "subtitle" to "7% Rig Purchase Commission from $buyerName",
-                                "btcAmountStr" to "+$${String.format(Locale.US, "%.2f", commission)}",
-                                "usdtAmount" to commission,
-                                "isCredit" to true,
-                                "type" to "COMMISSION",
-                                "status" to "COMPLETED",
+                            val rewardDocMap = hashMapOf<String, Any>(
+                                "reward_id" to rewardId,
+                                "id" to rewardId,
+                                "from_miner_id" to userId,
+                                "fromMinerId" to userId,
+                                "buyer_name" to buyerName,
+                                "rig_name" to plan.name,
+                                "rig_cost" to plan.minDepositUsdt,
+                                "commission_rate" to 0.07,
+                                "commission_usdt" to commissionUsdt,
+                                "commissionUsdt" to commissionUsdt,
+                                "created_at" to FieldValue.serverTimestamp(),
                                 "timestamp" to FieldValue.serverTimestamp(),
-                                "dateStr" to nowStr
+                                "createdAtStr" to nowStr,
+                                "type" to "RIG_PURCHASE_COMMISSION"
                             )
-                            firestore?.collection("users")?.document(referrerUid)?.collection("transactions")?.document(commTxId)?.set(commTxDoc)
+
+                            val commBatch = firestore?.batch()
+
+                            // 1. Credit Referrer Wallet
+                            val walletRef = firestore?.collection("wallets")?.document(referrerUid)
+                            if (walletRef != null) {
+                                commBatch?.set(walletRef, hashMapOf<String, Any>(
+                                    "usdt_balance" to FieldValue.increment(commissionUsdt),
+                                    "referral_balance" to FieldValue.increment(commissionUsdt)
+                                ), SetOptions.merge())
+
+                                // 2. Write to wallets/{referred_by}/referral_rewards/{reward_id}
+                                commBatch?.set(walletRef.collection("referral_rewards").document(rewardId), rewardDocMap)
+                            }
+
+                            // 3. Credit Referrer User doc
+                            val userRef = firestore?.collection("users")?.document(referrerUid)
+                            if (userRef != null) {
+                                commBatch?.set(userRef, hashMapOf<String, Any>(
+                                    "usdt_balance" to FieldValue.increment(commissionUsdt),
+                                    "usdtBalance" to FieldValue.increment(commissionUsdt),
+                                    "availableBalance" to FieldValue.increment(commissionUsdt),
+                                    "totalReferralRewardsUsdt" to FieldValue.increment(commissionUsdt),
+                                    "last_active" to FieldValue.serverTimestamp()
+                                ), SetOptions.merge())
+
+                                // 4. Write to users/{referred_by}/referral_rewards/{reward_id}
+                                commBatch?.set(userRef.collection("referral_rewards").document(rewardId), rewardDocMap)
+
+                                // 5. Write to users/{referred_by}/transactions/{reward_id}
+                                val commTxDoc = hashMapOf<String, Any>(
+                                    "id" to rewardId,
+                                    "title" to "+$${String.format(Locale.US, "%.2f", commissionUsdt)} USDT",
+                                    "subtitle" to "7% Commission from $buyerName (${plan.name})",
+                                    "btcAmountStr" to "",
+                                    "usdtAmount" to commissionUsdt,
+                                    "isCredit" to true,
+                                    "type" to "COMMISSION",
+                                    "status" to "COMPLETED",
+                                    "timestamp" to FieldValue.serverTimestamp(),
+                                    "dateStr" to nowStr
+                                )
+                                commBatch?.set(userRef.collection("transactions").document(rewardId), commTxDoc)
+                            }
+
+                            commBatch?.commit()?.await()
                         }
                     } catch (_: Exception) {}
                 }
@@ -754,6 +993,288 @@ object FirebaseSyncService {
             }
         }
     }
+
+    fun listenReferralRewards(
+        userId: String,
+        onRewardsUpdated: (List<com.example.model.ReferralReward>) -> Unit
+    ) {
+        if (userId.isBlank()) return
+        try {
+            val db = firestore ?: return
+            db.collection("users").document(userId).collection("referral_rewards")
+                .orderBy("created_at", com.google.firebase.firestore.Query.Direction.DESCENDING)
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) return@addSnapshotListener
+                    try {
+                        if (snapshot != null) {
+                            val rewards = mutableListOf<com.example.model.ReferralReward>()
+                            val sdf = java.text.SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.US)
+                            for (doc in snapshot.documents) {
+                                val rewardId = doc.getSafeString("reward_id", doc.getSafeString("id", doc.id))
+                                val fromMinerId = doc.getSafeString("from_miner_id", doc.getSafeString("fromMinerId"))
+                                val buyerName = doc.getSafeString("buyer_name").ifBlank { "Miner " + fromMinerId.take(8) }
+                                val rigName = doc.getSafeString("rig_name", "Starter Node")
+                                val rigCost = doc.getSafeDouble("rig_cost", 10.0)
+                                val commRate = doc.getSafeDouble("commission_rate", 0.07)
+                                val commUsdt = doc.getSafeDouble("commission_usdt", doc.getSafeDouble("commissionUsdt"))
+                                val createdMs = doc.getSafeTimestampMs("created_at", doc.getSafeTimestampMs("timestamp"))
+                                val dateStr = doc.getSafeString("createdAtStr", try { sdf.format(java.util.Date(createdMs)) } catch (_: Exception) { "Recently" })
+
+                                rewards.add(
+                                    com.example.model.ReferralReward(
+                                        rewardId = rewardId,
+                                        fromMinerId = if (buyerName.isNotBlank()) buyerName else fromMinerId,
+                                        rigName = rigName,
+                                        rigCost = rigCost,
+                                        commissionRate = commRate,
+                                        commissionUsdt = commUsdt,
+                                        createdAtStr = dateStr,
+                                        createdAtMs = createdMs
+                                    )
+                                )
+                            }
+                            onRewardsUpdated(rewards)
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun submitTaskSubmissionToFirestore(
+        submission: com.example.model.TaskSubmissionItem,
+        onComplete: ((Boolean, String) -> Unit)? = null
+    ) {
+        scope.launch {
+            try {
+                val db = firestore ?: throw IllegalStateException("Firestore unavailable")
+                val subId = if (submission.submissionId.isNotBlank()) submission.submissionId else "TSK-" + UUID.randomUUID().toString().replace("-", "").take(12).uppercase()
+                val walletId = if (submission.walletId.isNotBlank()) submission.walletId else "HG-" + submission.userId.replace("-", "").take(8).uppercase()
+
+                val nowStr = SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.US).format(Date())
+
+                val docMap = hashMapOf<String, Any?>(
+                    "submission_id" to subId,
+                    "id" to subId,
+                    "wallet_id" to walletId,
+                    "user_id" to submission.userId,
+                    "userId" to submission.userId,
+                    "task_type" to submission.taskType,
+                    "title" to submission.title,
+                    "proof_morning_url" to submission.proofMorningUrl,
+                    "proof_evening_url" to submission.proofEveningUrl,
+                    "proof_link" to submission.proofLink,
+                    "status" to "PENDING",
+                    "reward_amount_usdt" to submission.rewardAmountUsdt,
+                    "submitted_at" to FieldValue.serverTimestamp(),
+                    "submittedAtStr" to nowStr,
+                    "reviewed_at" to null,
+                    "admin_note" to null
+                )
+
+                val batch = db.batch()
+                batch.set(db.collection("task_submissions").document(subId), docMap, SetOptions.merge())
+
+                if (submission.userId.isNotBlank()) {
+                    batch.set(db.collection("users").document(submission.userId).collection("task_submissions").document(subId), docMap, SetOptions.merge())
+                }
+
+                if (walletId.isNotBlank()) {
+                    batch.set(db.collection("wallets").document(walletId).collection("task_submissions").document(subId), docMap, SetOptions.merge())
+                }
+
+                batch.commit().await()
+                onComplete?.invoke(true, "Task submitted for Admin Review!")
+            } catch (e: Exception) {
+                e.printStackTrace()
+                onComplete?.invoke(false, "Submission failed: ${e.message}")
+            }
+        }
+    }
+
+    fun listenAllTaskSubmissions(
+        onSubmissionsUpdated: (List<com.example.model.TaskSubmissionItem>) -> Unit
+    ) {
+        try {
+            val db = firestore ?: return
+            db.collection("task_submissions")
+                .orderBy("submitted_at", com.google.firebase.firestore.Query.Direction.DESCENDING)
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) return@addSnapshotListener
+                    try {
+                        if (snapshot != null) {
+                            val items = mutableListOf<com.example.model.TaskSubmissionItem>()
+                            val sdf = SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.US)
+                            for (doc in snapshot.documents) {
+                                val subId = doc.getSafeString("submission_id", doc.getSafeString("id", doc.id))
+                                val walletId = doc.getSafeString("wallet_id")
+                                val userId = doc.getSafeString("user_id", doc.getSafeString("userId"))
+                                val taskType = doc.getSafeString("task_type", "DAILY_STATUS")
+                                val title = doc.getSafeString("title", "Task Bounty")
+                                val proofMorningUrl = doc.getSafeString("proof_morning_url").ifBlank { null }
+                                val proofEveningUrl = doc.getSafeString("proof_evening_url").ifBlank { null }
+                                val proofLink = doc.getSafeString("proof_link").ifBlank { null }
+                                val status = doc.getSafeString("status", "PENDING")
+                                val rewardUsdt = doc.getSafeDouble("reward_amount_usdt", doc.getSafeDouble("requestedAmountUsdt", 0.20))
+                                val submittedMs = doc.getSafeTimestampMs("submitted_at")
+                                val submittedStr = doc.getSafeString("submittedAtStr", try { sdf.format(Date(submittedMs)) } catch (_: Exception) { "Recently" })
+                                val adminNote = doc.getSafeString("admin_note").ifBlank { null }
+
+                                items.add(
+                                    com.example.model.TaskSubmissionItem(
+                                        submissionId = subId,
+                                        walletId = walletId,
+                                        userId = userId,
+                                        taskType = taskType,
+                                        title = title,
+                                        proofMorningUrl = proofMorningUrl,
+                                        proofEveningUrl = proofEveningUrl,
+                                        proofLink = proofLink,
+                                        status = status,
+                                        rewardAmountUsdt = rewardUsdt,
+                                        submittedAtStr = submittedStr,
+                                        submittedAtMs = submittedMs,
+                                        adminNote = adminNote
+                                    )
+                                )
+                            }
+                            onSubmissionsUpdated(items)
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun approveTaskSubmissionAtomic(
+        submissionId: String,
+        adminNote: String = "Approved by Admin",
+        onComplete: ((Boolean, String) -> Unit)? = null
+    ) {
+        scope.launch {
+            try {
+                val db = firestore ?: throw IllegalStateException("Firestore unavailable")
+                val subRef = db.collection("task_submissions").document(submissionId)
+                val snap = subRef.get().await()
+
+                if (!snap.exists()) {
+                    onComplete?.invoke(false, "Task submission document not found.")
+                    return@launch
+                }
+
+                val currentStatus = snap.getSafeString("status")
+                if (currentStatus == "APPROVED") {
+                    onComplete?.invoke(false, "Task is already approved.")
+                    return@launch
+                }
+
+                val userId = snap.getSafeString("user_id", snap.getSafeString("userId"))
+                val walletId = snap.getSafeString("wallet_id", "HG-" + userId.take(8).uppercase())
+                val rewardAmount = snap.getSafeDouble("reward_amount_usdt", 0.20)
+                val title = snap.getSafeString("title", "Task Bounty")
+                val nowStr = SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.US).format(Date())
+
+                val updates = hashMapOf<String, Any?>(
+                    "status" to "APPROVED",
+                    "reviewed_at" to FieldValue.serverTimestamp(),
+                    "admin_note" to adminNote
+                )
+
+                val batch = db.batch()
+                batch.set(subRef, updates, SetOptions.merge())
+
+                if (userId.isNotBlank()) {
+                    val userRef = db.collection("users").document(userId)
+                    batch.set(userRef, hashMapOf<String, Any>(
+                        "usdt_balance" to FieldValue.increment(rewardAmount),
+                        "usdtBalance" to FieldValue.increment(rewardAmount)
+                    ), SetOptions.merge())
+
+                    batch.set(userRef.collection("task_submissions").document(submissionId), updates, SetOptions.merge())
+
+                    val txDoc = hashMapOf<String, Any>(
+                        "id" to "TX-$submissionId",
+                        "title" to "+$${String.format(Locale.US, "%.2f", rewardAmount)} USDT",
+                        "subtitle" to "Bounty Approved: $title",
+                        "btcAmountStr" to "",
+                        "usdtAmount" to rewardAmount,
+                        "isCredit" to true,
+                        "type" to "BOUNTY_REWARD",
+                        "status" to "COMPLETED",
+                        "timestamp" to FieldValue.serverTimestamp(),
+                        "dateStr" to nowStr
+                    )
+                    batch.set(userRef.collection("transactions").document("TX-$submissionId"), txDoc)
+                }
+
+                if (walletId.isNotBlank()) {
+                    val walletRef = db.collection("wallets").document(walletId)
+                    batch.set(walletRef, hashMapOf<String, Any>(
+                        "usdt_balance" to FieldValue.increment(rewardAmount)
+                    ), SetOptions.merge())
+
+                    batch.set(walletRef.collection("task_submissions").document(submissionId), updates, SetOptions.merge())
+                }
+
+                batch.commit().await()
+                onComplete?.invoke(true, "Task $submissionId Approved & $${rewardAmount} USDT Credited!")
+            } catch (e: Exception) {
+                e.printStackTrace()
+                onComplete?.invoke(false, "Approval failed: ${e.message}")
+            }
+        }
+    }
+
+    fun rejectTaskSubmissionAtomic(
+        submissionId: String,
+        adminNote: String = "Rejected by Admin",
+        onComplete: ((Boolean, String) -> Unit)? = null
+    ) {
+        scope.launch {
+            try {
+                val db = firestore ?: throw IllegalStateException("Firestore unavailable")
+                val subRef = db.collection("task_submissions").document(submissionId)
+                val snap = subRef.get().await()
+
+                if (!snap.exists()) {
+                    onComplete?.invoke(false, "Task submission not found.")
+                    return@launch
+                }
+
+                val userId = snap.getSafeString("user_id", snap.getSafeString("userId"))
+                val walletId = snap.getSafeString("wallet_id")
+
+                val updates = hashMapOf<String, Any?>(
+                    "status" to "REJECTED",
+                    "reviewed_at" to FieldValue.serverTimestamp(),
+                    "admin_note" to adminNote
+                )
+
+                val batch = db.batch()
+                batch.set(subRef, updates, SetOptions.merge())
+
+                if (userId.isNotBlank()) {
+                    batch.set(db.collection("users").document(userId).collection("task_submissions").document(submissionId), updates, SetOptions.merge())
+                }
+                if (walletId.isNotBlank()) {
+                    batch.set(db.collection("wallets").document(walletId).collection("task_submissions").document(submissionId), updates, SetOptions.merge())
+                }
+
+                batch.commit().await()
+                onComplete?.invoke(true, "Task submission $submissionId rejected.")
+            } catch (e: Exception) {
+                e.printStackTrace()
+                onComplete?.invoke(false, "Rejection failed: ${e.message}")
+            }
+        }
+    }
+
 
     fun purchaseRigForWallet(
         walletAddress: String,

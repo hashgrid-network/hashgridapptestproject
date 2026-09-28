@@ -90,6 +90,7 @@ fun GrowthScreen(
     syndicateTier: String = "NOVICE",
     totalReferralRewardsUsdt: Double = 0.0,
     teamMembers: List<TeamMember> = emptyList(),
+    referralRewards: List<com.example.model.ReferralReward> = emptyList(),
     bountyTasks: List<BountyTask>,
     freeAdCooldownHours: Int,
     onClaimFreeAdSession: () -> Pair<Boolean, String>,
@@ -235,6 +236,124 @@ fun GrowthScreen(
                             Text("+${String.format(Locale.US, "%.1f", effectiveExtraHashrate)} GH/s", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = GoldGradientEnd)
                         }
                     }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // ==========================================
+        // PI-STYLE FREE MINING TEAM BOOST CARD
+        // ==========================================
+        val activeMinersCount = teamMembers.count { it.isMining || it.status.equals("ACTIVE", ignoreCase = true) }
+        val piTeamBoostGhs = activeMinersCount * 0.10
+
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(22.dp))
+                .border(1.5.dp, GoldBorder, RoundedCornerShape(22.dp))
+                .testTag("pi_mining_team_boost_card"),
+            colors = CardDefaults.cardColors(containerColor = ObsidianNavy),
+            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(18.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .background(MintDark.copy(alpha = 0.25f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Bolt,
+                                contentDescription = null,
+                                tint = MintGreen,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = "PI-STYLE MINING TEAM BOOST",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Black,
+                                color = GoldGradientMid,
+                                letterSpacing = 0.8.sp
+                            )
+                            Text(
+                                text = "Live Active Referral Speed Multiplier",
+                                fontSize = 9.5.sp,
+                                color = SlateGray
+                            )
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MintDark.copy(alpha = 0.2f))
+                            .border(1.dp, MintGreen.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = "● BOOST ACTIVE",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MintGreen
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "⚡ Team Boost: +${String.format(Locale.US, "%.2f", piTeamBoostGhs)} GH/s",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Black,
+                            color = MintGreen,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "($activeMinersCount / ${teamMembers.size.coerceAtLeast(effectiveTeamCount.toInt())} Active Miners Mining Now)",
+                            fontSize = 10.5.sp,
+                            color = Color.White.copy(alpha = 0.85f)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(SlateNavy)
+                        .padding(10.dp)
+                ) {
+                    Text(
+                        text = "Formula: Effective GH/s = Base GH/s + (Active Miners × 0.10 GH/s). Keep inviting team members to continuously scale your mining yield!",
+                        fontSize = 9.5.sp,
+                        color = SlateGray,
+                        lineHeight = 13.5.sp
+                    )
                 }
             }
         }
@@ -459,6 +578,173 @@ fun GrowthScreen(
                                     color = ObsidianNavy,
                                     letterSpacing = 0.5.sp
                                 )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // =========================================================================
+        // COMMISSION HISTORY STREAM (7% INSTANT USDT)
+        // =========================================================================
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(22.dp))
+                .border(1.dp, GoldBorder, RoundedCornerShape(22.dp))
+                .testTag("commission_history_stream_card"),
+            colors = CardDefaults.cardColors(containerColor = CardWhite),
+            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(18.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .background(GoldLight)
+                                .border(1.dp, GoldBorder, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MonetizationOn,
+                                contentDescription = null,
+                                tint = GoldGradientEnd,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "COMMISSION HISTORY STREAM",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 0.8.sp,
+                                color = ObsidianNavy
+                            )
+                            Text(
+                                text = "7% Instant USDT Cash Rewards on Rig Purchases",
+                                fontSize = 10.sp,
+                                color = SlateGray
+                            )
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(GoldLight)
+                            .border(0.8.dp, GoldBorder, RoundedCornerShape(20.dp))
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                    ) {
+                        Text(
+                            text = "7% INSTANT",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Black,
+                            color = GoldGradientEnd
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                if (referralRewards.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xFFFAF7F2))
+                            .border(0.8.dp, GoldBorderSubtle, RoundedCornerShape(12.dp))
+                            .padding(16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("💎", fontSize = 24.sp)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "No Purchase Commissions Yet",
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = ObsidianNavy
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Earn 7% instant cash commission whenever your referred friends purchase or re-purchase any Hardware Rig ($10 - $500 USDT)!",
+                                fontSize = 10.sp,
+                                color = SlateGray,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                lineHeight = 13.5.sp
+                            )
+                        }
+                    }
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        referralRewards.forEach { reward ->
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(Color(0xFFFAF7F2))
+                                    .border(0.8.dp, GoldBorderSubtle, RoundedCornerShape(12.dp))
+                                    .padding(12.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                text = reward.fromMinerId,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = ObsidianNavy,
+                                                fontFamily = FontFamily.Monospace
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(4.dp))
+                                                    .background(GoldLight)
+                                                    .padding(horizontal = 4.dp, vertical = 1.dp)
+                                            ) {
+                                                Text(
+                                                    text = reward.rigName,
+                                                    fontSize = 8.5.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = GoldGradientEnd
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = "${reward.createdAtStr} • Rig Cost: $${String.format(Locale.US, "%.2f", reward.rigCost)} USDT",
+                                            fontSize = 9.5.sp,
+                                            color = SlateGray
+                                        )
+                                    }
+
+                                    Text(
+                                        text = "+$${String.format(Locale.US, "%.2f", reward.commissionUsdt)} USDT",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Black,
+                                        color = MintDark,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
                             }
                         }
                     }

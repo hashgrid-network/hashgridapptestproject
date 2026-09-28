@@ -337,12 +337,13 @@ fun HomeScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "USDT BALANCE",
+                            text = "MINER BALANCE (USDT)",
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
                             color = SlateGray,
                             letterSpacing = 0.8.sp
                         )
+
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(6.dp))
