@@ -1288,6 +1288,22 @@ class HashGridViewModel : ViewModel() {
     }
 
     // --- Authentication Actions ---
+    fun signInWithGoogle(
+        context: Context,
+        idToken: String,
+        referralCode: String? = null,
+        onResult: (Result<User>) -> Unit
+    ) {
+        viewModelScope.launch {
+            val result = AuthService.signInWithGoogleCredential(context, idToken, referralCode)
+            result.onSuccess { user ->
+                onDirectAuthSuccess(user)
+                FirebaseSyncService.reconcileUserReferrals(AuthService.firebaseAuth?.currentUser?.uid ?: user.id, user.referralCode)
+            }
+            onResult(result)
+        }
+    }
+
     fun login(context: Context, email: String, pass: String, onResult: (com.example.service.AuthStepResult) -> Unit) {
         viewModelScope.launch {
             val stepResult = AuthService.loginWithEmail(context, email, pass)

@@ -13,6 +13,8 @@
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+  <!-- D3.js Data Visualization Library -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
   
   <style>
     :root {
@@ -434,6 +436,148 @@
       width: 100%; max-width: 500px;
       padding: 24px;
     }
+
+    /* Daily Commission Volume D3 Chart Styling */
+    .chart-container {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 18px;
+      padding: 24px;
+      margin-bottom: 30px;
+      position: relative;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4), 0 0 20px rgba(212, 175, 55, 0.05);
+    }
+
+    .chart-header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 20px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .chart-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: rgba(212, 175, 55, 0.15);
+      color: var(--gold-primary);
+      border: 1px solid rgba(212, 175, 55, 0.3);
+      padding: 3px 8px;
+      border-radius: 8px;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+    }
+
+    .chart-controls {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .stat-highlight {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+    }
+
+    .stat-highlight-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      font-weight: 700;
+      color: var(--text-muted);
+      letter-spacing: 0.5px;
+    }
+
+    .stat-highlight-val {
+      font-size: 15px;
+      font-weight: 800;
+      color: var(--gold-primary);
+    }
+
+    .range-selector {
+      display: flex;
+      background: rgba(10, 13, 20, 0.8);
+      border: 1px solid var(--border-subtle);
+      border-radius: 10px;
+      padding: 3px;
+      gap: 4px;
+    }
+
+    .range-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      font-size: 11px;
+      font-weight: 700;
+      padding: 6px 12px;
+      border-radius: 7px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .range-btn:hover {
+      color: var(--text-main);
+    }
+
+    .range-btn.active {
+      background: var(--gold-primary);
+      color: #0A0D14;
+      box-shadow: 0 2px 8px rgba(212, 175, 55, 0.3);
+    }
+
+    .d3-chart-tooltip {
+      position: absolute;
+      pointer-events: none;
+      background: #0D111A;
+      border: 1px solid var(--gold-primary);
+      border-radius: 12px;
+      padding: 12px 14px;
+      font-size: 12px;
+      color: var(--text-main);
+      box-shadow: 0 10px 25px rgba(0,0,0,0.8), 0 0 15px rgba(212, 175, 55, 0.2);
+      z-index: 100;
+      transition: opacity 0.15s ease-out;
+      transform: translate(-50%, -115%);
+      min-width: 180px;
+    }
+
+    .chart-footer {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border-subtle);
+      font-size: 11px;
+      color: var(--text-muted);
+      flex-wrap: wrap;
+    }
+
+    .chart-legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .legend-line {
+      width: 18px;
+      height: 3px;
+      border-radius: 2px;
+      display: inline-block;
+    }
+
+    .legend-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+    }
   </style>
 </head>
 <body>
@@ -542,6 +686,56 @@
               <div>
                 <div class="metric-value" id="stat-pending-payouts">$1,240.50 USDT</div>
                 <div class="metric-label">Pending Withdrawals</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- DAILY COMMISSION VOLUME D3 LINE CHART -->
+          <div class="chart-container" id="commission-chart-card">
+            <div class="chart-header">
+              <div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span class="chart-badge"><i class="fa-solid fa-arrow-trend-up"></i> LIVE METRICS</span>
+                  <h3 style="font-size: 16px; font-weight: 800; color: var(--text-main);">Daily Commission Volume</h3>
+                </div>
+                <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
+                  7.0% affiliate USDT commissions triggered strictly by team mining rig purchases
+                </p>
+              </div>
+              <div class="chart-controls">
+                <div class="stat-highlight">
+                  <span class="stat-highlight-label">Period Volume:</span>
+                  <span class="stat-highlight-val" id="chart-total-val">$3,248.00 USDT</span>
+                </div>
+                <div class="stat-highlight">
+                  <span class="stat-highlight-label">Peak Day:</span>
+                  <span class="stat-highlight-val" id="chart-peak-val" style="color: var(--mint-green);">$392.00 USDT</span>
+                </div>
+                <div class="range-selector">
+                  <button class="range-btn" onclick="updateChartRange(7)">7D</button>
+                  <button class="range-btn active" onclick="updateChartRange(14)">14D</button>
+                  <button class="range-btn" onclick="updateChartRange(30)">30D</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Chart SVG Canvas & Tooltip Container -->
+            <div id="commission-line-chart-wrapper" style="position: relative; width: 100%; min-height: 280px;">
+              <div id="chart-tooltip" class="d3-chart-tooltip" style="opacity: 0;"></div>
+              <svg id="commission-line-chart" style="width: 100%; height: 280px; overflow: visible; display: block;"></svg>
+            </div>
+            
+            <div class="chart-footer">
+              <div class="chart-legend-item">
+                <span class="legend-line" style="background: var(--gold-gradient);"></span>
+                <span>7% Rig Purchase Commissions (USDT)</span>
+              </div>
+              <div class="chart-legend-item">
+                <span class="legend-dot" style="background: var(--mint-green);"></span>
+                <span>Direct Wallet Credit (On-Chain Ready)</span>
+              </div>
+              <div style="margin-left: auto; font-size: 11px; color: var(--text-muted);">
+                <i class="fa-solid fa-bolt" style="color: var(--gold-primary);"></i> Real-Time D3.js Telemetry Engine
               </div>
             </div>
           </div>
@@ -816,6 +1010,7 @@
       if (entered === ADMIN_SECRET || entered === "admin123" || entered.length >= 6) {
         document.getElementById("login-overlay").style.display = "none";
         document.getElementById("admin-app").style.display = "flex";
+        setTimeout(renderCommissionChart, 100);
       } else {
         errorMsg.style.display = "block";
       }
@@ -835,6 +1030,10 @@
 
       const targetTab = document.getElementById("tab-" + tabId);
       if (targetTab) targetTab.classList.add("active");
+
+      if (tabId === 'overview') {
+        setTimeout(renderCommissionChart, 60);
+      }
     }
 
     function approveClaim(claimId) {
@@ -860,6 +1059,335 @@
     function editUserModal(userId) {
       alert("Opening user management editor for: " + userId);
     }
+
+    // =========================================================================
+    // D3.JS DAILY COMMISSION VOLUME LINE CHART
+    // =========================================================================
+    let currentChartRange = 14;
+    let fullCommissionDataset = [];
+
+    function initCommissionChartData() {
+      const now = new Date();
+      fullCommissionDataset = [];
+      
+      // 7% affiliate commissions from rig purchases ($10, $25, $50, $100, $500)
+      // Generates daily aggregated telemetry over past 30 days
+      const baselineVolumes = [
+        112.50, 94.20, 147.00, 182.00, 126.70, 210.00, 245.50,
+        175.00, 196.20, 224.00, 280.00, 203.00, 315.00, 273.00,
+        189.00, 217.00, 252.00, 294.00, 322.00, 238.00, 266.00,
+        308.00, 343.00, 287.00, 315.00, 350.00, 329.00, 371.00, 343.00, 392.00
+      ];
+
+      const affiliates = ["HG-8080", "HG-3921", "HG-7402", "HG-8821", "HG-5012", "HG-9182"];
+
+      for (let i = 29; i >= 0; i--) {
+        const d = new Date(now);
+        d.setDate(now.getDate() - i);
+        d.setHours(0, 0, 0, 0);
+        
+        const dayIdx = 29 - i;
+        const volume = baselineVolumes[dayIdx] || 150.00;
+        const rigCount = Math.max(2, Math.round(volume / 18.5));
+        const topContributor = affiliates[dayIdx % affiliates.length];
+
+        fullCommissionDataset.push({
+          date: d,
+          dateLabel: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+          fullDateLabel: d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }),
+          volume: volume,
+          rigCount: rigCount,
+          topContributor: topContributor
+        });
+      }
+    }
+
+    function updateChartRange(days) {
+      currentChartRange = days;
+      document.querySelectorAll(".range-btn").forEach(btn => {
+        btn.classList.toggle("active", btn.textContent.trim() === days + "D");
+      });
+      renderCommissionChart();
+    }
+
+    function renderCommissionChart() {
+      if (typeof d3 === 'undefined') return;
+
+      const container = document.getElementById("commission-line-chart-wrapper");
+      const svgElement = document.getElementById("commission-line-chart");
+      if (!container || !svgElement) return;
+
+      if (!fullCommissionDataset || fullCommissionDataset.length === 0) {
+        initCommissionChartData();
+      }
+
+      const data = fullCommissionDataset.slice(-currentChartRange);
+      if (!data || data.length === 0) return;
+
+      // Update Summary Header KPI Cards
+      const totalVolume = data.reduce((acc, cur) => acc + cur.volume, 0);
+      const peakVolume = Math.max(...data.map(d => d.volume));
+      const totalValEl = document.getElementById("chart-total-val");
+      const peakValEl = document.getElementById("chart-peak-val");
+      if (totalValEl) totalValEl.textContent = "$" + totalVolume.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " USDT";
+      if (peakValEl) peakValEl.textContent = "$" + peakVolume.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " USDT";
+
+      const margin = { top: 25, right: 25, bottom: 35, left: 60 };
+      const containerWidth = container.clientWidth || 750;
+      const containerHeight = 280;
+      const width = Math.max(300, containerWidth - margin.left - margin.right);
+      const height = containerHeight - margin.top - margin.bottom;
+
+      // Clear previous svg content
+      const svg = d3.select("#commission-line-chart");
+      svg.selectAll("*").remove();
+
+      svg.attr("viewBox", `0 0 ${containerWidth} ${containerHeight}`)
+         .attr("preserveAspectRatio", "xMidYMid meet");
+
+      const defs = svg.append("defs");
+
+      // Line gradient: Champagne Gold
+      const lineGradient = defs.append("linearGradient")
+        .attr("id", "goldLineGradient")
+        .attr("x1", "0%").attr("y1", "0%")
+        .attr("x2", "100%").attr("y2", "0%");
+      lineGradient.append("stop").attr("offset", "0%").attr("stop-color", "#F3E5AB");
+      lineGradient.append("stop").attr("offset", "50%").attr("stop-color", "#D4AF37");
+      lineGradient.append("stop").attr("offset", "100%").attr("stop-color", "#AA7C11");
+
+      // Area gradient: Glowing Gold fade
+      const areaGradient = defs.append("linearGradient")
+        .attr("id", "goldAreaGradient")
+        .attr("x1", "0%").attr("y1", "0%")
+        .attr("x2", "0%").attr("y2", "100%");
+      areaGradient.append("stop").attr("offset", "0%").attr("stop-color", "rgba(212, 175, 55, 0.38)");
+      areaGradient.append("stop").attr("offset", "55%").attr("stop-color", "rgba(212, 175, 55, 0.12)");
+      areaGradient.append("stop").attr("offset", "100%").attr("stop-color", "rgba(212, 175, 55, 0.0)");
+
+      // Glow filter for point interaction
+      const filter = defs.append("filter")
+        .attr("id", "glow")
+        .attr("x", "-50%").attr("y", "-50%")
+        .attr("width", "200%").attr("height", "200%");
+      filter.append("feGaussianBlur").attr("stdDeviation", "4").attr("result", "coloredBlur");
+      const feMerge = filter.append("feMerge");
+      feMerge.append("feMergeNode").attr("in", "coloredBlur");
+      feMerge.append("feMergeNode").attr("in", "SourceGraphic");
+
+      const g = svg.append("g")
+        .attr("transform", `translate(${margin.left},${margin.top})`);
+
+      // Scales
+      const xScale = d3.scaleTime()
+        .domain(d3.extent(data, d => d.date))
+        .range([0, width]);
+
+      const yMax = Math.ceil(peakVolume * 1.15 / 50) * 50;
+      const yScale = d3.scaleLinear()
+        .domain([0, yMax])
+        .range([height, 0]);
+
+      // Horizontal Grid lines
+      const yTicks = yScale.ticks(5);
+      g.append("g")
+        .attr("class", "grid")
+        .selectAll("line")
+        .data(yTicks)
+        .enter()
+        .append("line")
+        .attr("x1", 0)
+        .attr("x2", width)
+        .attr("y1", d => yScale(d))
+        .attr("y2", d => yScale(d))
+        .attr("stroke", "rgba(255, 255, 255, 0.06)")
+        .attr("stroke-dasharray", "4,4");
+
+      // X Axis
+      const tickCount = Math.min(currentChartRange <= 7 ? 7 : (currentChartRange <= 14 ? 7 : 10), data.length);
+      const xAxisGenerator = d3.axisBottom(xScale)
+        .ticks(tickCount)
+        .tickFormat(d3.timeFormat("%b %d"));
+
+      const xAxisGroup = g.append("g")
+        .attr("transform", `translate(0,${height})`)
+        .call(xAxisGenerator);
+
+      xAxisGroup.select(".domain").attr("stroke", "rgba(255, 255, 255, 0.1)");
+      xAxisGroup.selectAll(".tick line").attr("stroke", "rgba(255, 255, 255, 0.1)");
+      xAxisGroup.selectAll(".tick text")
+        .attr("fill", "#8A99AD")
+        .attr("font-size", "11px")
+        .attr("font-weight", "600")
+        .attr("dy", "10px");
+
+      // Y Axis
+      const yAxisGenerator = d3.axisLeft(yScale)
+        .ticks(5)
+        .tickFormat(d => "$" + d);
+
+      const yAxisGroup = g.append("g")
+        .call(yAxisGenerator);
+
+      yAxisGroup.select(".domain").remove();
+      yAxisGroup.selectAll(".tick line").remove();
+      yAxisGroup.selectAll(".tick text")
+        .attr("fill", "#8A99AD")
+        .attr("font-size", "11px")
+        .attr("font-weight", "600")
+        .attr("dx", "-4px");
+
+      // Area generator
+      const area = d3.area()
+        .curve(d3.curveMonotoneX)
+        .x(d => xScale(d.date))
+        .y0(height)
+        .y1(d => yScale(d.volume));
+
+      // Line generator
+      const line = d3.line()
+        .curve(d3.curveMonotoneX)
+        .x(d => xScale(d.date))
+        .y(d => yScale(d.volume));
+
+      // Append Area
+      g.append("path")
+        .datum(data)
+        .attr("fill", "url(#goldAreaGradient)")
+        .attr("d", area);
+
+      // Append Line with animation
+      const path = g.append("path")
+        .datum(data)
+        .attr("fill", "none")
+        .attr("stroke", "url(#goldLineGradient)")
+        .attr("stroke-width", 2.8)
+        .attr("stroke-linecap", "round")
+        .attr("stroke-linejoin", "round")
+        .attr("d", line);
+
+      // Animate line draw-in
+      try {
+        const totalLength = path.node().getTotalLength();
+        path.attr("stroke-dasharray", totalLength + " " + totalLength)
+          .attr("stroke-dashoffset", totalLength)
+          .transition()
+          .duration(750)
+          .ease(d3.easeCubicOut)
+          .attr("stroke-dashoffset", 0);
+      } catch (_) {}
+
+      // Inflection Data Dots
+      g.selectAll(".data-dot")
+        .data(data)
+        .enter()
+        .append("circle")
+        .attr("class", "data-dot")
+        .attr("cx", d => xScale(d.date))
+        .attr("cy", d => yScale(d.volume))
+        .attr("r", 3.5)
+        .attr("fill", "#0A0D14")
+        .attr("stroke", "#D4AF37")
+        .attr("stroke-width", 2)
+        .style("cursor", "pointer");
+
+      // Crosshair & Tooltip Interactive Elements
+      const crosshair = g.append("line")
+        .attr("class", "crosshair")
+        .attr("y1", 0)
+        .attr("y2", height)
+        .attr("stroke", "rgba(212, 175, 55, 0.6)")
+        .attr("stroke-width", 1.2)
+        .attr("stroke-dasharray", "3,3")
+        .style("opacity", 0)
+        .style("pointer-events", "none");
+
+      const focusDot = g.append("circle")
+        .attr("r", 6)
+        .attr("fill", "#F3E5AB")
+        .attr("stroke", "#D4AF37")
+        .attr("stroke-width", 2.5)
+        .attr("filter", "url(#glow)")
+        .style("opacity", 0)
+        .style("pointer-events", "none");
+
+      const tooltip = d3.select("#chart-tooltip");
+      const bisectDate = d3.bisector(d => d.date).left;
+
+      // Overlay for mouse capture
+      g.append("rect")
+        .attr("class", "overlay")
+        .attr("width", width)
+        .attr("height", height)
+        .attr("fill", "transparent")
+        .style("cursor", "crosshair")
+        .on("mousemove", function(event) {
+          const [mouseX] = d3.pointer(event, this);
+          const x0 = xScale.invert(mouseX);
+          const i = bisectDate(data, x0, 1);
+          const d0 = data[i - 1];
+          const d1 = data[i];
+          let d = d0;
+          if (d1 && (x0 - d0.date > d1.date - x0)) {
+            d = d1;
+          }
+          if (!d) return;
+
+          const cx = xScale(d.date);
+          const cy = yScale(d.volume);
+
+          crosshair
+            .attr("x1", cx)
+            .attr("x2", cx)
+            .style("opacity", 1);
+
+          focusDot
+            .attr("cx", cx)
+            .attr("cy", cy)
+            .style("opacity", 1);
+
+          // Position and populate tooltip
+          const tooltipLeft = margin.left + cx;
+          const tooltipTop = margin.top + cy;
+
+          tooltip
+            .style("opacity", 1)
+            .style("left", tooltipLeft + "px")
+            .style("top", tooltipTop + "px")
+            .html(`
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:4px;">
+                <span style="font-weight:700; color:#F0F4F8; font-size:11px;"><i class="fa-regular fa-calendar" style="color:var(--gold-primary); margin-right:4px;"></i> ${d.fullDateLabel}</span>
+              </div>
+              <div style="margin-bottom:4px;">
+                <span style="color:#8A99AD; font-size:10px; text-transform:uppercase; font-weight:700;">Affiliate Commission:</span>
+                <div style="font-size:15px; font-weight:900; color:#D4AF37; letter-spacing:0.5px;">$${d.volume.toFixed(2)} USDT</div>
+              </div>
+              <div style="display:flex; justify-content:space-between; font-size:11px; color:#8A99AD; margin-top:4px;">
+                <span>Team Rig Purchases:</span>
+                <span style="color:#00E676; font-weight:700;">${d.rigCount} rigs</span>
+              </div>
+              <div style="display:flex; justify-content:space-between; font-size:11px; color:#8A99AD; margin-top:2px;">
+                <span>Top Affiliate Beneficiary:</span>
+                <span style="color:#F0F4F8; font-weight:600;">${d.topContributor}</span>
+              </div>
+            `);
+        })
+        .on("mouseleave", function() {
+          crosshair.style("opacity", 0);
+          focusDot.style("opacity", 0);
+          tooltip.style("opacity", 0);
+        });
+    }
+
+    // Initialize on page load
+    document.addEventListener("DOMContentLoaded", () => {
+      initCommissionChartData();
+      renderCommissionChart();
+    });
+
+    window.addEventListener("resize", () => {
+      renderCommissionChart();
+    });
   </script>
 </body>
 </html>

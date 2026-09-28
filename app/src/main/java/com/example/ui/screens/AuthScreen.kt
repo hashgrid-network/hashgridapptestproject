@@ -1,6 +1,8 @@
 package com.example.ui.screens
 
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -12,23 +14,25 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import com.google.firebase.FirebaseApp
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AlternateEmail
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ElectricBolt
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -41,96 +45,157 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
-import androidx.compose.material3.TabRowDefaults
-import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import com.example.R
 import com.example.model.User
 import com.example.service.AuthStepResult
 import com.example.ui.modals.ForgotPasswordModal
 import com.example.ui.theme.CanvasBackground
 import com.example.ui.theme.CardWhite
+import com.example.ui.theme.GoldBorder
 import com.example.ui.theme.GoldBorderSubtle
+import com.example.ui.theme.GoldBrush
 import com.example.ui.theme.GoldGradientEnd
 import com.example.ui.theme.GoldGradientMid
+import com.example.ui.theme.GoldLight
 import com.example.ui.theme.MintDark
 import com.example.ui.theme.MintGreen
 import com.example.ui.theme.ObsidianNavy
 import com.example.ui.theme.SlateGray
 import com.example.ui.theme.SlateNavy
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.common.api.ApiException
 
 @Composable
 fun AuthScreen(
-    onLoginSubmit: (String, String, (AuthStepResult) -> Unit) -> Unit,
-    onSignUpSubmit: (String, String, String, String, String, (AuthStepResult) -> Unit) -> Unit,
+    onGoogleSignIn: (String, String?, (Result<User>) -> Unit) -> Unit = { _, _, _ -> },
+    onLoginSubmit: (String, String, (AuthStepResult) -> Unit) -> Unit = { _, _, _ -> },
+    onSignUpSubmit: (String, String, String, String, String, (AuthStepResult) -> Unit) -> Unit = { _, _, _, _, _, _ -> },
     onAuthSuccess: (User) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
-
-    var selectedTabIndex by remember { mutableIntStateOf(0) } // 0: Login, 1: Sign Up
-
-    // Login Form States
-    var loginEmail by remember { mutableStateOf("") }
-    var loginPassword by remember { mutableStateOf("") }
-    var isLoginPasswordVisible by remember { mutableStateOf(false) }
-    var showForgotPasswordModal by remember { mutableStateOf(false) }
-
-    // Sign Up Form States
-    var signupName by remember { mutableStateOf("") }
-    var signupEmail by remember { mutableStateOf("") }
-    var signupPassword by remember { mutableStateOf("") }
-    var signupConfirmPassword by remember { mutableStateOf("") }
-    var signupReferralCode by remember { mutableStateOf("") }
-    var isSignupPasswordVisible by remember { mutableStateOf(false) }
-    var isSignupConfirmPasswordVisible by remember { mutableStateOf(false) }
-
     val clipboardManager = LocalClipboardManager.current
+
+    // Referral code state
+    var referralCode by remember { mutableStateOf("") }
     var isReferralDetectedFromClipboard by remember { mutableStateOf(false) }
 
-    LaunchedEffect(selectedTabIndex) {
-        if (selectedTabIndex == 1 && signupReferralCode.isBlank()) {
-            val clipText = clipboardManager.getText()?.text?.trim() ?: ""
-            val detected = if (clipText.startsWith("HG-", ignoreCase = true)) {
-                clipText.substringBefore(" ").substringBefore("&").substringBefore("?").uppercase()
-            } else {
-                val regex = Regex("(?i)HG-[A-Z0-9]{2,10}")
-                regex.find(clipText)?.value?.uppercase()
-            }
-            if (!detected.isNullOrBlank()) {
-                signupReferralCode = detected
-                isReferralDetectedFromClipboard = true
-                Toast.makeText(context, "Referral code applied from invite: $detected ✅", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
+    // Dialog & error states
+    var showReferralPromptDialog by remember { mutableStateOf(false) }
+    var dialogReferralInput by remember { mutableStateOf("") }
+    var showAdminConsole by remember { mutableStateOf(false) }
+    var showForgotPasswordModal by remember { mutableStateOf(false) }
+
+    // Admin fallback login inputs (Strictly for emergency God Mode / parkashom8080@gmail.com)
+    var adminEmail by remember { mutableStateOf("") }
+    var adminPassword by remember { mutableStateOf("") }
+    var isAdminPasswordVisible by remember { mutableStateOf(false) }
 
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    // Clipboard invite detection
+    LaunchedEffect(Unit) {
+        val clipText = clipboardManager.getText()?.text?.trim() ?: ""
+        val detected = if (clipText.startsWith("HG-", ignoreCase = true)) {
+            clipText.substringBefore(" ").substringBefore("&").substringBefore("?").uppercase()
+        } else {
+            val regex = Regex("(?i)HG-[A-Z0-9]{2,10}")
+            regex.find(clipText)?.value?.uppercase()
+        }
+        if (!detected.isNullOrBlank()) {
+            referralCode = detected
+            isReferralDetectedFromClipboard = true
+            Toast.makeText(context, "Syndicate invite applied from clipboard: $detected ✅", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // Google Sign-In setup
+    val gso = remember {
+        GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+            .requestIdToken(context.getString(R.string.default_web_client_id))
+            .requestEmail()
+            .requestProfile()
+            .build()
+    }
+    val googleSignInClient = remember { GoogleSignIn.getClient(context, gso) }
+
+    val googleLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+        try {
+            val account = task.getResult(ApiException::class.java)
+            val idToken = account?.idToken
+            if (!idToken.isNullOrBlank()) {
+                isLoading = true
+                errorMessage = null
+                val cleanRef = referralCode.trim().ifBlank { null }
+                onGoogleSignIn(idToken, cleanRef) { authRes ->
+                    isLoading = false
+                    authRes.onSuccess { user ->
+                        Toast.makeText(context, "Welcome, ${user.displayName}! Verified with Google ✅", Toast.LENGTH_SHORT).show()
+                        onAuthSuccess(user)
+                    }.onFailure { err ->
+                        errorMessage = err.localizedMessage ?: "Google sign-in failed. Please try again."
+                    }
+                }
+            } else {
+                isLoading = false
+                errorMessage = "Google authentication returned an empty ID token. Please verify Google Play Services."
+            }
+        } catch (e: ApiException) {
+            isLoading = false
+            if (e.statusCode != 12501) { // 12501 is user cancelled
+                errorMessage = "Google Sign-In failed (${e.statusCode}): ${e.localizedMessage ?: e.message}"
+            }
+        } catch (e: Exception) {
+            isLoading = false
+            errorMessage = e.localizedMessage ?: "Google Sign-In error"
+        }
+    }
+
+    val launchGoogleSignIn: (String?) -> Unit = { refInput ->
+        if (!refInput.isNullOrBlank()) {
+            referralCode = refInput.trim().uppercase()
+        }
+        try {
+            googleSignInClient.signOut().addOnCompleteListener {
+                googleLauncher.launch(googleSignInClient.signInIntent)
+            }
+        } catch (_: Exception) {
+            googleLauncher.launch(googleSignInClient.signInIntent)
+        }
+    }
 
     Box(
         modifier = modifier
@@ -183,9 +248,9 @@ fun AuthScreen(
                 letterSpacing = 0.3.sp
             )
 
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
-            // MAIN AUTH CARD (LOG IN / SIGN UP)
+            // MAIN AUTH CARD
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -198,55 +263,53 @@ fun AuthScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(20.dp)
+                        .padding(22.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    // TAB SELECTOR (Log In / Sign Up)
-                    TabRow(
-                        selectedTabIndex = selectedTabIndex,
-                        containerColor = Color(0xFFF4F0E8),
-                        indicator = { tabPositions ->
-                            TabRowDefaults.SecondaryIndicator(
-                                Modifier.tabIndicatorOffset(tabPositions[selectedTabIndex]),
-                                color = GoldGradientEnd
-                            )
-                        },
+                    // VERIFIED BADGE
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center,
                         modifier = Modifier
-                            .fillMaxWidth()
                             .clip(RoundedCornerShape(12.dp))
+                            .background(GoldLight.copy(alpha = 0.5f))
+                            .border(1.dp, GoldBorderSubtle, RoundedCornerShape(12.dp))
+                            .padding(horizontal = 10.dp, vertical = 5.dp)
                     ) {
-                        Tab(
-                            selected = selectedTabIndex == 0,
-                            onClick = {
-                                selectedTabIndex = 0
-                                errorMessage = null
-                            },
-                            text = {
-                                Text(
-                                    text = "LOG IN",
-                                    fontWeight = if (selectedTabIndex == 0) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (selectedTabIndex == 0) ObsidianNavy else SlateGray,
-                                    fontSize = 12.sp
-                                )
-                            },
-                            modifier = Modifier.testTag("tab_login")
+                        Icon(
+                            imageVector = Icons.Default.Security,
+                            contentDescription = null,
+                            tint = GoldGradientEnd,
+                            modifier = Modifier.size(14.dp)
                         )
-                        Tab(
-                            selected = selectedTabIndex == 1,
-                            onClick = {
-                                selectedTabIndex = 1
-                                errorMessage = null
-                            },
-                            text = {
-                                Text(
-                                    text = "SIGN UP",
-                                    fontWeight = if (selectedTabIndex == 1) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (selectedTabIndex == 1) ObsidianNavy else SlateGray,
-                                    fontSize = 12.sp
-                                )
-                            },
-                            modifier = Modifier.testTag("tab_signup")
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "INSTITUTIONAL VERIFIED ACCESS",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 0.5.sp,
+                            color = ObsidianNavy
                         )
                     }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Text(
+                        text = "1-Tap Institutional Access",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = ObsidianNavy
+                    )
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Text(
+                        text = "Connect with your verified Google account. Unverified email registration has been disabled to protect network security & mining difficulty.",
+                        fontSize = 11.5.sp,
+                        color = SlateGray,
+                        textAlign = TextAlign.Center,
+                        lineHeight = 16.sp
+                    )
 
                     Spacer(modifier = Modifier.height(20.dp))
 
@@ -267,280 +330,321 @@ fun AuthScreen(
                                 fontWeight = FontWeight.Medium
                             )
                         }
-                        Spacer(modifier = Modifier.height(14.dp))
+                        Spacer(modifier = Modifier.height(16.dp))
                     }
 
-                    if (selectedTabIndex == 0) {
-                        // ==========================================
-                        // 1. LOG IN FORM
-                        // ==========================================
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                            Text(
-                                text = "Email Address",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = SlateGray
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            OutlinedTextField(
-                                value = loginEmail,
-                                onValueChange = { loginEmail = it },
-                                placeholder = { Text("miner@institution.is", fontSize = 13.sp, color = Color.Gray) },
-                                leadingIcon = {
-                                    Icon(imageVector = Icons.Default.AlternateEmail, contentDescription = null, tint = GoldGradientEnd, modifier = Modifier.size(18.dp))
-                                },
-                                singleLine = true,
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = GoldGradientEnd,
-                                    unfocusedBorderColor = GoldBorderSubtle
-                                ),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("input_login_email")
-                            )
-
-                            Spacer(modifier = Modifier.height(14.dp))
-
-                            Text(
-                                text = "Password",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = SlateGray
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            OutlinedTextField(
-                                value = loginPassword,
-                                onValueChange = { loginPassword = it },
-                                placeholder = { Text("••••••••", fontSize = 13.sp, color = Color.Gray) },
-                                leadingIcon = {
-                                    Icon(imageVector = Icons.Default.Lock, contentDescription = null, tint = GoldGradientEnd, modifier = Modifier.size(18.dp))
-                                },
-                                trailingIcon = {
-                                    IconButton(onClick = { isLoginPasswordVisible = !isLoginPasswordVisible }) {
-                                        Icon(
-                                            imageVector = if (isLoginPasswordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                                            contentDescription = "Toggle password",
-                                            tint = SlateGray,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                    }
-                                },
-                                visualTransformation = if (isLoginPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                                singleLine = true,
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
-                                keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = GoldGradientEnd,
-                                    unfocusedBorderColor = GoldBorderSubtle
-                                ),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("input_login_password")
-                            )
-
-                            Spacer(modifier = Modifier.height(10.dp))
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.End
-                            ) {
-                                Text(
-                                    text = "Forgot Password?",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = GoldGradientEnd,
-                                    modifier = Modifier
-                                        .clickable {
-                                            showForgotPasswordModal = true
-                                        }
-                                        .testTag("forgot_password_btn")
-                                )
+                    // ==========================================
+                    // 1. PROMINENT "CONTINUE WITH GOOGLE" BUTTON
+                    // ==========================================
+                    Button(
+                        onClick = {
+                            if (isLoading) return@Button
+                            if (referralCode.isBlank()) {
+                                showReferralPromptDialog = true
+                            } else {
+                                launchGoogleSignIn(referralCode)
                             }
-
-                            Spacer(modifier = Modifier.height(20.dp))
-
-                            Button(
-                                onClick = {
-                                    focusManager.clearFocus()
-                                    isLoading = true
-                                    errorMessage = null
-                                    onLoginSubmit(loginEmail, loginPassword) { res ->
-                                        isLoading = false
-                                        when (res) {
-                                            is AuthStepResult.Authenticated -> {
-                                                onAuthSuccess(res.user)
-                                            }
-                                            is AuthStepResult.Failure -> {
-                                                errorMessage = res.message
-                                            }
-                                            else -> {
-                                                // Handled upstream by navigation state
-                                            }
-                                        }
-                                    }
-                                },
-                                enabled = !isLoading,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(48.dp)
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .testTag("btn_login_submit"),
-                                colors = ButtonDefaults.buttonColors(containerColor = SlateNavy)
+                        },
+                        enabled = !isLoading,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .border(1.5.dp, GoldBrush, RoundedCornerShape(16.dp))
+                            .testTag("btn_google_signin"),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = ObsidianNavy,
+                            disabledContainerColor = ObsidianNavy.copy(alpha = 0.7f)
+                        ),
+                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp)
+                    ) {
+                        if (isLoading) {
+                            CircularProgressIndicator(
+                                color = GoldGradientMid,
+                                modifier = Modifier.size(24.dp),
+                                strokeWidth = 2.5.dp
+                            )
+                        } else {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center,
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                if (isLoading) {
-                                    CircularProgressIndicator(color = MintGreen, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                                } else {
+                                // Official Google 'G' icon in clean white circle
+                                Box(
+                                    modifier = Modifier
+                                        .size(34.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.White)
+                                        .padding(7.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        painter = painterResource(id = R.drawable.ic_google_logo),
+                                        contentDescription = "Google Logo",
+                                        tint = Color.Unspecified,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.width(14.dp))
+
+                                Column(horizontalAlignment = Alignment.Start) {
                                     Text(
-                                        text = "LOG IN TO DASHBOARD",
+                                        text = "Continue with Google",
+                                        fontSize = 14.sp,
                                         fontWeight = FontWeight.Bold,
-                                        fontSize = 12.sp,
-                                        letterSpacing = 0.6.sp,
                                         color = Color.White
+                                    )
+                                    Text(
+                                        text = "Verified 1-Tap Login & Cloud Sync",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = GoldGradientMid
                                     )
                                 }
                             }
                         }
-                    } else {
-                        // ==========================================
-                        // 2. SIGN UP FORM
-                        // ==========================================
-                        Column(modifier = Modifier.fillMaxWidth()) {
+                    }
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    // DIVIDER / SYNDICATE INVITE SECTION
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(1.dp)
+                                .background(GoldBorderSubtle)
+                        )
+                        Text(
+                            text = "SYNDICATE SPONSORSHIP",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = SlateGray,
+                            modifier = Modifier.padding(horizontal = 8.dp)
+                        )
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(1.dp)
+                                .background(GoldBorderSubtle)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // OPTIONAL REFERRAL CODE INPUT FIELD
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Referral Code (Optional)",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = SlateGray
+                        )
+                        if (isReferralDetectedFromClipboard) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(Color(0xFFE8F5E9))
+                                    .border(0.8.dp, MintGreen, RoundedCornerShape(6.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "Applied from invite ✅",
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MintGreen
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    OutlinedTextField(
+                        value = referralCode,
+                        onValueChange = {
+                            referralCode = it.uppercase()
+                            isReferralDetectedFromClipboard = false
+                        },
+                        placeholder = { Text("e.g. HG-8080", fontSize = 13.sp, color = Color.Gray) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Key,
+                                contentDescription = null,
+                                tint = GoldGradientEnd,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        },
+                        trailingIcon = {
+                            Box(
+                                modifier = Modifier
+                                    .padding(end = 4.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(GoldGradientEnd.copy(alpha = 0.15f))
+                                    .clickable {
+                                        val clipText = clipboardManager.getText()?.text?.trim() ?: ""
+                                        val detected = if (clipText.startsWith("HG-", ignoreCase = true)) {
+                                            clipText.substringBefore(" ").substringBefore("&").substringBefore("?").uppercase()
+                                        } else {
+                                            val regex = Regex("(?i)HG-[A-Z0-9]{2,10}")
+                                            regex.find(clipText)?.value?.uppercase()
+                                        } ?: clipText.uppercase()
+
+                                        if (detected.isNotBlank()) {
+                                            referralCode = detected
+                                            isReferralDetectedFromClipboard = true
+                                            Toast.makeText(context, "Referral code applied: $detected ✅", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            Toast.makeText(context, "Clipboard is empty", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                                    .testTag("paste_referral_btn")
+                            ) {
+                                Text(
+                                    text = "PASTE",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = ObsidianNavy
+                                )
+                            }
+                        },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = GoldGradientEnd,
+                            unfocusedBorderColor = GoldBorderSubtle
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("input_signup_referral")
+                    )
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Text(
+                        text = "New miners entering a valid sponsor code receive an instant +1.5 GH/s hashrate speed boost.",
+                        fontSize = 10.sp,
+                        color = SlateGray,
+                        lineHeight = 14.sp,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(18.dp))
+
+                    // ZERO-TOLERANCE ANTI-SYBIL COMPLIANCE NOTE
+                    Row(
+                        verticalAlignment = Alignment.Top,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0xFFF9F7F2))
+                            .border(1.dp, GoldBorderSubtle, RoundedCornerShape(10.dp))
+                            .padding(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Info,
+                            contentDescription = null,
+                            tint = GoldGradientEnd,
+                            modifier = Modifier
+                                .size(14.dp)
+                                .padding(top = 1.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Existing miners are seamlessly restored upon Google sign-in. New miners are auto-provisioned with segregated cloud wallets.",
+                            fontSize = 10.sp,
+                            color = SlateNavy,
+                            lineHeight = 14.sp
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // OPTIONAL EXPANDABLE INSTITUTIONAL MASTER KEY CONSOLE
+                    TextButton(
+                        onClick = { showAdminConsole = !showAdminConsole },
+                        modifier = Modifier.testTag("toggle_admin_console_btn")
+                    ) {
+                        Text(
+                            text = if (showAdminConsole) "Hide Master Console" else "Institutional Master Console Access",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = SlateGray
+                        )
+                    }
+
+                    if (showAdminConsole) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(Color(0xFFF4F0E8))
+                                .border(1.dp, GoldBorderSubtle, RoundedCornerShape(14.dp))
+                                .padding(14.dp)
+                        ) {
                             Text(
-                                text = "Full Name / Username",
+                                text = "Institutional Master / Administrator Login",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = SlateGray
+                                color = ObsidianNavy
                             )
-                            Spacer(modifier = Modifier.height(6.dp))
+                            Spacer(modifier = Modifier.height(8.dp))
+
                             OutlinedTextField(
-                                value = signupName,
-                                onValueChange = { signupName = it },
-                                placeholder = { Text("e.g. Alex Thor", fontSize = 13.sp, color = Color.Gray) },
+                                value = adminEmail,
+                                onValueChange = { adminEmail = it },
+                                placeholder = { Text("parkashom8080@gmail.com", fontSize = 12.sp, color = Color.Gray) },
                                 leadingIcon = {
-                                    Icon(imageVector = Icons.Default.Person, contentDescription = null, tint = GoldGradientEnd, modifier = Modifier.size(18.dp))
+                                    Icon(Icons.Default.AlternateEmail, null, tint = GoldGradientEnd, modifier = Modifier.size(16.dp))
                                 },
                                 singleLine = true,
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Next),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = GoldGradientEnd,
-                                    unfocusedBorderColor = GoldBorderSubtle
-                                ),
-                                shape = RoundedCornerShape(12.dp),
+                                shape = RoundedCornerShape(10.dp),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .testTag("input_signup_name")
+                                    .testTag("input_admin_email")
                             )
 
-                            Spacer(modifier = Modifier.height(12.dp))
+                            Spacer(modifier = Modifier.height(8.dp))
 
-                            Text(
-                                text = "Email Address (Gmail / Corporate)",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = SlateGray
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
                             OutlinedTextField(
-                                value = signupEmail,
-                                onValueChange = { signupEmail = it },
-                                placeholder = { Text("miner@institution.is", fontSize = 13.sp, color = Color.Gray) },
+                                value = adminPassword,
+                                onValueChange = { adminPassword = it },
+                                placeholder = { Text("Master Password", fontSize = 12.sp, color = Color.Gray) },
                                 leadingIcon = {
-                                    Icon(imageVector = Icons.Default.AlternateEmail, contentDescription = null, tint = GoldGradientEnd, modifier = Modifier.size(18.dp))
-                                },
-                                singleLine = true,
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = GoldGradientEnd,
-                                    unfocusedBorderColor = GoldBorderSubtle
-                                ),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("input_signup_email")
-                            )
-
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            Text(
-                                text = "Password (Min 6 characters)",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = SlateGray
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            OutlinedTextField(
-                                value = signupPassword,
-                                onValueChange = { signupPassword = it },
-                                placeholder = { Text("••••••••", fontSize = 13.sp, color = Color.Gray) },
-                                leadingIcon = {
-                                    Icon(imageVector = Icons.Default.Lock, contentDescription = null, tint = GoldGradientEnd, modifier = Modifier.size(18.dp))
+                                    Icon(Icons.Default.Lock, null, tint = GoldGradientEnd, modifier = Modifier.size(16.dp))
                                 },
                                 trailingIcon = {
-                                    IconButton(onClick = { isSignupPasswordVisible = !isSignupPasswordVisible }) {
+                                    IconButton(onClick = { isAdminPasswordVisible = !isAdminPasswordVisible }) {
                                         Icon(
-                                            imageVector = if (isSignupPasswordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                                            contentDescription = "Toggle password",
+                                            imageVector = if (isAdminPasswordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                            contentDescription = null,
                                             tint = SlateGray,
-                                            modifier = Modifier.size(18.dp)
+                                            modifier = Modifier.size(16.dp)
                                         )
                                     }
                                 },
-                                visualTransformation = if (isSignupPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                                visualTransformation = if (isAdminPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
                                 singleLine = true,
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Next),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = GoldGradientEnd,
-                                    unfocusedBorderColor = GoldBorderSubtle
-                                ),
-                                shape = RoundedCornerShape(12.dp),
+                                shape = RoundedCornerShape(10.dp),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .testTag("input_signup_password")
+                                    .testTag("input_admin_password")
                             )
 
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            Text(
-                                text = "Confirm Password",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = SlateGray
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            OutlinedTextField(
-                                value = signupConfirmPassword,
-                                onValueChange = { signupConfirmPassword = it },
-                                placeholder = { Text("••••••••", fontSize = 13.sp, color = Color.Gray) },
-                                leadingIcon = {
-                                    Icon(imageVector = Icons.Default.Lock, contentDescription = null, tint = GoldGradientEnd, modifier = Modifier.size(18.dp))
-                                },
-                                trailingIcon = {
-                                    IconButton(onClick = { isSignupConfirmPasswordVisible = !isSignupConfirmPasswordVisible }) {
-                                        Icon(
-                                            imageVector = if (isSignupConfirmPasswordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                                            contentDescription = "Toggle password",
-                                            tint = SlateGray,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                    }
-                                },
-                                visualTransformation = if (isSignupConfirmPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                                singleLine = true,
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Next),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = GoldGradientEnd,
-                                    unfocusedBorderColor = GoldBorderSubtle
-                                ),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("input_signup_confirm_password")
-                            )
-
-                            Spacer(modifier = Modifier.height(12.dp))
+                            Spacer(modifier = Modifier.height(10.dp))
 
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -548,170 +652,32 @@ fun AuthScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "Referral Code (Optional)",
-                                    fontSize = 11.sp,
+                                    text = "Forgot Password?",
+                                    fontSize = 10.5.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = SlateGray
+                                    color = GoldGradientEnd,
+                                    modifier = Modifier.clickable { showForgotPasswordModal = true }
                                 )
-                                if (isReferralDetectedFromClipboard) {
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(6.dp))
-                                            .background(Color(0xFFE8F5E9))
-                                            .border(0.8.dp, MintGreen, RoundedCornerShape(6.dp))
-                                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                                    ) {
-                                        Text(
-                                            text = "Referral code applied from clipboard ✅",
-                                            fontSize = 9.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MintGreen
-                                        )
-                                    }
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(6.dp))
-                            OutlinedTextField(
-                                value = signupReferralCode,
-                                onValueChange = {
-                                    signupReferralCode = it.uppercase()
-                                    isReferralDetectedFromClipboard = false
-                                },
-                                placeholder = { Text("e.g. HG-78A2", fontSize = 13.sp, color = Color.Gray) },
-                                leadingIcon = {
-                                    Icon(imageVector = Icons.Default.Key, contentDescription = null, tint = GoldGradientEnd, modifier = Modifier.size(18.dp))
-                                },
-                                trailingIcon = {
-                                    Box(
-                                        modifier = Modifier
-                                            .padding(end = 4.dp)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(GoldGradientEnd.copy(alpha = 0.15f))
-                                            .clickable {
-                                                val clipText = clipboardManager.getText()?.text?.trim() ?: ""
-                                                val detected = if (clipText.startsWith("HG-", ignoreCase = true)) {
-                                                    clipText.substringBefore(" ").substringBefore("&").substringBefore("?").uppercase()
-                                                } else {
-                                                    val regex = Regex("(?i)HG-[A-Z0-9]{2,10}")
-                                                    regex.find(clipText)?.value?.uppercase()
-                                                } ?: clipText.uppercase()
 
-                                                if (detected.isNotBlank()) {
-                                                    signupReferralCode = detected
-                                                    isReferralDetectedFromClipboard = true
-                                                    Toast.makeText(context, "Referral code applied: $detected ✅", Toast.LENGTH_SHORT).show()
-                                                } else {
-                                                    Toast.makeText(context, "Clipboard is empty", Toast.LENGTH_SHORT).show()
-                                                }
-                                            }
-                                            .padding(horizontal = 10.dp, vertical = 6.dp)
-                                            .testTag("paste_referral_btn")
-                                    ) {
-                                        Text(
-                                            text = "PASTE",
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Black,
-                                            color = ObsidianNavy
-                                        )
-                                    }
-                                },
-                                singleLine = true,
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Done),
-                                keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = GoldGradientEnd,
-                                    unfocusedBorderColor = GoldBorderSubtle
-                                ),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("input_signup_referral")
-                            )
-
-                            if (signupReferralCode.isNotBlank() && (isReferralDetectedFromClipboard || signupReferralCode.startsWith("HG-", ignoreCase = true))) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(start = 4.dp, top = 4.dp)
-                                ) {
-                                    Text(
-                                        text = "✓ Referral Code auto-applied from invite link",
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = MintDark
-                                    )
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(20.dp))
-
-                            // REGISTER BUTTON
-                            Button(
-                                onClick = {
-                                    focusManager.clearFocus()
-                                    val cleanEmail = signupEmail.trim()
-                                    val cleanPass = signupPassword.trim()
-                                    val cleanConfirm = signupConfirmPassword.trim()
-                                    val cleanName = signupName.trim()
-
-                                    if (cleanName.isBlank()) {
-                                        errorMessage = "Please enter your full name."
-                                        return@Button
-                                    }
-                                    if (cleanEmail.isBlank() || !cleanEmail.contains("@")) {
-                                        errorMessage = "Please enter a valid email address."
-                                        return@Button
-                                    }
-                                    if (cleanPass.length < 6) {
-                                        errorMessage = "Password must be at least 6 characters."
-                                        return@Button
-                                    }
-                                    if (cleanPass != cleanConfirm) {
-                                        errorMessage = "Passwords do not match."
-                                        return@Button
-                                    }
-
-                                    isLoading = true
-                                    errorMessage = null
-
-                                    onSignUpSubmit(cleanName, cleanEmail, cleanPass, cleanConfirm, signupReferralCode) { res ->
-                                        isLoading = false
-                                        when (res) {
-                                            is AuthStepResult.Authenticated -> {
-                                                Toast.makeText(context, "Account created on Cloud!", Toast.LENGTH_SHORT).show()
-                                                onAuthSuccess(res.user)
-                                            }
-                                            is AuthStepResult.RequireTotpSetup, is AuthStepResult.RequireTotpChallenge -> {
-                                                Toast.makeText(context, "Account created on Cloud!", Toast.LENGTH_SHORT).show()
-                                            }
-                                            is AuthStepResult.Failure -> {
-                                                errorMessage = res.message
-                                            }
-                                            else -> {
-                                                // Handled upstream by navigation state
+                                Button(
+                                    onClick = {
+                                        focusManager.clearFocus()
+                                        isLoading = true
+                                        errorMessage = null
+                                        onLoginSubmit(adminEmail, adminPassword) { res ->
+                                            isLoading = false
+                                            when (res) {
+                                                is AuthStepResult.Authenticated -> onAuthSuccess(res.user)
+                                                is AuthStepResult.Failure -> errorMessage = res.message
+                                                else -> {}
                                             }
                                         }
-                                    }
-                                },
-                                enabled = !isLoading,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(48.dp)
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .testTag("btn_signup_submit"),
-                                colors = ButtonDefaults.buttonColors(containerColor = SlateNavy)
-                            ) {
-                                if (isLoading) {
-                                    CircularProgressIndicator(color = MintGreen, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                                } else {
-                                    Text(
-                                        text = "CREATE MINER ACCOUNT",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 12.sp,
-                                        letterSpacing = 0.6.sp,
-                                        color = Color.White
-                                    )
+                                    },
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = SlateNavy),
+                                    modifier = Modifier.testTag("btn_admin_login")
+                                ) {
+                                    Text("AUTHENTICATE", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
                                 }
                             }
                         }
@@ -744,12 +710,119 @@ fun AuthScreen(
             Spacer(modifier = Modifier.height(16.dp))
         }
 
+        // SWIFT 1-TIME OPTIONAL REFERRAL DIALOG
+        if (showReferralPromptDialog) {
+            Dialog(onDismissRequest = { showReferralPromptDialog = false }) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(20.dp))
+                        .border(1.dp, GoldBorder, RoundedCornerShape(20.dp)),
+                    colors = CardDefaults.cardColors(containerColor = CardWhite)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(20.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Syndicate Referral Code",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = ObsidianNavy
+                            )
+                            IconButton(
+                                onClick = { showReferralPromptDialog = false },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(Icons.Default.Close, null, tint = SlateGray, modifier = Modifier.size(16.dp))
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Text(
+                            text = "Enter a sponsor's invite code to claim an instant +1.5 GH/s hashrate speed boost, or skip to start with standard institutional rate.",
+                            fontSize = 11.5.sp,
+                            color = SlateGray,
+                            lineHeight = 16.sp
+                        )
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        OutlinedTextField(
+                            value = dialogReferralInput,
+                            onValueChange = { dialogReferralInput = it.uppercase() },
+                            placeholder = { Text("e.g. HG-8080 (Optional)", fontSize = 12.sp, color = Color.Gray) },
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            trailingIcon = {
+                                Box(
+                                    modifier = Modifier
+                                        .padding(end = 4.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(GoldGradientEnd.copy(alpha = 0.15f))
+                                        .clickable {
+                                            val clip = clipboardManager.getText()?.text?.trim() ?: ""
+                                            if (clip.isNotBlank()) dialogReferralInput = clip.uppercase()
+                                        }
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Text("PASTE", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = ObsidianNavy)
+                                }
+                            },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = GoldGradientEnd,
+                                unfocusedBorderColor = GoldBorderSubtle
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Spacer(modifier = Modifier.height(18.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            TextButton(
+                                onClick = {
+                                    showReferralPromptDialog = false
+                                    launchGoogleSignIn(null)
+                                }
+                            ) {
+                                Text("SKIP & PROCEED", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = SlateGray)
+                            }
+
+                            Spacer(modifier = Modifier.width(8.dp))
+
+                            Button(
+                                onClick = {
+                                    showReferralPromptDialog = false
+                                    launchGoogleSignIn(dialogReferralInput.ifBlank { null })
+                                },
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = SlateNavy)
+                            ) {
+                                Text("APPLY & SIGN IN", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         if (showForgotPasswordModal) {
             ForgotPasswordModal(
-                initialEmail = loginEmail,
+                initialEmail = adminEmail,
                 onDismiss = { showForgotPasswordModal = false },
                 onPasswordResetSuccess = { resetEmail ->
-                    loginEmail = resetEmail
+                    adminEmail = resetEmail
                 }
             )
         }

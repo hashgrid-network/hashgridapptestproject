@@ -6,6 +6,10 @@ import android.provider.Settings
 import com.example.model.User
 import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.GoogleAuthProvider
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -224,6 +228,191 @@ object AuthService {
             digest.fold("") { str, it -> str + "%02x".format(it) }.take(16)
         } catch (_: Exception) {
             "dev_${UUID.randomUUID().toString().take(12)}"
+        }
+    }
+
+    /**
+     * Native 1-Tap Google Sign-In with Firebase Authentication and cloud onboarding.
+     */
+    suspend fun signInWithGoogleCredential(
+        context: Context,
+        idToken: String,
+        referralCodeInput: String? = null
+    ): Result<User> = withContext(Dispatchers.IO) {
+        try {
+            val auth = firebaseAuth ?: return@withContext Result.failure(Exception("Firebase Auth is unavailable"))
+            val credential = GoogleAuthProvider.getCredential(idToken, null)
+            val authResult = auth.signInWithCredential(credential).await()
+            val fbUser = authResult.user ?: return@withContext Result.failure(Exception("Failed to obtain Firebase user payload"))
+
+            val uid = fbUser.uid
+            val email = fbUser.email ?: ""
+            val displayName = fbUser.displayName ?: if (email.contains("@")) email.substringBefore("@") else "Miner"
+            val photoUrl = fbUser.photoUrl?.toString()
+            val isMaster = isMasterAccount(email, uid)
+
+            val db = FirebaseFirestore.getInstance()
+            val userDocRef = db.collection("users").document(uid)
+            val existingDoc = try {
+                userDocRef.get().await()
+            } catch (e: Exception) {
+                null
+            }
+
+            if (existingDoc != null && existingDoc.exists()) {
+                // ==========================================
+                // a) EXISTING USER:
+                // Load existing account profile, balance, team, and referral code immediately.
+                // DO NOT overwrite their existing data, balance, or team records.
+                // ==========================================
+                val storedRefCode = existingDoc.getString("referralCode")
+                    ?: existingDoc.getString("referral_code")
+                    ?: if (isMaster) "HG-8080" else generateReferralCode(uid)
+
+                val storedAccountId = existingDoc.getString("accountId")
+                    ?: existingDoc.getString("id")
+                    ?: ("HG-" + uid.takeLast(6).uppercase())
+
+                val storedDisplayName = existingDoc.getString("displayName")
+                    ?: existingDoc.getString("name")
+                    ?: displayName
+
+                val storedEmail = existingDoc.getString("email") ?: email
+                val storedReferredBy = existingDoc.getString("referredBy") ?: existingDoc.getString("referred_by")
+                val storedReferrerUid = existingDoc.getString("referrerUid") ?: existingDoc.getString("referrer_uid")
+                val storedTeamCount = existingDoc.getLong("teamCount")
+                    ?: existingDoc.getLong("referralCount")
+                    ?: existingDoc.getLong("referral_count")
+                    ?: 0L
+                val storedExtraHashrate = existingDoc.getDouble("extraHashrate")
+                    ?: existingDoc.getDouble("bonus_hashrate")
+                    ?: 0.0
+
+                val existingUser = User(
+                    id = storedAccountId,
+                    email = storedEmail,
+                    role = "user",
+                    referralCode = storedRefCode,
+                    referredBy = storedReferredBy,
+                    referrerUid = storedReferrerUid,
+                    referralCount = storedTeamCount,
+                    bonusHashrate = storedExtraHashrate,
+                    displayName = storedDisplayName,
+                    photoUrl = photoUrl ?: existingDoc.getString("photoUrl"),
+                    isFlaggedDuplicate = existingDoc.getBoolean("isFlaggedDuplicate") ?: false
+                )
+
+                // Save to local registry and session without overwriting cloud values
+                setSessionDirect(existingUser, uid)
+
+                // Touch last_active timestamp on cloud
+                try {
+                    userDocRef.update("last_active", FieldValue.serverTimestamp()).await()
+                } catch (_: Exception) {}
+
+                Result.success(existingUser)
+            } else {
+                // ==========================================
+                // b) FIRST-TIME NEW USER:
+                // Check if a referral code was passed, generate invite code,
+                // apply referral to referrer's doc and create the user doc.
+                // ==========================================
+                val generatedCode = if (isMaster) "HG-8080" else generateReferralCode(uid)
+                val accountId = "HG-" + uid.takeLast(6).uppercase()
+
+                var appliedCode = referralCodeInput?.trim()?.uppercase() ?: ""
+                var referrerUid: String? = null
+                var welcomeBonusHashrate = 0.0
+
+                if (appliedCode.isNotBlank() && !appliedCode.equals(generatedCode, ignoreCase = true)) {
+                    val (isValidReferral, matchedReferrerUid) = FirebaseSyncService.validateAndApplyReferral(
+                        cleanCode = appliedCode,
+                        newUid = uid,
+                        newDisplayName = displayName,
+                        newEmail = email
+                    )
+                    if (isValidReferral && !matchedReferrerUid.isNullOrBlank() && matchedReferrerUid != uid) {
+                        referrerUid = matchedReferrerUid
+                        welcomeBonusHashrate = 1.5
+                    } else {
+                        // Invalid code, do not credit bonus
+                        appliedCode = ""
+                    }
+                }
+
+                val newUserData = hashMapOf<String, Any>(
+                    "uid" to uid,
+                    "email" to email,
+                    "displayName" to displayName,
+                    "referralCode" to generatedCode,
+                    "referral_code" to generatedCode,
+                    "referredBy" to (referrerUid ?: ""),
+                    "referred_by" to (referrerUid ?: ""),
+                    "appliedReferralCode" to appliedCode,
+                    "applied_referral_code" to appliedCode,
+                    "referrerUid" to (referrerUid ?: ""),
+                    "referrer_uid" to (referrerUid ?: ""),
+                    "teamCount" to 0L,
+                    "directReferrals" to 0L,
+                    "referralCount" to 0L,
+                    "referral_count" to 0L,
+                    "extraHashrate" to welcomeBonusHashrate,
+                    "bonus_hashrate" to welcomeBonusHashrate,
+                    "totalReferralRewardsUsdt" to 0.0,
+                    "accountId" to accountId,
+                    "photoUrl" to (photoUrl ?: ""),
+                    "usdtBalance" to (if (isMaster) 1000.0 else 0.0),
+                    "usdt_balance" to (if (isMaster) 1000.0 else 0.0),
+                    "gridBalance" to (if (isMaster) 50.0 else 0.0),
+                    "grid_coin_balance" to (if (isMaster) 50.0 else 0.0),
+                    "hash_rate" to (if (isMaster) 500000.0 else welcomeBonusHashrate),
+                    "syndicateTier" to (if (isMaster) "ELITE" else "NOVICE"),
+                    "kyc_status" to "UNVERIFIED",
+                    "two_factor_enabled" to false,
+                    "createdAt" to FieldValue.serverTimestamp(),
+                    "created_at" to FieldValue.serverTimestamp(),
+                    "last_active" to FieldValue.serverTimestamp(),
+                    "lastReconciledAt" to FieldValue.serverTimestamp()
+                )
+
+                userDocRef.set(newUserData, SetOptions.merge()).await()
+
+                val newUser = User(
+                    id = accountId,
+                    email = email,
+                    role = "user",
+                    referralCode = generatedCode,
+                    referredBy = referrerUid,
+                    referrerUid = referrerUid,
+                    referralCount = 0L,
+                    bonusHashrate = welcomeBonusHashrate,
+                    displayName = displayName,
+                    photoUrl = photoUrl,
+                    isFlaggedDuplicate = false
+                )
+
+                val deviceId = getHashedDeviceId(context)
+                saveUserToRegistry(
+                    email = email,
+                    pass = "GOOGLE_OAUTH_VERIFIED",
+                    accountId = accountId,
+                    name = displayName,
+                    refCode = generatedCode,
+                    deviceId = deviceId,
+                    isDuplicate = false,
+                    uid = uid,
+                    totpSecret = null,
+                    referredBy = referrerUid,
+                    referrerUid = referrerUid,
+                    bonusHashrate = welcomeBonusHashrate
+                )
+
+                setSessionDirect(newUser, uid)
+                Result.success(newUser)
+            }
+        } catch (e: Exception) {
+            val msg = e.localizedMessage ?: e.message ?: "Google Sign-In failed"
+            Result.failure(Exception(msg))
         }
     }
 

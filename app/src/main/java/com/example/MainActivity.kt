@@ -393,6 +393,15 @@ fun HashGridApp(
                 }
                 else -> {
                     AuthScreen(
+                        onGoogleSignIn = { idToken, refCode, onResult ->
+                            viewModel.signInWithGoogle(context, idToken, refCode) { result ->
+                                result.onSuccess { user ->
+                                    viewModel.onDirectAuthSuccess(user)
+                                    authWorkflowState = AuthWorkflowState.AuthScreenView
+                                }
+                                onResult(result)
+                            }
+                        },
                         onLoginSubmit = { email, pass, onResult ->
                             viewModel.login(context, email, pass) { stepResult ->
                                 when (stepResult) {
