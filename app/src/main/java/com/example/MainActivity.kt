@@ -8,6 +8,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import kotlinx.coroutines.tasks.await
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -213,6 +214,21 @@ fun HashGridApp(
         }
     }
     var authWorkflowState by remember { mutableStateOf<AuthWorkflowState>(initialWorkflowState) }
+
+    // Persistent Auto-Login: Check Firebase Auth and reload verification status on launch
+    LaunchedEffect(Unit) {
+        val fbUser = AuthService.firebaseAuth?.currentUser
+        if (fbUser != null) {
+            try {
+                fbUser.reload().await()
+                val isMaster = AuthService.isMasterAccount(fbUser.email, fbUser.uid)
+                if (fbUser.isEmailVerified || isMaster) {
+                    AuthService.ensureUserLoggedIn(context, fbUser)
+                    authWorkflowState = AuthWorkflowState.AuthScreenView
+                }
+            } catch (_: Exception) {}
+        }
+    }
 
     LaunchedEffect(currentUser?.id) {
         if (currentUser != null && currentUser?.id?.isNotBlank() == true) {
@@ -425,7 +441,7 @@ fun HashGridApp(
                                         viewModel.onDirectAuthSuccess(stepResult.user)
                                         authWorkflowState = AuthWorkflowState.AuthScreenView
                                     }
-                                    is com.example.service.AuthStepResult.Failure -> {}
+                                    else -> {}
                                 }
                                 onResult(stepResult)
                             }
@@ -453,10 +469,25 @@ fun HashGridApp(
                                         viewModel.onDirectAuthSuccess(stepResult.user)
                                         authWorkflowState = AuthWorkflowState.AuthScreenView
                                     }
-                                    is com.example.service.AuthStepResult.Failure -> {}
+                                    else -> {}
                                 }
                                 onResult(stepResult)
                             }
+                        },
+                        onCheckEmailVerification = { appliedCode, onResult ->
+                            viewModel.checkEmailVerificationAndActivate(context, appliedCode) { res ->
+                                res.onSuccess { user ->
+                                    viewModel.onDirectAuthSuccess(user)
+                                    authWorkflowState = AuthWorkflowState.AuthScreenView
+                                }
+                                onResult(res)
+                            }
+                        },
+                        onResendVerificationEmail = { onResult ->
+                            viewModel.resendVerificationEmail(onResult)
+                        },
+                        onForgotPassword = { email, onResult ->
+                            viewModel.sendPasswordReset(email, onResult)
                         },
                         onAuthSuccess = { user ->
                             viewModel.onDirectAuthSuccess(user)

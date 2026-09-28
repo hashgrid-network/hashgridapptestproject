@@ -1337,6 +1337,31 @@ class HashGridViewModel : ViewModel() {
     }
 
 
+    fun checkEmailVerificationAndActivate(context: Context, appliedCode: String?, onResult: (Result<User>) -> Unit) {
+        viewModelScope.launch {
+            val result = AuthService.checkEmailVerifiedAndActivate(context, appliedCode)
+            result.onSuccess { user ->
+                onDirectAuthSuccess(user)
+                FirebaseSyncService.reconcileUserReferrals(AuthService.firebaseAuth?.currentUser?.uid ?: user.id, user.referralCode)
+            }
+            onResult(result)
+        }
+    }
+
+    fun resendVerificationEmail(onResult: (Result<String>) -> Unit) {
+        viewModelScope.launch {
+            val result = AuthService.resendCurrentEmailVerification()
+            onResult(result)
+        }
+    }
+
+    fun sendPasswordReset(email: String, onResult: (Result<String>) -> Unit) {
+        viewModelScope.launch {
+            val result = AuthService.sendPasswordResetDirect(email)
+            onResult(result)
+        }
+    }
+
     fun onDirectAuthSuccess(user: User) {
         FirebaseSyncService.startRealtimeBalanceListener(user.id) { remoteBal ->
             _walletBalanceUsdt.value = remoteBal

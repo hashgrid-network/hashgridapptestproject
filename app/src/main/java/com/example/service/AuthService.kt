@@ -6,6 +6,7 @@ import android.provider.Settings
 import com.example.model.User
 import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FieldValue
@@ -22,6 +23,7 @@ import java.util.UUID
 
 sealed class AuthStepResult {
     data class Authenticated(val user: User) : AuthStepResult()
+    data class RequireEmailVerification(val email: String, val appliedCode: String = "") : AuthStepResult()
     data class RequireTotpSetup(
         val uid: String,
         val email: String,
@@ -145,39 +147,46 @@ object AuthService {
             if (firebaseUser != null && !firebaseUser.uid.isNullOrBlank()) {
                 val uid = firebaseUser.uid
                 val email = firebaseUser.email ?: currentPrefs?.getString(KEY_USER_EMAIL, "") ?: ""
-                val name = firebaseUser.displayName ?: currentPrefs?.getString(KEY_USER_NAME, "Miner") ?: "Miner"
-                val photoUrl = firebaseUser.photoUrl?.toString() ?: currentPrefs?.getString(KEY_PHOTO_URL, null)
                 val isMaster = isMasterAccount(email, uid)
-                val storedCode = currentPrefs?.getString(KEY_REFERRAL_CODE, null)
-                val refCode = if (isMaster) {
-                    "HG-8080"
-                } else if (storedCode.isNullOrBlank() || storedCode == "HG-8080") {
-                    val newCode = generateReferralCode(uid)
-                    currentPrefs?.edit()?.putString(KEY_REFERRAL_CODE, newCode)?.apply()
-                    newCode
+                val isEmailVerified = firebaseUser.isEmailVerified || isMaster
+
+                if (isEmailVerified) {
+                    val name = firebaseUser.displayName ?: currentPrefs?.getString(KEY_USER_NAME, "Miner") ?: "Miner"
+                    val photoUrl = firebaseUser.photoUrl?.toString() ?: currentPrefs?.getString(KEY_PHOTO_URL, null)
+                    val storedCode = currentPrefs?.getString(KEY_REFERRAL_CODE, null)
+                    val refCode = if (isMaster) {
+                        "HG-8080"
+                    } else if (storedCode.isNullOrBlank() || storedCode == "HG-8080") {
+                        val newCode = generateReferralCode(uid)
+                        currentPrefs?.edit()?.putString(KEY_REFERRAL_CODE, newCode)?.apply()
+                        newCode
+                    } else {
+                        storedCode
+                    }
+                    val accountId = "HG-" + uid.takeLast(6).uppercase()
+
+                    val user = User(
+                        id = accountId,
+                        email = email,
+                        role = "user",
+                        referralCode = refCode,
+                        referredBy = currentPrefs?.getString(KEY_REFERRED_BY, null),
+                        referrerUid = currentPrefs?.getString(KEY_REFERRER_UID, null),
+                        referralCount = currentPrefs?.getLong(KEY_REFERRAL_COUNT, 0L) ?: 0L,
+                        bonusHashrate = (currentPrefs?.getFloat(KEY_BONUS_HASHRATE, 0.0f) ?: 0.0f).toDouble(),
+                        displayName = name,
+                        photoUrl = photoUrl,
+                        isFlaggedDuplicate = currentPrefs?.getBoolean(KEY_IS_FLAGGED_DUPLICATE, false) ?: false
+                    )
+
+                    _currentUser.value = user
+                    sessionManager.markDeviceAsVerified(uid)
+                    isSession2FAVerified = true
+                    _isLoggedIn.value = true
                 } else {
-                    storedCode
+                    _currentUser.value = null
+                    _isLoggedIn.value = false
                 }
-                val accountId = "HG-" + uid.takeLast(6).uppercase()
-
-                val user = User(
-                    id = accountId,
-                    email = email,
-                    role = "user",
-                    referralCode = refCode,
-                    referredBy = currentPrefs?.getString(KEY_REFERRED_BY, null),
-                    referrerUid = currentPrefs?.getString(KEY_REFERRER_UID, null),
-                    referralCount = currentPrefs?.getLong(KEY_REFERRAL_COUNT, 0L) ?: 0L,
-                    bonusHashrate = (currentPrefs?.getFloat(KEY_BONUS_HASHRATE, 0.0f) ?: 0.0f).toDouble(),
-                    displayName = name,
-                    photoUrl = photoUrl,
-                    isFlaggedDuplicate = currentPrefs?.getBoolean(KEY_IS_FLAGGED_DUPLICATE, false) ?: false
-                )
-
-                _currentUser.value = user
-                sessionManager.markDeviceAsVerified(uid)
-                isSession2FAVerified = true
-                _isLoggedIn.value = true
             } else if (loggedIn && !savedUid.isNullOrBlank() && !savedEmail.isNullOrBlank()) {
                 val isMaster = isMasterAccount(savedEmail, savedUid)
                 val storedCode = currentPrefs?.getString(KEY_REFERRAL_CODE, null)
@@ -215,6 +224,56 @@ object AuthService {
             _currentUser.value = null
             _isLoggedIn.value = false
         }
+    }
+
+    suspend fun ensureUserLoggedIn(context: Context, fbUser: FirebaseUser): User = withContext(Dispatchers.IO) {
+        val uid = fbUser.uid
+        val email = fbUser.email ?: ""
+        val isMaster = isMasterAccount(email, uid)
+        val displayName = fbUser.displayName ?: if (email.contains("@")) email.substringBefore("@") else "Miner"
+        val photoUrl = fbUser.photoUrl?.toString()
+
+        val db = FirebaseFirestore.getInstance()
+        val userDoc = try { db.collection("users").document(uid).get().await() } catch (_: Exception) { null }
+
+        val storedRefCode = userDoc?.getString("referralCode")
+            ?: userDoc?.getString("referral_code")
+            ?: if (isMaster) "HG-8080" else generateReferralCode(uid)
+
+        val storedAccountId = userDoc?.getString("accountId")
+            ?: userDoc?.getString("id")
+            ?: ("HG-" + uid.takeLast(6).uppercase())
+
+        val storedDisplayName = userDoc?.getString("displayName")
+            ?: userDoc?.getString("name")
+            ?: displayName
+
+        val storedEmail = userDoc?.getString("email") ?: email
+        val storedReferredBy = userDoc?.getString("referredBy") ?: userDoc?.getString("referred_by")
+        val storedReferrerUid = userDoc?.getString("referrerUid") ?: userDoc?.getString("referrer_uid")
+        val storedTeamCount = userDoc?.getLong("teamCount")
+            ?: userDoc?.getLong("referralCount")
+            ?: 0L
+        val storedExtraHashrate = userDoc?.getDouble("extraHashrate")
+            ?: userDoc?.getDouble("bonus_hashrate")
+            ?: 0.0
+
+        val loggedInUser = User(
+            id = storedAccountId,
+            email = storedEmail,
+            role = "user",
+            referralCode = storedRefCode,
+            referredBy = storedReferredBy,
+            referrerUid = storedReferrerUid,
+            referralCount = storedTeamCount,
+            bonusHashrate = storedExtraHashrate,
+            displayName = storedDisplayName,
+            photoUrl = photoUrl ?: userDoc?.getString("photoUrl"),
+            isFlaggedDuplicate = userDoc?.getBoolean("isFlaggedDuplicate") ?: false
+        )
+
+        setSessionDirect(loggedInUser, uid)
+        loggedInUser
     }
 
     /**
@@ -417,7 +476,30 @@ object AuthService {
     }
 
     /**
-     * Step 1 Login with Email + Password.
+     * User-friendly error message formatter that removes raw/technical codes.
+     */
+    fun formatAuthException(e: Exception): String {
+        val msg = e.message ?: ""
+        return when {
+            e is com.google.firebase.auth.FirebaseAuthUserCollisionException || msg.contains("email-already-in-use", ignoreCase = true) ->
+                "An account with this email already exists. Please log in."
+            e is com.google.firebase.auth.FirebaseAuthInvalidCredentialsException || msg.contains("invalid-credential", ignoreCase = true) || msg.contains("wrong-password", ignoreCase = true) ->
+                "Incorrect email or password. Please try again."
+            e is com.google.firebase.auth.FirebaseAuthInvalidUserException || msg.contains("user-not-found", ignoreCase = true) ->
+                "No registered account found with this email. Please sign up."
+            e is com.google.firebase.auth.FirebaseAuthWeakPasswordException || msg.contains("weak-password", ignoreCase = true) ->
+                "Password must be at least 6 characters."
+            msg.contains("network", ignoreCase = true) ->
+                "Network error. Please check your internet connection and try again."
+            msg.contains("too-many-requests", ignoreCase = true) ->
+                "Too many attempts. Please wait a moment and try again."
+            else ->
+                e.localizedMessage ?: "Authentication failed. Please verify your details."
+        }
+    }
+
+    /**
+     * Step 1 Login with Email + Password, with email verification check.
      */
     suspend fun loginWithEmail(context: Context, email: String, pass: String): AuthStepResult = withContext(Dispatchers.IO) {
         val cleanEmail = email.trim().lowercase()
@@ -425,6 +507,9 @@ object AuthService {
 
         if (cleanEmail.isBlank()) {
             return@withContext AuthStepResult.Failure("Please enter your email address.")
+        }
+        if (cleanPass.length < 6) {
+            return@withContext AuthStepResult.Failure("Password must be at least 6 characters.")
         }
 
         val deviceIdHash = getHashedDeviceId(context)
@@ -434,7 +519,7 @@ object AuthService {
             val masterUid = "master_8080_uid"
             val masterUser = User(
                 id = "HG-808080",
-                email = "Parkashom8080@gmail.com",
+                email = "parkashom8080@gmail.com",
                 displayName = "Parkash Om",
                 role = "user",
                 referralCode = "HG-8080",
@@ -460,48 +545,54 @@ object AuthService {
             return@withContext AuthStepResult.Authenticated(masterUser)
         }
 
-        if (cleanPass.length < 6) {
-            return@withContext AuthStepResult.Failure("Password must be at least 6 characters.")
-        }
-
         try {
-            val auth = firebaseAuth ?: return@withContext AuthStepResult.Failure("Firebase Error: FirebaseAuth instance is null. Please verify google-services.json setup.")
+            val auth = firebaseAuth ?: return@withContext AuthStepResult.Failure("Firebase Auth is unavailable. Please check internet connection.")
             val authResult = auth.signInWithEmailAndPassword(cleanEmail, cleanPass).await()
-            val fbUser = authResult.user
+            val fbUser = authResult.user ?: return@withContext AuthStepResult.Failure("Authentication failed. Please check your credentials.")
 
-            if (fbUser != null) {
-                val uid = fbUser.uid
-                val displayName = fbUser.displayName ?: cleanEmail.substringBefore("@").replaceFirstChar { it.uppercase() }
+            try {
+                fbUser.reload().await()
+            } catch (_: Exception) {}
 
-                // Check user 2FA status in Firebase
-                val (isTotpEnabled, totpSecret) = FirebaseSyncService.fetchTotpDetails(uid)
-                return@withContext if (isTotpEnabled && !totpSecret.isNullOrBlank()) {
-                    AuthStepResult.RequireTotpChallenge(
-                        uid = uid,
-                        email = cleanEmail,
-                        displayName = displayName,
-                        totpSecret = totpSecret
-                    )
-                } else {
-                    val generatedSecret = TotpHelper.generateSecret(16)
-                    AuthStepResult.RequireTotpSetup(
-                        uid = uid,
-                        email = cleanEmail,
-                        displayName = displayName,
-                        totpSecret = generatedSecret
-                    )
-                }
-            } else {
-                return@withContext AuthStepResult.Failure("Firebase Error: User payload is null after authentication.")
+            val uid = fbUser.uid
+            val isMaster = isMasterAccount(cleanEmail, uid)
+
+            // If not email verified and not master account, prompt verification dialog
+            if (!fbUser.isEmailVerified && !isMaster) {
+                return@withContext AuthStepResult.RequireEmailVerification(cleanEmail)
             }
+
+            val displayName = fbUser.displayName ?: cleanEmail.substringBefore("@").replaceFirstChar { it.uppercase() }
+            val db = FirebaseFirestore.getInstance()
+            val userDoc = try { db.collection("users").document(uid).get().await() } catch (_: Exception) { null }
+            val storedRefCode = userDoc?.getString("referralCode") ?: userDoc?.getString("referral_code") ?: generateReferralCode(uid)
+            val storedAccountId = userDoc?.getString("accountId") ?: ("HG-" + uid.takeLast(6).uppercase())
+            val storedName = userDoc?.getString("displayName") ?: displayName
+            val storedTeamCount = userDoc?.getLong("teamCount") ?: 0L
+            val storedExtraHashrate = userDoc?.getDouble("extraHashrate") ?: 0.0
+
+            val loggedUser = User(
+                id = storedAccountId,
+                email = cleanEmail,
+                role = "user",
+                referralCode = storedRefCode,
+                referredBy = userDoc?.getString("referredBy"),
+                referrerUid = userDoc?.getString("referrerUid"),
+                referralCount = storedTeamCount,
+                bonusHashrate = storedExtraHashrate,
+                displayName = storedName,
+                photoUrl = userDoc?.getString("photoUrl"),
+                isFlaggedDuplicate = false
+            )
+            setSessionDirect(loggedUser, uid)
+            return@withContext AuthStepResult.Authenticated(loggedUser)
         } catch (e: Exception) {
-            val errorMsg = e.localizedMessage ?: e.message ?: "Authentication failed."
-            return@withContext AuthStepResult.Failure("Firebase Error: $errorMsg")
+            return@withContext AuthStepResult.Failure(formatAuthException(e))
         }
     }
 
     /**
-     * Step 1 Sign-Up with Email + Password.
+     * Sign-Up with Email + Password and send verification link to Gmail.
      */
     suspend fun signUpWithEmail(
         context: Context,
@@ -511,101 +602,232 @@ object AuthService {
         confirmPass: String,
         referralCode: String
     ): AuthStepResult = withContext(Dispatchers.IO) {
-        val cleanName = name.trim()
+        val cleanName = if (name.trim().isBlank()) email.substringBefore("@").replaceFirstChar { it.uppercase() } else name.trim()
         val cleanEmail = email.trim().lowercase()
         val cleanPass = password.trim()
         val cleanConfirm = confirmPass.trim()
         val cleanRef = referralCode.trim().uppercase()
 
-        if (cleanName.isBlank()) {
-            return@withContext AuthStepResult.Failure("Please enter your name or username.")
-        }
         if (cleanEmail.isBlank() || !cleanEmail.contains("@") || !cleanEmail.contains(".")) {
             return@withContext AuthStepResult.Failure("Please enter a valid email address.")
         }
         if (cleanPass.length < 6) {
             return@withContext AuthStepResult.Failure("Password must be at least 6 characters.")
         }
-        if (cleanPass != cleanConfirm) {
+        if (cleanConfirm.isNotBlank() && cleanPass != cleanConfirm) {
             return@withContext AuthStepResult.Failure("Passwords do not match.")
         }
 
         val deviceIdHash = getHashedDeviceId(context)
-        val generatedSecret = TotpHelper.generateSecret(16)
 
         try {
-            val auth = firebaseAuth ?: return@withContext AuthStepResult.Failure("Firebase Error: FirebaseAuth instance is null. Please verify google-services.json setup.")
+            val auth = firebaseAuth ?: return@withContext AuthStepResult.Failure("Firebase Auth is unavailable. Please check your connection.")
             val authResult = auth.createUserWithEmailAndPassword(cleanEmail, cleanPass).await()
-            val fbUser = authResult.user
+            val fbUser = authResult.user ?: return@withContext AuthStepResult.Failure("Failed to create user account.")
 
-            if (fbUser != null) {
-                val uid = fbUser.uid
-                val accountId = "HG-" + uid.takeLast(6).uppercase()
-                val isMaster = isMasterAccount(cleanEmail, uid)
-                val assignedRefCode = if (isMaster) "HG-8080" else generateReferralCode(uid)
+            // 2) Immediately invoke user.sendEmailVerification()
+            try {
+                fbUser.sendEmailVerification().await()
+            } catch (_: Exception) {}
 
-                var referredByCode: String? = null
-                var verifiedReferrerUid: String? = null
-                var welcomeBonusHashrate = 0.0
+            val uid = fbUser.uid
+            val isMaster = isMasterAccount(cleanEmail, uid)
+            val generatedCode = if (isMaster) "HG-8080" else generateReferralCode(uid)
+            val accountId = "HG-" + uid.takeLast(6).uppercase()
 
-                if (cleanRef.isNotBlank() && !cleanRef.equals(assignedRefCode, ignoreCase = true)) {
-                    val (isValidReferral, referrerUid) = FirebaseSyncService.validateAndApplyReferral(
-                        cleanCode = cleanRef,
-                        newUid = uid,
-                        newDisplayName = cleanName,
-                        newEmail = cleanEmail
-                    )
-                    if (isValidReferral && !referrerUid.isNullOrBlank() && referrerUid != uid) {
-                        referredByCode = cleanRef
-                        verifiedReferrerUid = referrerUid
-                        welcomeBonusHashrate = 1.5
+            // Resolve referrer if a code was provided
+            var verifiedReferrerUid: String? = null
+            if (cleanRef.isNotBlank() && cleanRef != generatedCode && (cleanRef != "HG-8080" || !isMaster)) {
+                try {
+                    val db = FirebaseFirestore.getInstance()
+                    val q = db.collection("users").whereEqualTo("referralCode", cleanRef).limit(1).get().await()
+                    if (!q.isEmpty) {
+                        val refDoc = q.documents[0]
+                        if (refDoc.id != uid) {
+                            verifiedReferrerUid = refDoc.getString("uid") ?: refDoc.id
+                        }
                     }
-                }
-
-                // New account initial state:
-                // - teamCount: 0 (subcollection team empty until user refers someone)
-                // - extraHashrate: +1.5 GH/s welcome bonus if joined via code, else 0.0
-                // - totalReferralRewardsUsdt: 0.0 (no instant cash on signup; commissions come strictly from 7% rig purchases)
-                FirebaseSyncService.initializeNewUser(
-                    uid = uid,
-                    email = cleanEmail,
-                    displayName = cleanName,
-                    photoUrl = null,
-                    accountId = accountId,
-                    referralCode = assignedRefCode,
-                    referredBy = verifiedReferrerUid ?: referredByCode,
-                    referrerUid = verifiedReferrerUid,
-                    appliedReferralCode = cleanRef,
-                    welcomeBonusHashrate = welcomeBonusHashrate
-                )
-
-                saveUserToRegistry(
-                    email = cleanEmail,
-                    pass = cleanPass,
-                    accountId = accountId,
-                    name = cleanName,
-                    refCode = assignedRefCode,
-                    deviceId = deviceIdHash,
-                    isDuplicate = false,
-                    uid = uid,
-                    totpSecret = generatedSecret,
-                    referredBy = referredByCode,
-                    referrerUid = verifiedReferrerUid,
-                    bonusHashrate = welcomeBonusHashrate
-                )
-
-                return@withContext AuthStepResult.RequireTotpSetup(
-                    uid = uid,
-                    email = cleanEmail,
-                    displayName = cleanName,
-                    totpSecret = generatedSecret
-                )
-            } else {
-                return@withContext AuthStepResult.Failure("Firebase Error: User creation failed. User payload is null.")
+                } catch (_: Exception) {}
             }
+
+            // 4) Create initial Firestore document in "users/{uid}" with requested schema:
+            // "email", "referralCode", "referredBy", "appliedReferralCode", "teamCount": 0,
+            // "extraHashrate": 0.0, "totalReferralRewardsUsdt": 0.0, "isEmailVerified": false
+            val initialUserData = hashMapOf<String, Any>(
+                "uid" to uid,
+                "email" to cleanEmail,
+                "displayName" to cleanName,
+                "referralCode" to generatedCode,
+                "referral_code" to generatedCode,
+                "referredBy" to (verifiedReferrerUid ?: ""),
+                "referred_by" to (verifiedReferrerUid ?: ""),
+                "appliedReferralCode" to cleanRef,
+                "applied_referral_code" to cleanRef,
+                "referrerUid" to (verifiedReferrerUid ?: ""),
+                "referrer_uid" to (verifiedReferrerUid ?: ""),
+                "teamCount" to 0L,
+                "directReferrals" to 0L,
+                "referralCount" to 0L,
+                "extraHashrate" to 0.0,
+                "bonus_hashrate" to 0.0,
+                "totalReferralRewardsUsdt" to 0.0,
+                "accountId" to accountId,
+                "usdtBalance" to 0.0,
+                "usdt_balance" to 0.0,
+                "gridBalance" to 0.0,
+                "grid_coin_balance" to 0.0,
+                "hash_rate" to 0.0,
+                "syndicateTier" to "NOVICE",
+                "isEmailVerified" to false,
+                "createdAt" to FieldValue.serverTimestamp(),
+                "created_at" to FieldValue.serverTimestamp(),
+                "last_active" to FieldValue.serverTimestamp()
+            )
+            val db = FirebaseFirestore.getInstance()
+            db.collection("users").document(uid).set(initialUserData, SetOptions.merge()).await()
+
+            saveUserToRegistry(
+                email = cleanEmail,
+                pass = cleanPass,
+                accountId = accountId,
+                name = cleanName,
+                refCode = generatedCode,
+                deviceId = deviceIdHash,
+                isDuplicate = false,
+                uid = uid,
+                totpSecret = null,
+                referredBy = verifiedReferrerUid,
+                referrerUid = verifiedReferrerUid,
+                bonusHashrate = 0.0
+            )
+
+            return@withContext AuthStepResult.RequireEmailVerification(cleanEmail, cleanRef)
         } catch (e: Exception) {
-            val errorMsg = e.localizedMessage ?: e.message ?: "Sign up failed."
-            return@withContext AuthStepResult.Failure("Firebase Error: $errorMsg")
+            return@withContext AuthStepResult.Failure(formatAuthException(e))
+        }
+    }
+
+    /**
+     * Checks if the current Firebase user has verified their Gmail.
+     * If verified: updates Firestore "isEmailVerified": true, triggers referrer rewards (+1.5 GH/s to referrer),
+     * activates the account session, and returns User.
+     */
+    suspend fun checkEmailVerifiedAndActivate(
+        context: Context,
+        appliedCode: String? = null
+    ): Result<User> = withContext(Dispatchers.IO) {
+        val auth = firebaseAuth ?: return@withContext Result.failure(Exception("Firebase is unavailable"))
+        val fbUser = auth.currentUser ?: return@withContext Result.failure(Exception("No active session found. Please enter your credentials to log in."))
+
+        try {
+            fbUser.reload().await()
+        } catch (e: Exception) {
+            return@withContext Result.failure(Exception(formatAuthException(e)))
+        }
+
+        val isMaster = isMasterAccount(fbUser.email, fbUser.uid)
+        if (!fbUser.isEmailVerified && !isMaster) {
+            return@withContext Result.failure(Exception("Email is not verified yet. Please open Gmail (${fbUser.email}), click the verification link, and tap 'I Have Verified'."))
+        }
+
+        // Email verified!
+        val uid = fbUser.uid
+        val email = fbUser.email ?: ""
+        val db = FirebaseFirestore.getInstance()
+        val userDocRef = db.collection("users").document(uid)
+
+        try {
+            userDocRef.update(
+                "isEmailVerified", true,
+                "last_active", FieldValue.serverTimestamp()
+            ).await()
+        } catch (_: Exception) {}
+
+        val docSnap = try { userDocRef.get().await() } catch (_: Exception) { null }
+        val refCode = docSnap?.getString("referralCode") ?: generateReferralCode(uid)
+        val codeToApply = appliedCode?.trim()?.uppercase()
+            ?: docSnap?.getString("appliedReferralCode")
+            ?: ""
+
+        var welcomeBonus = 0.0
+        var referrerUid = docSnap?.getString("referrerUid") ?: ""
+
+        // If a valid referral code was used: trigger referrer reward (+1.5 GH/s to referrer)
+        if (codeToApply.isNotBlank() && codeToApply != refCode) {
+            val (isValid, matchedUid) = FirebaseSyncService.validateAndApplyReferral(
+                cleanCode = codeToApply,
+                newUid = uid,
+                newDisplayName = docSnap?.getString("displayName") ?: email.substringBefore("@"),
+                newEmail = email
+            )
+            if (isValid && !matchedUid.isNullOrBlank()) {
+                referrerUid = matchedUid
+                welcomeBonus = 1.5
+                try {
+                    userDocRef.update(
+                        "extraHashrate", welcomeBonus,
+                        "bonus_hashrate", welcomeBonus,
+                        "hash_rate", welcomeBonus,
+                        "referrerUid", matchedUid,
+                        "referredBy", matchedUid
+                    ).await()
+                } catch (_: Exception) {}
+            }
+        }
+
+        val accountId = docSnap?.getString("accountId") ?: ("HG-" + uid.takeLast(6).uppercase())
+        val displayName = docSnap?.getString("displayName") ?: email.substringBefore("@").replaceFirstChar { it.uppercase() }
+
+        val verifiedUser = User(
+            id = accountId,
+            email = email,
+            role = "user",
+            referralCode = refCode,
+            referredBy = referrerUid.ifBlank { null },
+            referrerUid = referrerUid.ifBlank { null },
+            referralCount = 0L,
+            bonusHashrate = welcomeBonus,
+            displayName = displayName,
+            photoUrl = null,
+            isFlaggedDuplicate = false
+        )
+
+        setSessionDirect(verifiedUser, uid)
+        Result.success(verifiedUser)
+    }
+
+    /**
+     * Resends email verification to the currently authenticated unverified user.
+     */
+    suspend fun resendCurrentEmailVerification(): Result<String> = withContext(Dispatchers.IO) {
+        val auth = firebaseAuth ?: return@withContext Result.failure(Exception("Firebase is unavailable"))
+        val user = auth.currentUser ?: return@withContext Result.failure(Exception("No active session found. Please enter your email and password to log in."))
+        try {
+            user.sendEmailVerification().await()
+            Result.success("Verification link sent to ${user.email}! Please check your Gmail inbox and spam folder.")
+        } catch (e: Exception) {
+            Result.failure(Exception(formatAuthException(e)))
+        }
+    }
+
+    /**
+     * Sends password reset email cleanly with friendly feedback.
+     */
+    suspend fun sendPasswordResetDirect(email: String): Result<String> = withContext(Dispatchers.IO) {
+        val cleanEmail = email.trim().lowercase()
+        if (cleanEmail.isBlank()) {
+            return@withContext Result.failure(Exception("Please enter your email address."))
+        }
+        if (!cleanEmail.contains("@") || !cleanEmail.contains(".")) {
+            return@withContext Result.failure(Exception("Please enter a valid email address format."))
+        }
+
+        try {
+            val auth = firebaseAuth ?: return@withContext Result.failure(Exception("Firebase is unavailable"))
+            auth.sendPasswordResetEmail(cleanEmail).await()
+            Result.success("Password reset link sent to your Gmail inbox. Check spam/inbox.")
+        } catch (e: Exception) {
+            Result.failure(Exception(formatAuthException(e)))
         }
     }
 
