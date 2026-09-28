@@ -167,7 +167,7 @@ fun HomeScreen(
     val countdownText = if (remainingHours > 0) {
         String.format(Locale.US, "%02d:%02d:%02d", remainingHours, remainingMins, remainingSecs)
     } else {
-        String.format(Locale.US, "%02d:%02d", remainingMins, remainingSecs)
+        String.format(Locale.US, "%02d:%02d:%02d", remainingMins, remainingSecs)
     }
 
     // Lucky Wheel Cooldown Calculation
@@ -248,7 +248,7 @@ fun HomeScreen(
                         // Golden pill "UPDATE" button
                         Button(
                             onClick = {
-                                val updateUrl = "https://hashgrid-1009452697125.asia-southeast1.run.app/"
+                                val updateUrl = "https://hashgrid.online/"
                                 try {
                                     val intent = Intent(Intent.ACTION_VIEW, Uri.parse(updateUrl)).apply {
                                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -537,7 +537,6 @@ fun HomeScreen(
 
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    // ========================================================
                     // ========================================================
                     // 1. ULTRA-PREMIUM 3D QUANTUM MINING REACTOR (210dp CENTERPIECE)
                     // ========================================================
@@ -2486,7 +2485,3 @@ fun QuantumMiningReactor(
         }
     }
 }
-
-
-
-
