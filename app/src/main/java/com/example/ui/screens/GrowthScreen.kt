@@ -105,7 +105,7 @@ fun GrowthScreen(
 
     val effectiveTeamCount = teamCount
     val effectiveExtraHashrate = extraHashrate
-    val displayRewards = if (totalReferralRewardsUsdt > 0.0) totalReferralRewardsUsdt else (effectiveTeamCount * 5.0).coerceAtLeast(0.0)
+    val displayRewards = totalReferralRewardsUsdt.coerceAtLeast(0.0)
 
     Column(
         modifier = modifier

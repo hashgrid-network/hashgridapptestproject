@@ -354,7 +354,7 @@ object FirebaseSyncService {
             val needsCodeFix = !isMasterAccount && (existingDocCode == "HG-8080" || existingDocCode.isBlank())
 
             if (actualCount > currentTeamCount || needsCodeFix || !userDoc.contains("extraHashrate") || !userDoc.contains("totalReferralRewardsUsdt")) {
-                val finalExtraHashrate = actualCount * 1.5
+                val finalExtraHashrate = actualCount * 300.0
                 val tier = when {
                     actualCount >= 20 -> "ELITE"
                     actualCount >= 5 -> "PRO"
@@ -394,8 +394,9 @@ object FirebaseSyncService {
                         "joinedAt" to FieldValue.serverTimestamp(),
                         "joinedAtMs" to joinedAtMs,
                         "status" to "ACTIVE",
-                        "hashrateBonus" to 1.5,
-                        "hashrateContributed" to 1.5,
+                        "hashrateBonus" to 300.0,
+                        "hashrateContributed" to 300.0,
+                        "speedBoostContributed" to 300.0,
                         "isMining" to true
                     )
                     db.collection("users").document(currentUid).collection("team").document(memberUid)

@@ -682,8 +682,8 @@ class HashGridViewModel : ViewModel() {
                     val reconciledCount = FirebaseSyncService.reconcileUserReferrals(uid, code)
                     if (reconciledCount > _teamCount.value) {
                         _teamCount.value = reconciledCount
-                        _extraHashrate.value = _teamCount.value * 1.5
-                        _totalReferralRewardsUsdt.value = _teamCount.value * 5.0
+                        _extraHashrate.value = _teamCount.value * 300.0
+                        _totalReferralRewardsUsdt.value = _referralRewards.value.sumOf { it.commissionUsdt }
                         _syndicateTier.value = when {
                             _teamCount.value >= 20 -> "ELITE"
                             _teamCount.value >= 5 -> "PRO"
